@@ -17,10 +17,12 @@ export default async function VenuePage({
   if (error || !venue) {
     return (
       <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
-        <p>Venue not found.</p>
-        <Link href="/" className="text-blue-400">
-          ← Back to venues
-        </Link>
+        <section className="mx-auto max-w-4xl">
+          <p>Venue not found.</p>
+          <Link href="/" className="mt-4 inline-block text-blue-400">
+            ← Back to venues
+          </Link>
+        </section>
       </main>
     )
   }
@@ -66,29 +68,26 @@ export default async function VenuePage({
         <div className="mt-4 grid gap-4">
           {events && events.length > 0 ? (
             events.map((event) => (
-              <article
-                key={event.event_id}
-                className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5"
-              >
-                <h3 className="text-xl font-semibold">{event.event_name}</h3>
-                <p className="mt-2 text-sm text-zinc-400">
-                  {event.event_date} {event.start_time ? `• ${event.start_time}` : ''}
-                </p>
-                <p className="mt-1 text-sm text-zinc-500">
-                  {event.event_type} • {event.status}
-                </p>
+              <Link key={event.event_id} href={`/events/${event.event_id}`}>
+                <article className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5 hover:border-blue-500">
+                  <h3 className="text-xl font-semibold hover:text-blue-400">
+                    {event.event_name}
+                  </h3>
 
-                {event.ticket_url && (
-                  <a
-                    href={event.ticket_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-4 inline-block text-sm font-medium text-blue-400"
-                  >
-                    Event link →
-                  </a>
-                )}
-              </article>
+                  <p className="mt-2 text-sm text-zinc-400">
+                    {event.event_date}
+                    {event.start_time ? ` • ${event.start_time}` : ''}
+                  </p>
+
+                  <p className="mt-1 text-sm text-zinc-500">
+                    {event.event_type} • {event.status}
+                  </p>
+
+                  <p className="mt-4 text-sm font-medium text-blue-400">
+                    View event →
+                  </p>
+                </article>
+              </Link>
             ))
           ) : (
             <p className="text-zinc-400">No events added yet.</p>
