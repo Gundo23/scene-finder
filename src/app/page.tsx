@@ -41,6 +41,14 @@ export default async function Home({
           <p className="mt-3 max-w-2xl text-sm text-zinc-300 sm:text-lg">
             Search by venue name, city, area, or region.
           </p>
+
+          <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
+            <img
+              src="/images/home-hero.jpg"
+              alt="Scene Finder"
+              className="h-20 w-full object-cover object-center sm:h-28"
+            />
+          </div>
         </div>
 
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
@@ -91,17 +99,11 @@ export default async function Home({
                 className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-blue-500"
               >
                 <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
-                  {venue.image_url ? (
-                    <img
-                      src={venue.image_url}
-                      alt={venue.name}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-xs text-zinc-600">
-                      No image
-                    </div>
-                  )}
+                  <img
+                    src={venue.image_url || '/images/venue-placeholder.jpg'}
+                    alt={venue.name}
+                    className="h-full w-full object-cover"
+                  />
                 </div>
 
                 <div className="min-w-0 p-3 sm:p-4">
