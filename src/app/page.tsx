@@ -11,7 +11,7 @@ export default async function Home({
 
   let query = supabase
     .from('venues')
-    .select('venue_id, name, city_area, region, website, category, status')
+    .select('venue_id, name, city_area, region, website, category, status, image_url')
     .order('name')
 
   if (search) {
@@ -27,14 +27,14 @@ export default async function Home({
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 py-6 text-white sm:px-6 sm:py-10">
-      <section className="mx-auto max-w-7xl">
+    <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 text-white sm:px-6 sm:py-10">
+      <section className="mx-auto w-full max-w-7xl overflow-x-hidden">
         <div>
           <p className="text-sm font-medium uppercase tracking-wide text-blue-400">
             Scene Finder
           </p>
 
-          <h1 className="mt-3 text-4xl font-bold tracking-tight sm:text-5xl">
+          <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
             Find venues and events near you.
           </h1>
 
@@ -43,18 +43,18 @@ export default async function Home({
           </p>
         </div>
 
-        <form className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+        <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
+          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
             <input
               name="search"
               defaultValue={search}
-              placeholder="Search Leeds, Blackpool, Quest, North West..."
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-white placeholder:text-zinc-500"
+              placeholder="Search Leeds, Blackpool, Quest..."
+              className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500"
             />
 
             <button
               type="submit"
-              className="rounded-lg bg-blue-500 px-6 py-3 font-medium text-white"
+              className="w-full rounded-lg bg-blue-500 px-4 py-3 font-medium text-white sm:w-auto"
             >
               Search
             </button>
@@ -73,63 +73,81 @@ export default async function Home({
           </div>
         </form>
 
-        <div className="mt-6 flex items-center justify-between">
+        <div className="mt-6 flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">
             {search ? `Results for "${search}"` : 'Featured venues'}
           </h2>
 
-          <p className="text-sm text-zinc-400">{venues?.length || 0} found</p>
+          <p className="shrink-0 text-sm text-zinc-400">
+            {venues?.length || 0} found
+          </p>
         </div>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
           {venues && venues.length > 0 ? (
             venues.map((venue) => (
               <article
                 key={venue.venue_id}
-                className="h-full overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 p-4 hover:border-blue-500"
+                className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-blue-500"
               >
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {venue.category && (
-                    <p className="inline-block rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-300">
-                      {venue.category}
-                    </p>
-                  )}
-
-                  {venue.status && (
-                    <p className="inline-block rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-300">
-                      {venue.status}
-                    </p>
+                <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
+                  {venue.image_url ? (
+                    <img
+                      src={venue.image_url}
+                      alt={venue.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-xs text-zinc-600">
+                      No image
+                    </div>
                   )}
                 </div>
 
-                <Link href={`/venue/${venue.venue_id}`}>
-                  <h3 className="line-clamp-2 text-lg font-semibold leading-snug hover:text-blue-400">
-                    {venue.name}
-                  </h3>
-                </Link>
+                <div className="min-w-0 p-3 sm:p-4">
+                  <div className="mb-2 flex min-w-0 flex-wrap gap-2">
+                    {venue.category && (
+                      <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
+                        {venue.category}
+                      </p>
+                    )}
 
-                <p className="mt-2 line-clamp-1 text-sm text-zinc-400">
-                  {venue.city_area} • {venue.region}
-                </p>
+                    {venue.status && (
+                      <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
+                        {venue.status}
+                      </p>
+                    )}
+                  </div>
 
-                <div className="mt-4 flex flex-wrap gap-4">
-                  <Link
-                    href={`/venue/${venue.venue_id}`}
-                    className="text-sm font-medium text-blue-400"
-                  >
-                    View details →
+                  <Link href={`/venue/${venue.venue_id}`}>
+                    <h3 className="line-clamp-2 break-words text-base font-semibold leading-snug hover:text-blue-400 sm:text-lg">
+                      {venue.name}
+                    </h3>
                   </Link>
 
-                  {venue.website && (
-                    <a
-                      href={venue.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sm font-medium text-zinc-400 hover:text-white"
+                  <p className="mt-2 truncate text-xs text-zinc-400 sm:text-sm">
+                    {venue.city_area} • {venue.region}
+                  </p>
+
+                  <div className="mt-3 flex flex-wrap gap-4">
+                    <Link
+                      href={`/venue/${venue.venue_id}`}
+                      className="text-sm font-medium text-blue-400"
                     >
-                      Website ↗
-                    </a>
-                  )}
+                      View details →
+                    </Link>
+
+                    {venue.website && (
+                      <a
+                        href={venue.website}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-medium text-zinc-400 hover:text-white"
+                      >
+                        Website ↗
+                      </a>
+                    )}
+                  </div>
                 </div>
               </article>
             ))

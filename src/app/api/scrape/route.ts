@@ -15,8 +15,6 @@ const EVENT_KEYWORDS = [
   'events',
   'ticket',
   'tickets',
-  'book',
-  'booking',
   'party',
   'club night',
   'night',
@@ -26,13 +24,10 @@ const EVENT_KEYWORDS = [
   'whats-on',
   'whatson',
   'workshop',
-  'meet',
-  'play',
   'fetish',
   'kink',
   'swing',
   'swingers',
-  'party night',
 ]
 
 const PAGE_HINTS = [
@@ -42,10 +37,34 @@ const PAGE_HINTS = [
   '/whats-on',
   '/whatson',
   '/tickets',
-  '/book',
-  '/booking',
-  '?tribe-bar-date=',
-  '?eventDisplay=',
+]
+
+const JUNK_TITLES = [
+  'book now',
+  'join guestlist',
+  'guestlist',
+  'get in touch',
+  'contact',
+  'contact us',
+  'view all events',
+  'view events',
+  'home',
+  'about',
+  'gallery',
+  'privacy',
+  'cookies',
+  'terms',
+  'login',
+  'log in',
+  'register',
+  'sign up',
+  'menu',
+  'read more',
+  'find this book',
+  'create account',
+  'edit',
+  'watch',
+  'history',
 ]
 
 function cleanText(value: string | null | undefined) {
@@ -71,7 +90,8 @@ function absoluteUrl(base: string, href: string | null | undefined) {
     href.startsWith('mailto:') ||
     href.startsWith('tel:') ||
     href.startsWith('#') ||
-    href.startsWith('javascript:')
+    href.startsWith('javascript:') ||
+    href.startsWith('data:')
   ) {
     return null
   }
@@ -99,6 +119,17 @@ function looksLikeEvent(value: string) {
 function looksLikeUsefulPage(value: string) {
   const lower = value.toLowerCase()
   return PAGE_HINTS.some((hint) => lower.includes(hint)) || looksLikeEvent(lower)
+}
+
+function isJunkTitle(title: string) {
+  const cleaned = cleanText(title).toLowerCase()
+
+  if (!cleaned) return true
+  if (cleaned.length < 6) return true
+  if (cleaned.includes('<') || cleaned.includes('>')) return true
+  if (cleaned.includes('")')) return true
+
+  return JUNK_TITLES.some((junk) => cleaned === junk || cleaned.includes(junk))
 }
 
 function normalizeTitle(value: string) {
@@ -220,28 +251,45 @@ function extractTime(value: string) {
   return `${String(hour).padStart(2, '0')}:${minute}`
 }
 
+function validImageUrl(url: string | null) {
+  if (!url) return null
+
+  const lower = url.toLowerCase()
+
+  if (lower.includes('logo')) return null
+  if (lower.includes('favicon')) return null
+  if (lower.endsWith('.svg')) return null
+  if (lower.endsWith('.gif')) return null
+
+  return url
+}
+
 function extractMetaImage(html: string, baseUrl: string) {
   const og =
     html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1]
 
-  if (og) return absoluteUrl(baseUrl, og)
+  if (og) return validImageUrl(absoluteUrl(baseUrl, og))
 
   const twitter =
     html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i)?.[1]
 
-  if (twitter) return absoluteUrl(baseUrl, twitter)
+  if (twitter) return validImageUrl(absoluteUrl(baseUrl, twitter))
 
   return null
 }
 
 function extractFirstImage(html: string, baseUrl: string) {
   const image =
-    html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] ||
-    html.match(/<img[^>]+data-src=["']([^"']+)["']/i)?.[1]
+    html.match(/<img[^>]+data-src=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]
 
-  return absoluteUrl(baseUrl, image)
+  return validImageUrl(absoluteUrl(baseUrl, image))
+}
+
+function extractBestImage(html: string, baseUrl: string) {
+  return extractMetaImage(html, baseUrl) || extractFirstImage(html, baseUrl)
 }
 
 function extractLinks(html: string, baseUrl: string) {
@@ -287,8 +335,8 @@ function extractJsonLdEvents(html: string, baseUrl: string) {
               start_time: node.startDate ? String(node.startDate).slice(11, 16) : null,
               url: absoluteUrl(baseUrl, node.url) || baseUrl,
               image_url: Array.isArray(node.image)
-                ? absoluteUrl(baseUrl, node.image[0])
-                : absoluteUrl(baseUrl, node.image),
+                ? validImageUrl(absoluteUrl(baseUrl, node.image[0]))
+                : validImageUrl(absoluteUrl(baseUrl, node.image)),
             })
           }
         }
@@ -339,6 +387,27 @@ async function fetchHtml(url: string) {
   }
 }
 
+async function updateVenueImageIfEmpty(venueId: string, imageUrl: string | null) {
+  if (!imageUrl) return { updated: false, error: null }
+
+  const { data: venue, error: venueError } = await supabaseAdmin
+    .from('venues')
+    .select('venue_id, image_url')
+    .eq('venue_id', venueId)
+    .maybeSingle()
+
+  if (venueError || !venue) return { updated: false, error: venueError }
+
+  if (venue.image_url) return { updated: false, error: null }
+
+  const { error } = await supabaseAdmin
+    .from('venues')
+    .update({ image_url: imageUrl })
+    .eq('venue_id', venueId)
+
+  return { updated: !error, error }
+}
+
 async function upsertEvent(input: {
   venue_id: string
   event_name: string
@@ -350,6 +419,10 @@ async function upsertEvent(input: {
   source_url: string
 }) {
   const normalised = normalizeTitle(input.event_name)
+
+  if (isJunkTitle(input.event_name)) {
+    return { action: 'skipped', error: null }
+  }
 
   const { data: existingByUrl } = await supabaseAdmin
     .from('events')
@@ -438,6 +511,7 @@ export async function GET() {
   let skipped = 0
   let failed = 0
   let timedOutOrEmpty = 0
+  let venueImagesUpdated = 0
 
   const found: any[] = []
   const errors: any[] = []
@@ -466,12 +540,25 @@ export async function GET() {
       }
 
       try {
-        const pageImage = extractMetaImage(html, pageUrl) || extractFirstImage(html, pageUrl)
+        const pageImage = extractBestImage(html, pageUrl)
+
+        if (pageImage) {
+          const venueImageResult = await updateVenueImageIfEmpty(
+            source.venue_id,
+            pageImage
+          )
+
+          if (venueImageResult.updated) venueImagesUpdated++
+        }
+
         const pageText = cleanText(html).slice(0, 5000)
         const jsonLdEvents = extractJsonLdEvents(html, pageUrl)
 
         for (const event of jsonLdEvents) {
-          if (!event.name || event.name.length < 3) continue
+          if (!event.name || event.name.length < 3 || isJunkTitle(event.name)) {
+            skipped++
+            continue
+          }
 
           candidatesFound++
 
@@ -488,6 +575,7 @@ export async function GET() {
 
           if (result.action === 'created') created++
           else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
           else {
             failed++
             if (errors.length < 20) {
@@ -532,13 +620,14 @@ export async function GET() {
           }
 
           const eventName = cleanEventName(link.text)
-          const eventDate = extractDate(`${link.text} ${link.href}`)
-          const startTime = extractTime(`${link.text} ${pageText}`)
 
-          if (!eventName || eventName.length < 4 || eventName.toLowerCase() === 'events') {
+          if (isJunkTitle(eventName)) {
             skipped++
             continue
           }
+
+          const eventDate = extractDate(`${link.text} ${link.href}`)
+          const startTime = extractTime(`${link.text} ${pageText}`)
 
           candidatesFound++
 
@@ -551,8 +640,7 @@ export async function GET() {
 
             if (eventHtml) {
               imageUrl =
-                extractMetaImage(eventHtml, link.href) ||
-                extractFirstImage(eventHtml, link.href) ||
+                extractBestImage(eventHtml, link.href) ||
                 pageImage
 
               description = cleanText(
@@ -575,6 +663,7 @@ export async function GET() {
 
           if (result.action === 'created') created++
           else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
           else {
             failed++
             if (errors.length < 20) {
@@ -627,6 +716,7 @@ export async function GET() {
     candidates_found: candidatesFound,
     events_created: created,
     events_updated: updated,
+    venue_images_updated: venueImagesUpdated,
     skipped,
     failed,
     timedOutOrEmpty,
