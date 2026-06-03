@@ -41,6 +41,7 @@ export default async function EventsPage({
     search?: string
     type?: string
     region?: string
+    city?: string
   }>
 }) {
   const params = await searchParams
@@ -48,6 +49,7 @@ export default async function EventsPage({
   const search = params.search || ''
   const type = params.type || ''
   const region = params.region || ''
+  const city = params.city || ''
 
   const { data: events } = await supabase
     .from('events')
@@ -61,6 +63,15 @@ export default async function EventsPage({
   const venueMap = new Map(
     venues?.map((venue) => [venue.venue_id, venue]) || []
   )
+
+  const cities = [
+    ...new Set(
+      venues
+        ?.map((venue) => venue.city_area)
+        .filter(Boolean)
+        .sort()
+    ),
+  ]
 
   const filteredEvents = events
     ?.filter((event) => {
@@ -85,7 +96,10 @@ export default async function EventsPage({
       const regionMatch =
         !region || venue?.region?.toLowerCase() === region.toLowerCase()
 
-      return searchMatch && typeMatch && regionMatch
+      const cityMatch =
+        !city || venue?.city_area?.toLowerCase() === city.toLowerCase()
+
+      return searchMatch && typeMatch && regionMatch && cityMatch
     })
     .sort((a, b) => {
       if (a.event_date && !b.event_date) return -1
@@ -100,7 +114,7 @@ export default async function EventsPage({
 
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
-      <section className="mx-auto max-w-5xl">
+      <section className="mx-auto max-w-6xl">
         <Link href="/" className="text-sm font-medium text-blue-400">
           ← Back to venues
         </Link>
@@ -108,11 +122,11 @@ export default async function EventsPage({
         <h1 className="mt-6 text-5xl font-bold">Events</h1>
 
         <p className="mt-4 text-lg text-zinc-300">
-          Search by keyword, event type, venue, city, or region.
+          Search by keyword, event type, town/city, venue, or region.
         </p>
 
         <form className="mt-8 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5">
             <div>
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Keyword
@@ -170,6 +184,25 @@ export default async function EventsPage({
               </select>
             </div>
 
+            <div>
+              <label className="mb-2 block text-sm font-medium text-zinc-300">
+                Town / City
+              </label>
+              <select
+                name="city"
+                defaultValue={city}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-white"
+              >
+                <option value="">All Towns</option>
+
+                {cities.map((cityName) => (
+                  <option key={cityName} value={cityName}>
+                    {cityName}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-end">
               <button
                 type="submit"
@@ -180,7 +213,7 @@ export default async function EventsPage({
             </div>
           </div>
 
-          {(search || type || region) && (
+          {(search || type || region || city) && (
             <Link
               href="/events"
               className="mt-4 inline-block text-sm text-blue-400"
