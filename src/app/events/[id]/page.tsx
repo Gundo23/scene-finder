@@ -1,6 +1,23 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 
+function formatDate(date: string | null) {
+  if (!date) return 'Date TBC'
+
+  return new Date(date).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatTime(time: string | null) {
+  if (!time) return null
+
+  return time.slice(0, 5)
+}
+
 export default async function EventDetailPage({
   params,
 }: {
@@ -45,6 +62,9 @@ export default async function EventDetailPage({
     .eq('venue_id', event.venue_id)
     .single()
 
+  const startTime = formatTime(event.start_time)
+  const endTime = formatTime(event.end_time)
+
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
       <section className="mx-auto max-w-4xl">
@@ -59,26 +79,46 @@ export default async function EventDetailPage({
 
           <h1 className="mt-2 text-4xl font-bold">{event.event_name}</h1>
 
-          <p className="mt-4 text-zinc-300">
-            {event.event_date}
-            {event.start_time ? ` • ${event.start_time}` : ''}
-            {event.end_time ? ` - ${event.end_time}` : ''}
-          </p>
+          <div className="mt-6 grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-5 sm:grid-cols-2">
+            <div>
+              <p className="text-sm text-zinc-500">Date</p>
+              <p className="mt-1 font-medium text-zinc-100">
+                {formatDate(event.event_date)}
+              </p>
+            </div>
 
-          {venue && (
-            <p className="mt-4 text-zinc-400">
-              Venue:{' '}
-              <Link
-                href={`/venue/${venue.venue_id}`}
-                className="text-blue-400"
-              >
-                {venue.name}
-              </Link>{' '}
-              • {venue.city_area} • {venue.region}
-            </p>
-          )}
+            <div>
+              <p className="text-sm text-zinc-500">Time</p>
+              <p className="mt-1 font-medium text-zinc-100">
+                {startTime
+                  ? `${startTime}${endTime ? ` - ${endTime}` : ''}`
+                  : 'Time TBC'}
+              </p>
+            </div>
 
-          <p className="mt-3 text-sm text-zinc-500">
+            {venue && (
+              <>
+                <div>
+                  <p className="text-sm text-zinc-500">Venue</p>
+                  <Link
+                    href={`/venue/${venue.venue_id}`}
+                    className="mt-1 inline-block font-medium text-blue-400"
+                  >
+                    {venue.name}
+                  </Link>
+                </div>
+
+                <div>
+                  <p className="text-sm text-zinc-500">Location</p>
+                  <p className="mt-1 font-medium text-zinc-100">
+                    {venue.city_area} • {venue.region}
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
+          <p className="mt-4 text-sm text-zinc-500">
             Status: {event.status || 'unknown'}
           </p>
 
