@@ -1,5 +1,8 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import FallbackImage from '@/app/components/FallbackImage'
+
+const PLACEHOLDER_IMAGE = '/images/venue-placeholder.jpg'
 
 function formatDate(date: string | null) {
   if (!date) return 'Date TBC'
@@ -360,14 +363,12 @@ export default async function EventsPage({
                 >
                   <article className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-blue-500">
                     <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
-                      <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
-  <img
-    src={event.image_url || '/images/venue-placeholder.jpg'}
-    alt={event.event_name}
-    className="h-full w-full object-cover"
-  />
-</div>
-
+                      <FallbackImage
+                        src={event.image_url}
+                        fallbackSrc={PLACEHOLDER_IMAGE}
+                        alt={event.event_name}
+                        className="h-full w-full object-cover"
+                      />
                     </div>
 
                     <div className="min-w-0 p-3 sm:p-4">

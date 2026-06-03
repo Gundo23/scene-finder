@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import FallbackImage from '@/app/components/FallbackImage'
 
 export default async function Home({
   searchParams,
@@ -42,11 +43,12 @@ export default async function Home({
             Search by venue name, city, area, or region.
           </p>
 
-          <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
-            <img
+          <div className="mt-5 h-24 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 sm:h-32">
+            <FallbackImage
               src="/images/home-hero.jpg"
+              fallbackSrc="/images/venue-placeholder.jpg"
               alt="Scene Finder"
-              className="h-20 w-full object-cover object-center sm:h-28"
+              className="h-full w-full object-contain"
             />
           </div>
         </div>
@@ -99,8 +101,9 @@ export default async function Home({
                 className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-blue-500"
               >
                 <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
-                  <img
-                    src={venue.image_url || '/images/venue-placeholder.jpg'}
+                  <FallbackImage
+                    src={venue.image_url}
+                    fallbackSrc="/images/venue-placeholder.jpg"
                     alt={venue.name}
                     className="h-full w-full object-cover"
                   />
