@@ -14,7 +14,6 @@ function formatDate(date: string | null) {
 
 function formatTime(time: string | null) {
   if (!time) return null
-
   return time.slice(0, 5)
 }
 
@@ -38,6 +37,7 @@ export default async function EventDetailPage({
       description,
       ticket_url,
       source_url,
+      image_url,
       status
     `)
     .eq('event_id', id)
@@ -68,88 +68,117 @@ export default async function EventDetailPage({
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
       <section className="mx-auto max-w-4xl">
-        <Link href="/events" className="text-sm text-blue-400">
-          ← Back to events
-        </Link>
+        <div className="flex flex-wrap gap-4">
+          <Link href="/events" className="text-sm text-blue-400">
+            ← Back to events
+          </Link>
 
-        <article className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-          <p className="text-sm font-medium text-blue-400">
-            {event.event_type || 'Event'}
-          </p>
+          {venue && (
+            <Link href={`/venue/${venue.venue_id}`} className="text-sm text-blue-400">
+              ← Back to venue
+            </Link>
+          )}
+        </div>
 
-          <h1 className="mt-2 text-4xl font-bold">{event.event_name}</h1>
-
-          <div className="mt-6 grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-5 sm:grid-cols-2">
-            <div>
-              <p className="text-sm text-zinc-500">Date</p>
-              <p className="mt-1 font-medium text-zinc-100">
-                {formatDate(event.event_date)}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm text-zinc-500">Time</p>
-              <p className="mt-1 font-medium text-zinc-100">
-                {startTime
-                  ? `${startTime}${endTime ? ` - ${endTime}` : ''}`
-                  : 'Time TBC'}
-              </p>
-            </div>
-
-            {venue && (
-              <>
-                <div>
-                  <p className="text-sm text-zinc-500">Venue</p>
-                  <Link
-                    href={`/venue/${venue.venue_id}`}
-                    className="mt-1 inline-block font-medium text-blue-400"
-                  >
-                    {venue.name}
-                  </Link>
-                </div>
-
-                <div>
-                  <p className="text-sm text-zinc-500">Location</p>
-                  <p className="mt-1 font-medium text-zinc-100">
-                    {venue.city_area} • {venue.region}
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
-
-          <p className="mt-4 text-sm text-zinc-500">
-            Status: {event.status || 'unknown'}
-          </p>
-
-          {event.description && (
-            <p className="mt-6 whitespace-pre-line text-zinc-300">
-              {event.description}
-            </p>
+        <article className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
+          {event.image_url && (
+            <img
+              src={event.image_url}
+              alt={event.event_name}
+              className="h-80 w-full object-cover"
+            />
           )}
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            {event.ticket_url && (
-              <a
-                href={event.ticket_url}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-lg bg-blue-500 px-4 py-2 font-medium text-white"
-              >
-                Open event link
-              </a>
+          <div className="p-6">
+            <p className="text-sm font-medium text-blue-400">
+              {event.event_type || 'Event'}
+            </p>
+
+            <h1 className="mt-2 text-4xl font-bold">{event.event_name}</h1>
+
+            <div className="mt-6 grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-5 sm:grid-cols-2">
+              <div>
+                <p className="text-sm text-zinc-500">Date</p>
+                <p className="mt-1 font-medium text-zinc-100">
+                  {formatDate(event.event_date)}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-zinc-500">Time</p>
+                <p className="mt-1 font-medium text-zinc-100">
+                  {startTime
+                    ? `${startTime}${endTime ? ` - ${endTime}` : ''}`
+                    : 'Time TBC'}
+                </p>
+              </div>
+
+              {venue && (
+                <>
+                  <div>
+                    <p className="text-sm text-zinc-500">Venue</p>
+                    <Link
+                      href={`/venue/${venue.venue_id}`}
+                      className="mt-1 inline-block font-medium text-blue-400"
+                    >
+                      {venue.name}
+                    </Link>
+                  </div>
+
+                  <div>
+                    <p className="text-sm text-zinc-500">Location</p>
+                    <p className="mt-1 font-medium text-zinc-100">
+                      {venue.city_area} • {venue.region}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <p className="mt-4 text-sm text-zinc-500">
+              Status: {event.status || 'unknown'}
+            </p>
+
+            {event.description && (
+              <p className="mt-6 whitespace-pre-line text-zinc-300">
+                {event.description}
+              </p>
             )}
 
-            {event.source_url && (
-              <a
-                href={event.source_url}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:text-white"
-              >
-                Source
-              </a>
-            )}
+            <div className="mt-6 flex flex-wrap gap-3">
+              {event.ticket_url && (
+                <a
+                  href={event.ticket_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg bg-blue-500 px-4 py-2 font-medium text-white"
+                >
+                  Open event link
+                </a>
+              )}
+
+              {venue?.website && (
+                <a
+                  href={venue.website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:text-white"
+                >
+                  Venue website
+                </a>
+              )}
+
+              {event.source_url && (
+                <a
+                  href={event.source_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:text-white"
+                >
+                  Source
+                </a>
+              )}
+            </div>
           </div>
         </article>
       </section>

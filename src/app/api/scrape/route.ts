@@ -8,12 +8,15 @@ const supabaseAdmin = createClient(
 function cleanText(value: string) {
   return value
     .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ')
     .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-function absoluteUrl(base: string, href: string) {
+function absoluteUrl(base: string, href: string | null) {
+  if (!href) return null
+
   try {
     return new URL(href, base).toString()
   } catch {
@@ -81,6 +84,46 @@ function cleanEventName(title: string) {
   return cleaned || 'Untitled Event'
 }
 
+async function extractImageUrl(eventUrl: string) {
+  try {
+    const response = await fetch(eventUrl, {
+      headers: {
+        'User-Agent': 'SceneFinderBot/1.0',
+      },
+    })
+
+    if (!response.ok) return null
+
+    const html = await response.text()
+
+    const ogImage =
+      html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i)?.[1]
+
+    if (ogImage) {
+      return absoluteUrl(eventUrl, ogImage)
+    }
+
+    const twitterImage =
+      html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i)?.[1]
+
+    if (twitterImage) {
+      return absoluteUrl(eventUrl, twitterImage)
+    }
+
+    const firstImage = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]
+
+    if (firstImage) {
+      return absoluteUrl(eventUrl, firstImage)
+    }
+
+    return null
+  } catch {
+    return null
+  }
+}
+
 export async function GET() {
   const { data: sources, error } = await supabaseAdmin
     .from('event_sources')
@@ -93,8 +136,18 @@ export async function GET() {
   }
 
   let created = 0
-  let skipped = 0
+
+  let skippedNotEvent = 0
+  let skippedBadUrl = 0
+  let skippedBadName = 0
+  let skippedDuplicate = 0
+  let skippedSourceError = 0
+  let skippedInsertError = 0
+
   const found = []
+  const sampleSkippedNotEvent = []
+  const sampleDuplicates = []
+  const insertErrors = []
 
   for (const source of sources || []) {
     try {
@@ -103,6 +156,11 @@ export async function GET() {
           'User-Agent': 'SceneFinderBot/1.0',
         },
       })
+
+      if (!response.ok) {
+        skippedSourceError++
+        continue
+      }
 
       const html = await response.text()
       const linkRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gi
@@ -129,13 +187,23 @@ export async function GET() {
           combined.includes('night')
 
         if (!looksLikeEvent) {
-          skipped++
+          skippedNotEvent++
+
+          if (sampleSkippedNotEvent.length < 10) {
+            sampleSkippedNotEvent.push({
+              venue_id: source.venue_id,
+              title: rawTitle,
+              href,
+            })
+          }
+
           continue
         }
 
         const eventUrl = absoluteUrl(source.source_url, href)
+
         if (!eventUrl) {
-          skipped++
+          skippedBadUrl++
           continue
         }
 
@@ -143,7 +211,7 @@ export async function GET() {
         const eventDate = extractDate(rawTitle)
 
         if (!eventName || eventName.length < 4) {
-          skipped++
+          skippedBadName++
           continue
         }
 
@@ -155,32 +223,61 @@ export async function GET() {
           .maybeSingle()
 
         if (existing) {
-          skipped++
+          skippedDuplicate++
+
+          if (sampleDuplicates.length < 10) {
+            sampleDuplicates.push({
+              venue_id: source.venue_id,
+              event_name: eventName,
+              event_url: eventUrl,
+            })
+          }
+
           continue
         }
 
-        await supabaseAdmin.from('events').insert({
+        const imageUrl = await extractImageUrl(eventUrl)
+
+        const { error: insertError } = await supabaseAdmin.from('events').insert({
           venue_id: source.venue_id,
           event_name: eventName,
           event_date: eventDate,
           event_type: 'Club Night',
           description: rawTitle,
           ticket_url: eventUrl,
+          image_url: imageUrl,
           source_url: source.source_url,
           status: 'published',
         })
+
+        if (insertError) {
+          skippedInsertError++
+
+          if (insertErrors.length < 10) {
+            insertErrors.push({
+              venue_id: source.venue_id,
+              event_name: eventName,
+              event_url: eventUrl,
+              error: insertError.message,
+            })
+          }
+
+          continue
+        }
 
         found.push({
           venue_id: source.venue_id,
           event_name: eventName,
           event_date: eventDate,
           event_url: eventUrl,
+          image_url: imageUrl,
         })
 
         created++
       }
-    } catch {
-      skipped++
+    } catch (error) {
+      console.error(error)
+      skippedSourceError++
       continue
     }
   }
@@ -188,7 +285,26 @@ export async function GET() {
   return Response.json({
     checked_sources: sources?.length || 0,
     events_created: created,
-    skipped,
+
+    skipped_not_event: skippedNotEvent,
+    skipped_bad_url: skippedBadUrl,
+    skipped_bad_name: skippedBadName,
+    skipped_duplicate: skippedDuplicate,
+    skipped_source_error: skippedSourceError,
+    skipped_insert_error: skippedInsertError,
+
+    total_skipped:
+      skippedNotEvent +
+      skippedBadUrl +
+      skippedBadName +
+      skippedDuplicate +
+      skippedSourceError +
+      skippedInsertError,
+
+    sample_skipped_not_event: sampleSkippedNotEvent,
+    sample_duplicates: sampleDuplicates,
+    insert_errors: insertErrors,
+
     found,
   })
 }
