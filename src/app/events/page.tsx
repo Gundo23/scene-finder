@@ -360,17 +360,14 @@ export default async function EventsPage({
                 >
                   <article className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-blue-500">
                     <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
-                      {event.image_url ? (
-                        <img
-                          src={event.image_url}
-                          alt={event.event_name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center text-xs text-zinc-600">
-                          No image
-                        </div>
-                      )}
+                      <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
+  <img
+    src={event.image_url || '/images/venue-placeholder.jpg'}
+    alt={event.event_name}
+    className="h-full w-full object-cover"
+  />
+</div>
+
                     </div>
 
                     <div className="min-w-0 p-3 sm:p-4">
