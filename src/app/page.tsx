@@ -53,30 +53,55 @@ export default async function Home({
           </div>
         </div>
 
+        <div className="mt-4 rounded-2xl border border-blue-900 bg-blue-950/40 p-4">
+          <p className="text-sm text-zinc-300">
+            Can&apos;t find your club or event?{' '}
+            <Link
+              href="/submit"
+              className="font-medium text-blue-400 hover:text-blue-300"
+            >
+              Submit it here →
+            </Link>
+          </p>
+        </div>
+
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
           <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
             <input
               name="search"
               defaultValue={search}
               placeholder="Search Leeds, Blackpool, Quest..."
-              className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500"
             />
 
             <button
               type="submit"
-              className="w-full rounded-lg bg-blue-500 px-4 py-3 font-medium text-white sm:w-auto"
+              className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white hover:bg-blue-400 sm:w-auto"
             >
               Search
             </button>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-3 text-sm">
-            <Link href="/events" className="text-blue-400">
+          <div className="mt-4 flex flex-wrap gap-4 text-sm">
+            <Link
+              href="/events"
+              className="font-medium text-blue-400 hover:text-blue-300"
+            >
               Browse events →
             </Link>
 
+            <Link
+              href="/submit"
+              className="font-medium text-blue-400 hover:text-blue-300"
+            >
+              Submit a Club / Event →
+            </Link>
+
             {search && (
-              <Link href="/" className="text-zinc-400 hover:text-white">
+              <Link
+                href="/"
+                className="font-medium text-zinc-400 hover:text-white"
+              >
                 Clear search
               </Link>
             )}
