@@ -331,6 +331,39 @@ const BAD_EVENT_PATTERNS = [
   'click the photo',
 ]
 
+
+const TBC_VENUE_BLACKLIST = [
+  'acqua_sauna_blackpool',
+  'club_play_blackpool',
+  'ggs_lounge_runcorn',
+  'our_place_4_fun_london',
+  'pennine_sauna_oldham_shaw',
+  'purple_mamba_club_nottingham_west_bridgford',
+  'swindon_swingers_swindon',
+  'torture_garden_london_uk_events',
+  'townhouse_wirral_near_liverpool',
+]
+
+const TBC_EVENT_NAME_BLACKLIST = [
+  'and open until blackpool nights run later at acqua with free pass outs and full facility access',
+  'manchester swingers club',
+  'monthly blackpool fisters a consent led fetish event with practical notes for experienced players and curious newcomers',
+  'when and until member late night entry is from non members pay',
+  'couples orgy room',
+  'the kink room',
+  'wet social',
+  'bdsm kink room',
+  'bocoran event',
+  'club nights',
+  'swingers club bury',
+  'singles night',
+  'lifestyle workshops',
+  'fab swindon swingers',
+  'swindonswingers',
+  'new tg social app',
+  'couples ladies non binary gender diverse guests',
+]
+
 const BAD_IMAGE_PATTERNS = [
   'favicon',
   'logo',
@@ -921,6 +954,22 @@ function hasBadEventPattern(value: string | null | undefined) {
   return BAD_EVENT_PATTERNS.some((pattern) => cleaned.includes(pattern))
 }
 
+function isBlacklistedTbcEvent(
+  venueId: string | null | undefined,
+  eventName: string | null | undefined,
+  eventDate: string | null
+) {
+  if (eventDate) return false
+
+  const cleanedVenueId = String(venueId || '').trim()
+  const cleanedEventName = normalizeTitle(eventName || '')
+
+  if (TBC_VENUE_BLACKLIST.includes(cleanedVenueId)) return true
+  if (TBC_EVENT_NAME_BLACKLIST.includes(cleanedEventName)) return true
+
+  return false
+}
+
 function looksLikeStrongUndatedEvent(value: string | null | undefined) {
   const cleaned = normalizeTitle(value || '')
   if (!cleaned) return false
@@ -936,7 +985,7 @@ function looksLikeStrongUndatedEvent(value: string | null | undefined) {
 async function cleanupBadExistingEvents() {
   const { data, error } = await supabaseAdmin
     .from('events')
-    .select('event_id, event_name, event_date, ticket_url, description')
+    .select('event_id, venue_id, event_name, event_date, ticket_url, description')
     .limit(5000)
 
   if (error || !data) {
@@ -949,6 +998,7 @@ async function cleanupBadExistingEvents() {
       const ticketUrl = event.ticket_url || ''
       const description = event.description || ''
 
+      if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
       if (isJunkUrl(ticketUrl)) return true
       if (hasBadEventPattern(`${name} ${description} ${ticketUrl}`)) return true
@@ -974,6 +1024,7 @@ async function cleanupBadExistingEvents() {
 }
 
 function shouldSaveEvent(input: {
+  venue_id: string
   event_name: string
   event_date: string | null
   ticket_url: string
@@ -981,6 +1032,7 @@ function shouldSaveEvent(input: {
 }) {
   const eventName = cleanEventName(input.event_name)
 
+  if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return false
   if (isJunkTitle(eventName)) return false
   if (isJunkUrl(input.ticket_url)) return false
 
