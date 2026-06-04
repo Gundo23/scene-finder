@@ -6,8 +6,8 @@ const supabaseAdmin = createClient(
 )
 
 const MAX_SOURCES = 80
-const MAX_PAGES_PER_SOURCE = 3
-const MAX_EVENTS_RETURNED = 100
+const MAX_PAGES_PER_SOURCE = 5
+const MAX_EVENTS_RETURNED = 150
 const FETCH_TIMEOUT_MS = 10000
 
 const EVENT_KEYWORDS = [
@@ -28,6 +28,11 @@ const EVENT_KEYWORDS = [
   'kink',
   'swing',
   'swingers',
+  'play party',
+  'theme night',
+  'newbie',
+  'couples',
+  'members night',
 ]
 
 const PAGE_HINTS = [
@@ -37,10 +42,58 @@ const PAGE_HINTS = [
   '/whats-on',
   '/whatson',
   '/tickets',
+  '/club-nights',
+  '/parties',
+  '/party',
+]
+
+const JUNK_URL_PARTS = [
+  '/contact',
+  '/contact-us',
+  '/privacy',
+  '/privacy-policy',
+  '/cookie',
+  '/cookies',
+  '/terms',
+  '/terms-and-conditions',
+  '/faq',
+  '/faqs',
+  '/about',
+  '/about-us',
+  '/gallery',
+  '/photos',
+  '/login',
+  '/log-in',
+  '/register',
+  '/sign-up',
+  '/account',
+  '/membership',
+  '/memberships',
+  '/etiquette',
+  '/dress-code',
+  '/accommodation',
+  '/directions',
+  '/location',
+  '/opening-times',
+  '/rules',
+  '/links',
+  '/testimonials',
+  '/blog',
+  '/news',
+  '/shop',
+  '/cart',
+  '/checkout',
+  '/basket',
+  '/fetish-guide',
+  '/fetish-membership',
+  '/fetish-events-and-cost',
+  '?ical=1',
+  '/?ical=1',
 ]
 
 const JUNK_TITLES = [
   'book now',
+  'booking',
   'join guestlist',
   'guestlist',
   'get in touch',
@@ -48,12 +101,18 @@ const JUNK_TITLES = [
   'contact us',
   'view all events',
   'view events',
+  'all events',
+  'events',
   'home',
   'about',
+  'about us',
   'gallery',
   'privacy',
+  'privacy policy',
   'cookies',
+  'cookie policy',
   'terms',
+  'terms and conditions',
   'login',
   'log in',
   'register',
@@ -65,6 +124,19 @@ const JUNK_TITLES = [
   'edit',
   'watch',
   'history',
+  'faq',
+  'faqs',
+  'membership',
+  'memberships',
+  'rules',
+  'etiquette',
+  'dress code',
+  'accommodation',
+  'directions',
+  'location',
+  'opening times',
+  'testimonials',
+  'links',
 ]
 
 function cleanText(value: string | null | undefined) {
@@ -76,8 +148,15 @@ function cleanText(value: string | null | undefined) {
     .replace(/&#8211;/g, '-')
     .replace(/&#8217;/g, "'")
     .replace(/&#038;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&laquo;/g, '')
+    .replace(/&raquo;/g, '')
+    .replace(/&#171;/g, '')
+    .replace(/&#187;/g, '')
+    .replace(/&#39;/g, "'")
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
     .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -105,9 +184,23 @@ function absoluteUrl(base: string, href: string | null | undefined) {
 
 function sameDomain(a: string, b: string) {
   try {
-    return new URL(a).hostname.replace(/^www\./, '') === new URL(b).hostname.replace(/^www\./, '')
+    return (
+      new URL(a).hostname.replace(/^www\./, '') ===
+      new URL(b).hostname.replace(/^www\./, '')
+    )
   } catch {
     return false
+  }
+}
+
+function isJunkUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname.toLowerCase()
+
+    return JUNK_URL_PARTS.some((part) => path.includes(part))
+  } catch {
+    return true
   }
 }
 
@@ -121,17 +214,6 @@ function looksLikeUsefulPage(value: string) {
   return PAGE_HINTS.some((hint) => lower.includes(hint)) || looksLikeEvent(lower)
 }
 
-function isJunkTitle(title: string) {
-  const cleaned = cleanText(title).toLowerCase()
-
-  if (!cleaned) return true
-  if (cleaned.length < 6) return true
-  if (cleaned.includes('<') || cleaned.includes('>')) return true
-  if (cleaned.includes('")')) return true
-
-  return JUNK_TITLES.some((junk) => cleaned === junk || cleaned.includes(junk))
-}
-
 function normalizeTitle(value: string) {
   return cleanText(value)
     .toLowerCase()
@@ -140,8 +222,23 @@ function normalizeTitle(value: string) {
     .trim()
 }
 
+function isJunkTitle(title: string) {
+  const cleaned = normalizeTitle(title)
+
+  if (!cleaned) return true
+  if (cleaned.length < 6) return true
+  if (cleaned.includes('<') || cleaned.includes('>')) return true
+  if (cleaned.includes('")')) return true
+  if (/^\d+$/.test(cleaned)) return true
+  if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(cleaned)) return true
+
+  return JUNK_TITLES.some((junk) => cleaned === junk || cleaned.includes(junk))
+}
+
 function cleanEventName(title: string) {
   let cleaned = cleanText(title)
+    .replace(/[«»]/g, '')
+    .replace(/^\+\s*/g, '')
     .replace(/\b(mon|tue|wed|thu|fri|sat|sun)(day)?\b/gi, '')
     .replace(/\b\d{1,2}(st|nd|rd|th)?\b/gi, '')
     .replace(
@@ -161,6 +258,7 @@ function cleanEventName(title: string) {
     ' read more',
     ' more info',
     ' details',
+    ' find out more',
   ]
 
   for (const marker of cutMarkers) {
@@ -232,6 +330,11 @@ function extractDate(value: string) {
     return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`
   }
 
+  match = text.match(/\b(\d{1,2})\/(\d{1,2})\b/)
+  if (match) {
+    return `${currentYear}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`
+  }
+
   return null
 }
 
@@ -256,7 +359,6 @@ function validImageUrl(url: string | null) {
 
   const lower = url.toLowerCase()
 
-  if (lower.includes('logo')) return null
   if (lower.includes('favicon')) return null
   if (lower.endsWith('.svg')) return null
   if (lower.endsWith('.gif')) return null
@@ -281,11 +383,23 @@ function extractMetaImage(html: string, baseUrl: string) {
 }
 
 function extractFirstImage(html: string, baseUrl: string) {
-  const image =
-    html.match(/<img[^>]+data-src=["']([^"']+)["']/i)?.[1] ||
-    html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1]
+  const images = [
+    ...html.matchAll(/<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+)["'][^>]*>/gi),
+  ]
 
-  return validImageUrl(absoluteUrl(baseUrl, image))
+  for (const match of images) {
+    const image = validImageUrl(absoluteUrl(baseUrl, match[1]))
+    if (!image) continue
+
+    const lower = image.toLowerCase()
+    if (lower.includes('logo')) continue
+    if (lower.includes('icon')) continue
+    if (lower.includes('avatar')) continue
+
+    return image
+  }
+
+  return null
 }
 
 function extractBestImage(html: string, baseUrl: string) {
@@ -293,7 +407,7 @@ function extractBestImage(html: string, baseUrl: string) {
 }
 
 function extractLinks(html: string, baseUrl: string) {
-  const links: { href: string; text: string }[] = []
+  const links: { href: string; text: string; raw: string }[] = []
   const regex = /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
 
   let match
@@ -301,13 +415,57 @@ function extractLinks(html: string, baseUrl: string) {
   while ((match = regex.exec(html)) !== null) {
     const href = absoluteUrl(baseUrl, match[1])
     const text = cleanText(match[2])
+    const raw = match[0]
 
     if (!href) continue
 
-    links.push({ href, text })
+    links.push({ href, text, raw })
   }
 
   return links
+}
+
+function extractPageTitle(html: string) {
+  return (
+    cleanText(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]) ||
+    cleanText(html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i)?.[1]) ||
+    cleanText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1])
+  )
+}
+
+function extractMetaDescription(html: string) {
+  return (
+    cleanText(html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1]) ||
+    cleanText(html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i)?.[1])
+  )
+}
+
+function extractDateFromHtml(html: string) {
+  const timeDate =
+    html.match(/<time[^>]+datetime=["']([^"']+)["'][^>]*>/i)?.[1] ||
+    html.match(/datetime=["']([^"']+)["']/i)?.[1]
+
+  if (timeDate) {
+    const date = String(timeDate).slice(0, 10)
+    if (/^20\d{2}-\d{2}-\d{2}$/.test(date)) return date
+  }
+
+  return extractDate(cleanText(html).slice(0, 6000))
+}
+
+function extractCalendarDateFromRaw(raw: string) {
+  const datetime =
+    raw.match(/datetime=["']([^"']+)["']/i)?.[1] ||
+    raw.match(/data-date=["']([^"']+)["']/i)?.[1] ||
+    raw.match(/data-start=["']([^"']+)["']/i)?.[1] ||
+    raw.match(/data-event-date=["']([^"']+)["']/i)?.[1]
+
+  if (datetime) {
+    const date = String(datetime).slice(0, 10)
+    if (/^20\d{2}-\d{2}-\d{2}$/.test(date)) return date
+  }
+
+  return extractDate(raw)
 }
 
 function extractJsonLdEvents(html: string, baseUrl: string) {
@@ -349,6 +507,52 @@ function extractJsonLdEvents(html: string, baseUrl: string) {
   return events
 }
 
+function extractCalendarEventLinks(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    raw: string
+  }[] = []
+
+  const links = extractLinks(html, baseUrl)
+
+  for (const link of links) {
+    const combined = `${link.href} ${link.text} ${link.raw}`.toLowerCase()
+
+    const looksCalendarEvent =
+      combined.includes('tribe_events') ||
+      combined.includes('eventon') ||
+      combined.includes('mec-event') ||
+      combined.includes('eo-event') ||
+      combined.includes('calendar') ||
+      combined.includes('fc-event') ||
+      combined.includes('event-title') ||
+      combined.includes('event_item') ||
+      combined.includes('/event/') ||
+      combined.includes('/events/')
+
+    if (!looksCalendarEvent) continue
+    if (isJunkUrl(link.href)) continue
+
+    const title =
+      link.text ||
+      cleanText(link.raw.match(/title=["']([^"']+)["']/i)?.[1]) ||
+      cleanText(link.raw.match(/aria-label=["']([^"']+)["']/i)?.[1])
+
+    if (isJunkTitle(title)) continue
+
+    candidates.push({
+      href: link.href,
+      text: title,
+      event_date: extractCalendarDateFromRaw(link.raw),
+      raw: link.raw,
+    })
+  }
+
+  return candidates
+}
+
 async function fetchHtml(url: string) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -360,7 +564,7 @@ async function fetchHtml(url: string) {
       signal: controller.signal,
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (compatible; SceneFinderBot/3.0; +https://scene-finder.local)',
+          'Mozilla/5.0 (compatible; SceneFinderBot/4.0; +https://scene-finder.local)',
         Accept: 'text/html,application/xhtml+xml',
       },
       cache: 'no-store',
@@ -397,7 +601,6 @@ async function updateVenueImageIfEmpty(venueId: string, imageUrl: string | null)
     .maybeSingle()
 
   if (venueError || !venue) return { updated: false, error: venueError }
-
   if (venue.image_url) return { updated: false, error: null }
 
   const { error } = await supabaseAdmin
@@ -406,6 +609,43 @@ async function updateVenueImageIfEmpty(venueId: string, imageUrl: string | null)
     .eq('venue_id', venueId)
 
   return { updated: !error, error }
+}
+
+function eventDedupeKey(venueId: string, eventName: string, eventDate: string | null, ticketUrl: string) {
+  const cleanName = normalizeTitle(cleanEventName(eventName))
+  const cleanDate = eventDate || 'no-date'
+
+  try {
+    const parsed = new URL(ticketUrl)
+    const cleanPath = parsed.pathname.replace(/\/$/, '')
+    return `${venueId}|${cleanDate}|${cleanName}|${cleanPath}`
+  } catch {
+    return `${venueId}|${cleanDate}|${cleanName}|${ticketUrl}`
+  }
+}
+
+
+function shouldSaveEvent(input: {
+  event_name: string
+  event_date: string | null
+  ticket_url: string
+  description: string | null
+}) {
+  const eventName = cleanEventName(input.event_name)
+
+  if (isJunkTitle(eventName)) return false
+  if (isJunkUrl(input.ticket_url)) return false
+
+  const lowerUrl = input.ticket_url.toLowerCase()
+  if (lowerUrl.includes('google.com/calendar')) return false
+  if (lowerUrl.includes('ical=1')) return false
+  if (lowerUrl.includes('action=template')) return false
+
+  const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
+
+  if (!looksLikeEvent(combined) && !input.event_date) return false
+
+  return true
 }
 
 async function upsertEvent(input: {
@@ -418,9 +658,15 @@ async function upsertEvent(input: {
   image_url: string | null
   source_url: string
 }) {
-  const normalised = normalizeTitle(input.event_name)
+  const eventName = cleanEventName(input.event_name)
+  const normalised = normalizeTitle(eventName)
 
-  if (isJunkTitle(input.event_name)) {
+  if (
+    !shouldSaveEvent({
+      ...input,
+      event_name: eventName,
+    })
+  ) {
     return { action: 'skipped', error: null }
   }
 
@@ -429,13 +675,26 @@ async function upsertEvent(input: {
     .select('event_id')
     .eq('venue_id', input.venue_id)
     .eq('ticket_url', input.ticket_url)
-    .maybeSingle()
+    .limit(10)
 
-  if (existingByUrl) {
+  if (existingByUrl && existingByUrl.length > 0) {
+    const keeper = existingByUrl[0]
+    const duplicates = existingByUrl.slice(1)
+
+    if (duplicates.length > 0) {
+      await supabaseAdmin
+        .from('events')
+        .delete()
+        .in(
+          'event_id',
+          duplicates.map((event) => event.event_id)
+        )
+    }
+
     const { error } = await supabaseAdmin
       .from('events')
       .update({
-        event_name: input.event_name,
+        event_name: eventName,
         event_date: input.event_date,
         start_time: input.start_time,
         description: input.description,
@@ -443,7 +702,7 @@ async function upsertEvent(input: {
         source_url: input.source_url,
         status: 'published',
       })
-      .eq('event_id', existingByUrl.event_id)
+      .eq('event_id', keeper.event_id)
 
     return { action: error ? 'error' : 'updated', error }
   }
@@ -455,11 +714,25 @@ async function upsertEvent(input: {
       .eq('venue_id', input.venue_id)
       .eq('event_date', input.event_date)
 
-    const duplicate = existingByTitleDate?.find(
-      (event) => normalizeTitle(event.event_name) === normalised
-    )
+    const duplicates =
+      existingByTitleDate?.filter(
+        (event) => normalizeTitle(event.event_name) === normalised
+      ) || []
 
-    if (duplicate) {
+    if (duplicates.length > 0) {
+      const keeper = duplicates[0]
+      const extras = duplicates.slice(1)
+
+      if (extras.length > 0) {
+        await supabaseAdmin
+          .from('events')
+          .delete()
+          .in(
+            'event_id',
+            extras.map((event) => event.event_id)
+          )
+      }
+
       const { error } = await supabaseAdmin
         .from('events')
         .update({
@@ -469,7 +742,7 @@ async function upsertEvent(input: {
           source_url: input.source_url,
           status: 'published',
         })
-        .eq('event_id', duplicate.event_id)
+        .eq('event_id', keeper.event_id)
 
       return { action: error ? 'error' : 'updated', error }
     }
@@ -477,7 +750,7 @@ async function upsertEvent(input: {
 
   const { error } = await supabaseAdmin.from('events').insert({
     venue_id: input.venue_id,
-    event_name: input.event_name,
+    event_name: eventName,
     event_date: input.event_date,
     start_time: input.start_time,
     event_type: 'Club Night',
@@ -515,6 +788,7 @@ export async function GET() {
 
   const found: any[] = []
   const errors: any[] = []
+  const runSeen = new Set<string>()
 
   for (const source of sources || []) {
     console.log('SOURCE START:', source.source_url)
@@ -527,6 +801,7 @@ export async function GET() {
 
       if (!pageUrl || seenPages.has(pageUrl)) continue
       if (!sameDomain(source.source_url, pageUrl)) continue
+      if (isJunkUrl(pageUrl)) continue
 
       seenPages.add(pageUrl)
       checkedPages++
@@ -551,20 +826,17 @@ export async function GET() {
           if (venueImageResult.updated) venueImagesUpdated++
         }
 
-        const pageText = cleanText(html).slice(0, 5000)
+        const pageText = cleanText(html).slice(0, 8000)
         const jsonLdEvents = extractJsonLdEvents(html, pageUrl)
+        const calendarLinks = extractCalendarEventLinks(html, pageUrl)
+        const links = extractLinks(html, pageUrl)
 
         for (const event of jsonLdEvents) {
-          if (!event.name || event.name.length < 3 || isJunkTitle(event.name)) {
-            skipped++
-            continue
-          }
-
           candidatesFound++
 
           const result = await upsertEvent({
             venue_id: source.venue_id,
-            event_name: cleanEventName(event.name),
+            event_name: event.name,
             event_date: event.date || extractDate(`${event.name} ${event.description}`),
             start_time: event.start_time || extractTime(`${event.name} ${event.description}`),
             description: event.description || event.name,
@@ -576,18 +848,9 @@ export async function GET() {
           if (result.action === 'created') created++
           else if (result.action === 'updated') updated++
           else if (result.action === 'skipped') skipped++
-          else {
-            failed++
-            if (errors.length < 20) {
-              errors.push({
-                venue_id: source.venue_id,
-                url: event.url || pageUrl,
-                error: result.error?.message,
-              })
-            }
-          }
+          else failed++
 
-          if (found.length < MAX_EVENTS_RETURNED) {
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
             found.push({
               venue_id: source.venue_id,
               event_name: cleanEventName(event.name),
@@ -599,14 +862,63 @@ export async function GET() {
           }
         }
 
-        const links = extractLinks(html, pageUrl)
+        for (const calendarEvent of calendarLinks) {
+          candidatesFound++
+
+          let eventHtml: string | null = null
+          let title = calendarEvent.text
+          let description = calendarEvent.text
+          let imageUrl = pageImage
+          let eventDate = calendarEvent.event_date
+          let startTime = extractTime(calendarEvent.raw)
+
+          if (sameDomain(source.source_url, calendarEvent.href)) {
+            eventHtml = await fetchHtml(calendarEvent.href)
+
+            if (eventHtml) {
+              title = extractPageTitle(eventHtml) || title
+              description = extractMetaDescription(eventHtml) || cleanText(eventHtml).slice(0, 300)
+              imageUrl = extractBestImage(eventHtml, calendarEvent.href) || pageImage
+              eventDate = eventDate || extractDateFromHtml(eventHtml)
+              startTime = startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
+            }
+          }
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: eventDate,
+            start_time: startTime,
+            description,
+            ticket_url: calendarEvent.href,
+            image_url: imageUrl,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else failed++
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: eventDate,
+              event_url: calendarEvent.href,
+              image_url: imageUrl,
+              method: 'calendar-link',
+            })
+          }
+        }
 
         for (const link of links) {
-          const combined = `${link.href} ${link.text}`
+          const combined = `${link.href} ${link.text} ${link.raw}`
 
           if (
             sameDomain(source.source_url, link.href) &&
             looksLikeUsefulPage(combined) &&
+            !isJunkUrl(link.href) &&
             !seenPages.has(link.href) &&
             !queue.includes(link.href) &&
             queue.length + seenPages.size < MAX_PAGES_PER_SOURCE
@@ -619,6 +931,11 @@ export async function GET() {
             continue
           }
 
+          if (isJunkUrl(link.href)) {
+            skipped++
+            continue
+          }
+
           const eventName = cleanEventName(link.text)
 
           if (isJunkTitle(eventName)) {
@@ -626,34 +943,46 @@ export async function GET() {
             continue
           }
 
-          const eventDate = extractDate(`${link.text} ${link.href}`)
-          const startTime = extractTime(`${link.text} ${pageText}`)
-
-          candidatesFound++
-
           let eventHtml: string | null = null
           let imageUrl = pageImage
           let description = link.text
+          let eventDate = extractDate(`${link.text} ${link.href}`)
+          let startTime = extractTime(`${link.text} ${pageText}`)
 
           if (sameDomain(source.source_url, link.href)) {
             eventHtml = await fetchHtml(link.href)
 
             if (eventHtml) {
-              imageUrl =
-                extractBestImage(eventHtml, link.href) ||
-                pageImage
+              const detailTitle = extractPageTitle(eventHtml)
+              const detailDescription = extractMetaDescription(eventHtml)
+              const detailDate = extractDateFromHtml(eventHtml)
 
-              description = cleanText(
-                eventHtml.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)
-                  ?.[1] || link.text
-              )
+              imageUrl = extractBestImage(eventHtml, link.href) || pageImage
+              description = detailDescription || description
+              eventDate = eventDate || detailDate
+              startTime = startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
+
+              if (detailTitle && !isJunkTitle(detailTitle)) {
+                description = detailDescription || description
+              }
             }
           }
+
+          candidatesFound++
+
+          const dedupeKey = eventDedupeKey(source.venue_id, eventName, eventDate, link.href)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
 
           const result = await upsertEvent({
             venue_id: source.venue_id,
             event_name: eventName,
-            event_date: eventDate || extractDate(eventHtml || pageText),
+            event_date: eventDate,
             start_time: startTime,
             description,
             ticket_url: link.href,
@@ -676,7 +1005,7 @@ export async function GET() {
             }
           }
 
-          if (found.length < MAX_EVENTS_RETURNED) {
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
             found.push({
               venue_id: source.venue_id,
               event_name: eventName,

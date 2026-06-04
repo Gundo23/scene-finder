@@ -41,12 +41,7 @@ function getEventCategory(event: any) {
   return 'General'
 }
 
-function distanceInMiles(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number
-) {
+function distanceInMiles(lat1: number, lon1: number, lat2: number, lon2: number) {
   const radius = 3958.8
   const toRadians = (value: number) => (value * Math.PI) / 180
 
@@ -74,6 +69,7 @@ export default async function EventsPage({
     region?: string
     city?: string
     distance?: string
+    date?: string
   }>
 }) {
   const params = await searchParams
@@ -83,32 +79,32 @@ export default async function EventsPage({
   const region = params.region || ''
   const city = params.city || ''
   const distance = params.distance || ''
+  const dateView = params.date === 'tbc' ? 'tbc' : 'dated'
   const today = getTodayString()
 
   const selectedDistance = distance ? Number(distance) : null
 
-  const { data: events } = await supabase
-    .from('events')
-    .select('*')
-    .or(`event_date.gte.${today},event_date.is.null`)
-    .order('event_date', { ascending: true, nullsFirst: false })
-    .limit(1000)
+  let eventsQuery = supabase.from('events').select('*').limit(1000)
+
+  if (dateView === 'tbc') {
+    eventsQuery = eventsQuery.is('event_date', null)
+  } else {
+    eventsQuery = eventsQuery.gte('event_date', today)
+  }
+
+  const { data: events } = await eventsQuery.order('event_date', {
+    ascending: dateView !== 'tbc',
+    nullsFirst: false,
+  })
 
   const { data: venues } = await supabase
     .from('venues')
     .select('venue_id, name, city_area, region, latitude, longitude')
 
-  const venueMap = new Map(
-    venues?.map((venue) => [venue.venue_id, venue]) || []
-  )
+  const venueMap = new Map(venues?.map((venue) => [venue.venue_id, venue]) || [])
 
   const cities = [
-    ...new Set(
-      venues
-        ?.map((venue) => venue.city_area)
-        .filter(Boolean)
-        .sort()
-    ),
+    ...new Set(venues?.map((venue) => venue.city_area).filter(Boolean).sort()),
   ]
 
   const selectedCityVenues =
@@ -154,8 +150,7 @@ export default async function EventsPage({
         venue?.city_area?.toLowerCase().includes(searchTerm) ||
         venue?.region?.toLowerCase().includes(searchTerm)
 
-      const typeMatch =
-        !type || category.toLowerCase() === type.toLowerCase()
+      const typeMatch = !type || category.toLowerCase() === type.toLowerCase()
 
       const regionMatch =
         !region || venue?.region?.toLowerCase() === region.toLowerCase()
@@ -181,10 +176,7 @@ export default async function EventsPage({
       return searchMatch && typeMatch && regionMatch && cityMatch && distanceMatch
     })
     .sort((a, b) => {
-      if (a.event_date && !b.event_date) return -1
-      if (!a.event_date && b.event_date) return 1
-      if (!a.event_date && !b.event_date) return 0
-
+      if (dateView === 'tbc') return 0
       return new Date(a.event_date).getTime() - new Date(b.event_date).getTime()
     })
 
@@ -197,7 +189,7 @@ export default async function EventsPage({
 
         <div className="mt-5">
           <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
-            Upcoming Events
+            {dateView === 'tbc' ? 'Date TBC Events' : 'Upcoming Events'}
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm text-zinc-300 sm:text-lg">
@@ -205,7 +197,33 @@ export default async function EventsPage({
           </p>
         </div>
 
+        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800 bg-zinc-900 p-2">
+          <Link
+            href="/events"
+            className={`rounded-xl px-4 py-3 text-center text-sm font-medium ${
+              dateView === 'dated'
+                ? 'bg-blue-500 text-white'
+                : 'bg-zinc-950 text-zinc-400'
+            }`}
+          >
+            Dated events
+          </Link>
+
+          <Link
+            href="/events?date=tbc"
+            className={`rounded-xl px-4 py-3 text-center text-sm font-medium ${
+              dateView === 'tbc'
+                ? 'bg-blue-500 text-white'
+                : 'bg-zinc-950 text-zinc-400'
+            }`}
+          >
+            Date TBC events
+          </Link>
+        </div>
+
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
+          {dateView === 'tbc' && <input type="hidden" name="date" value="tbc" />}
+
           <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <div className="min-w-0 sm:col-span-2 lg:col-span-1">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
@@ -274,7 +292,6 @@ export default async function EventsPage({
                 className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
               >
                 <option value="">All Towns</option>
-
                 {cities.map((cityName) => (
                   <option key={cityName} value={cityName}>
                     {cityName}
@@ -313,29 +330,17 @@ export default async function EventsPage({
 
           {(search || type || region || city || distance) && (
             <Link
-              href="/events"
+              href={dateView === 'tbc' ? '/events?date=tbc' : '/events'}
               className="mt-4 inline-block text-sm text-blue-400"
             >
               Clear filters
             </Link>
           )}
-
-          {city && selectedDistance && !cityCentre && (
-            <p className="mt-4 text-sm text-amber-300">
-              Distance search is not available for this town yet because no
-              venue coordinates have been found there.
-            </p>
-          )}
-
-          {city && selectedDistance && cityCentre && (
-            <p className="mt-4 text-sm text-zinc-400">
-              Distance results only include venues with known coordinates.
-            </p>
-          )}
         </form>
 
         <p className="mt-6 text-sm text-zinc-400">
-          Showing {filteredEvents?.length || 0} upcoming events
+          Showing {filteredEvents?.length || 0}{' '}
+          {dateView === 'tbc' ? 'Date TBC events' : 'dated upcoming events'}
         </p>
 
         <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
@@ -344,16 +349,6 @@ export default async function EventsPage({
               const venue = venueMap.get(event.venue_id)
               const startTime = formatTime(event.start_time)
               const category = getEventCategory(event)
-
-              const milesAway =
-                cityCentre && selectedDistance && venue?.latitude && venue?.longitude
-                  ? distanceInMiles(
-                      cityCentre.latitude,
-                      cityCentre.longitude,
-                      Number(venue.latitude),
-                      Number(venue.longitude)
-                    )
-                  : null
 
               return (
                 <Link
@@ -376,12 +371,6 @@ export default async function EventsPage({
                         <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
                           {category}
                         </p>
-
-                        {milesAway !== null && (
-                          <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
-                            {milesAway.toFixed(1)} miles away
-                          </p>
-                        )}
                       </div>
 
                       <h2 className="line-clamp-2 break-words text-base font-semibold leading-snug sm:text-lg">
@@ -420,7 +409,9 @@ export default async function EventsPage({
               )
             })
           ) : (
-            <p className="text-zinc-400">No upcoming events found.</p>
+            <p className="text-zinc-400">
+              No {dateView === 'tbc' ? 'Date TBC' : 'dated upcoming'} events found.
+            </p>
           )}
         </div>
       </section>
