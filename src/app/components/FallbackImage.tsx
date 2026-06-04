@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 export default function FallbackImage({
   src,
@@ -15,12 +15,20 @@ export default function FallbackImage({
 }) {
   const [imageSrc, setImageSrc] = useState(src || fallbackSrc)
 
+  useEffect(() => {
+    setImageSrc(src || fallbackSrc)
+  }, [src, fallbackSrc])
+
   return (
     <img
       src={imageSrc}
       alt={alt}
       className={className}
-      onError={() => setImageSrc(fallbackSrc)}
+      onError={() => {
+        if (imageSrc !== fallbackSrc) {
+          setImageSrc(fallbackSrc)
+        }
+      }}
     />
   )
 }

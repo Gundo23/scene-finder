@@ -35,6 +35,37 @@ const EVENT_KEYWORDS = [
   'members night',
 ]
 
+const STRONG_UNDATED_EVENT_KEYWORDS = [
+  'party',
+  'night',
+  'social',
+  'ball',
+  'takeover',
+  'weekend',
+  'swing',
+  'swingers',
+  'fetish',
+  'kink',
+  'munch',
+  'club night',
+  'play party',
+  'newbie',
+  'couples',
+  'bi party',
+  'greedy girls',
+  'hotwife',
+  'hot wife',
+  'bachelor',
+  'bachelors',
+  'ladies night',
+  'sauna night',
+  'meet',
+  'meetup',
+  'meet up',
+  'workshop',
+  'event',
+]
+
 const PAGE_HINTS = [
   '/events',
   '/event',
@@ -87,6 +118,22 @@ const JUNK_URL_PARTS = [
   '/fetish-guide',
   '/fetish-membership',
   '/fetish-events-and-cost',
+  '/hotels',
+  '/hotel',
+  '/private-hire',
+  '/venue-hire',
+  '/price-list',
+  '/prices',
+  '/bar-price',
+  '/entry-price',
+  '/weekly-lineup',
+  '/regular-weekly-lineup',
+  '/photo-gallery',
+  '/how-to-get-here',
+  '/accessibility',
+  '/disabilities',
+  '/feedback',
+  '/wp-login',
   '?ical=1',
   '/?ical=1',
 ]
@@ -113,6 +160,8 @@ const JUNK_TITLES = [
   'cookie policy',
   'terms',
   'terms and conditions',
+  'legal',
+  'legal privacy policy terms and conditions',
   'login',
   'log in',
   'register',
@@ -126,9 +175,13 @@ const JUNK_TITLES = [
   'history',
   'faq',
   'faqs',
+  'frequently asked questions',
   'membership',
   'memberships',
   'rules',
+  'club rules',
+  'club rules and your safety',
+  'club rules and looking after your safety',
   'etiquette',
   'dress code',
   'accommodation',
@@ -137,6 +190,162 @@ const JUNK_TITLES = [
   'opening times',
   'testimonials',
   'links',
+  'book hotel',
+  'book hotel room',
+  'hotel room',
+  'hotels',
+  'hotels in the area',
+  'quick book',
+  'join guest list',
+  'find out more',
+  'more info',
+  'view event',
+  'view event 8594',
+  'untitled event',
+  'fetish guide',
+  'google calendar',
+  'add to icalendar',
+  'add to calendar',
+  'icalendar',
+  'venue hire',
+  'room hire',
+  'private hire',
+  'host an event',
+  'full entry and bar price list',
+  'entry and bar price list',
+  'price list',
+  'regular weekly lineup',
+  'weekly lineup',
+  'skip to main content',
+  'feedback',
+  'guide for customers with disabilities',
+  'customers with disabilities and extra needs',
+  'customers with diaabilities and extra needs',
+  'continue to our home page',
+  'how to get here',
+  'need to know before visiting',
+  'introduction to the club',
+  'common misconceptions of a swingers club',
+  'see what we have got at decadance',
+  'let us show you everything photo gallery',
+  'i have read the text above am over and wish to enter this site',
+  'instagram',
+  'facebook',
+  'facebook f',
+  'facebook-f',
+  'twitter',
+  'linkedin',
+  'linked in',
+  'whatsapp',
+  'telegram',
+  'email',
+  'share',
+  'share this',
+  'share event',
+  'share on facebook',
+  'share on twitter',
+  'share on linked in',
+  'share on linkedin',
+  'view on facebook',
+  'number sauna',
+  'days hours ago',
+  'outlook live',
+  'outlook 365',
+  'office 365',
+  'crack open the door',
+  'give me the detail',
+  'the nights',
+  'ticket office',
+  'v2v books',
+  'hosted party to be confirmed',
+  'newsletter',
+  'subscribe',
+  'gallery click the photo',
+  'click the photo',
+]
+
+const BAD_EVENT_PATTERNS = [
+  'book hotel',
+  'hotel room',
+  'quick book',
+  'accommodation',
+  'membership',
+  'join now',
+  'contact us',
+  'privacy policy',
+  'cookie policy',
+  'terms and conditions',
+  'venue hire',
+  'room hire',
+  'private hire',
+  'host an event',
+  'fetish guide',
+  'fetish membership',
+  'fetish events and cost',
+  'add to icalendar',
+  'add to calendar',
+  'google calendar',
+  'view full event description here',
+  'show events search',
+  'skip to main content',
+  'feedback',
+  'full entry and bar price list',
+  'entry and bar price list',
+  'price list',
+  'regular weekly lineup',
+  'weekly lineup',
+  'club rules',
+  'looking after your safety',
+  'guide for customers',
+  'customers with disabilities',
+  'customers with diaabilities',
+  'legal privacy policy',
+  'continue to our home page',
+  'how to get here',
+  'photo gallery',
+  'private hire',
+  'share on facebook',
+  'share on twitter',
+  'share on linked in',
+  'share on linkedin',
+  'view on facebook',
+  'facebook',
+  'twitter',
+  'linkedin',
+  'whatsapp',
+  'instagram',
+  'log in',
+  'days hours ago',
+  'outlook live',
+  'outlook 365',
+  'office 365',
+  'crack open the door',
+  'give me the detail',
+  'the nights',
+  'ticket office',
+  'v2v books',
+  'hosted party to be confirmed',
+  'newsletter',
+  'subscribe',
+  'gallery click the photo',
+  'click the photo',
+]
+
+const BAD_IMAGE_PATTERNS = [
+  'favicon',
+  'logo',
+  'icon',
+  'avatar',
+  'placeholder',
+  'default',
+  'blank',
+  'spacer',
+  'transparent',
+  'watermark',
+  'header',
+  'banner',
+  'site-logo',
+  'cropped-logo',
 ]
 
 function cleanText(value: string | null | undefined) {
@@ -149,6 +358,8 @@ function cleanText(value: string | null | undefined) {
     .replace(/&#8217;/g, "'")
     .replace(/&#038;/g, '&')
     .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, '/')
     .replace(/&laquo;/g, '')
     .replace(/&raquo;/g, '')
     .replace(/&#171;/g, '')
@@ -197,8 +408,23 @@ function isJunkUrl(url: string) {
   try {
     const parsed = new URL(url)
     const path = parsed.pathname.toLowerCase()
+    const full = url.toLowerCase()
 
-    return JUNK_URL_PARTS.some((part) => path.includes(part))
+    if (full.includes('google.com/calendar')) return true
+    if (full.includes('action=template')) return true
+    if (full.includes('ical=1')) return true
+    if (full.includes('/wp-json/')) return true
+    if (full.includes('/feed/')) return true
+    if (full.includes('facebook.com/sharer')) return true
+    if (full.includes('twitter.com/share')) return true
+    if (full.includes('x.com/share')) return true
+    if (full.includes('linkedin.com/share')) return true
+    if (full.includes('linkedin.com/sharing')) return true
+    if (full.includes('api.whatsapp.com/send')) return true
+    if (full.includes('whatsapp://send')) return true
+    if (full.includes('mailto:')) return true
+
+    return JUNK_URL_PARTS.some((part) => path.includes(part) || full.includes(part))
   } catch {
     return true
   }
@@ -232,13 +458,38 @@ function isJunkTitle(title: string) {
   if (/^\d+$/.test(cleaned)) return true
   if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(cleaned)) return true
 
-  return JUNK_TITLES.some((junk) => cleaned === junk || cleaned.includes(junk))
+  if (cleaned.startsWith('add to ')) return true
+  if (cleaned.startsWith('google calendar')) return true
+  if (cleaned.startsWith('icalendar')) return true
+  if (cleaned === 'untitled event') return true
+
+  // Social share buttons, hashtags and internal post IDs are never events.
+  if (cleaned.startsWith('share on ')) return true
+  if (cleaned.startsWith('view on facebook')) return true
+  if (cleaned.startsWith('facebook')) return true
+  if (cleaned.startsWith('twitter')) return true
+  if (cleaned.startsWith('linkedin')) return true
+  if (cleaned.startsWith('linked in')) return true
+  if (cleaned.startsWith('whatsapp')) return true
+  if (cleaned.startsWith('instagram')) return true
+  if (cleaned.startsWith('telegram')) return true
+  if (cleanText(title).trim().startsWith('#')) return true
+  if (/^#?\d{4,}$/.test(cleanText(title).trim())) return true
+  if (/^\d+\s+days?\s+\d+\s+hours?\s+ago$/i.test(cleanText(title).trim())) return true
+
+  if (JUNK_TITLES.some((junk) => cleaned === junk || cleaned.includes(junk))) return true
+  if (BAD_EVENT_PATTERNS.some((junk) => cleaned.includes(junk))) return true
+
+  return false
 }
 
 function cleanEventName(title: string) {
   let cleaned = cleanText(title)
     .replace(/[«»]/g, '')
+    .replace(/&laquo;|&raquo;/gi, '')
     .replace(/^\+\s*/g, '')
+    .replace(/\s+»$/g, '')
+    .replace(/^«\s+/g, '')
     .replace(/\b(mon|tue|wed|thu|fri|sat|sun)(day)?\b/gi, '')
     .replace(/\b\d{1,2}(st|nd|rd|th)?\b/gi, '')
     .replace(
@@ -259,12 +510,24 @@ function cleanEventName(title: string) {
     ' more info',
     ' details',
     ' find out more',
+    ' home events calendar',
+    ' events calendar',
+    ' membership',
+    ' etiquette',
+    ' dress code',
+    ' accommodation',
+    ' venue',
+    ' google calendar',
+    ' icalendar',
+    ' add to calendar',
   ]
 
   for (const marker of cutMarkers) {
     const index = cleaned.toLowerCase().indexOf(marker)
     if (index > 4) cleaned = cleaned.slice(0, index).trim()
   }
+
+  cleaned = cleaned.replace(/\s+/g, ' ').trim()
 
   return cleaned || cleanText(title) || 'Untitled Event'
 }
@@ -359,9 +622,10 @@ function validImageUrl(url: string | null) {
 
   const lower = url.toLowerCase()
 
-  if (lower.includes('favicon')) return null
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) return null
   if (lower.endsWith('.svg')) return null
   if (lower.endsWith('.gif')) return null
+  if (BAD_IMAGE_PATTERNS.some((pattern) => lower.includes(pattern))) return null
 
   return url
 }
@@ -384,17 +648,15 @@ function extractMetaImage(html: string, baseUrl: string) {
 
 function extractFirstImage(html: string, baseUrl: string) {
   const images = [
-    ...html.matchAll(/<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+)["'][^>]*>/gi),
+    ...html.matchAll(/<img[^>]+(?:data-full|data-large_image|data-src|data-lazy-src|src)=["']([^"']+)["'][^>]*>/gi),
   ]
 
   for (const match of images) {
+    const rawTag = match[0].toLowerCase()
     const image = validImageUrl(absoluteUrl(baseUrl, match[1]))
     if (!image) continue
 
-    const lower = image.toLowerCase()
-    if (lower.includes('logo')) continue
-    if (lower.includes('icon')) continue
-    if (lower.includes('avatar')) continue
+    if (BAD_IMAGE_PATTERNS.some((pattern) => rawTag.includes(pattern))) continue
 
     return image
   }
@@ -625,6 +887,92 @@ function eventDedupeKey(venueId: string, eventName: string, eventDate: string | 
 }
 
 
+function cleanDescription(value: string | null | undefined) {
+  const cleaned = cleanText(value).trim()
+
+  if (!cleaned) return null
+
+  const badChunks = [
+    'home events calendar',
+    'events calendar',
+    'membership etiquette dress code accommodation',
+    'show events search',
+    'view as month',
+    'add to google calendar',
+    'add to icalendar',
+  ]
+
+  let output = cleaned
+
+  for (const chunk of badChunks) {
+    const index = output.toLowerCase().indexOf(chunk)
+    if (index > 20) output = output.slice(0, index).trim()
+  }
+
+  if (output.length < 8) return null
+
+  return output.slice(0, 500)
+}
+
+function hasBadEventPattern(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return false
+
+  return BAD_EVENT_PATTERNS.some((pattern) => cleaned.includes(pattern))
+}
+
+function looksLikeStrongUndatedEvent(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return false
+
+  if (isJunkTitle(cleaned)) return false
+  if (hasBadEventPattern(cleaned)) return false
+
+  return STRONG_UNDATED_EVENT_KEYWORDS.some((keyword) =>
+    cleaned.includes(normalizeTitle(keyword))
+  )
+}
+
+async function cleanupBadExistingEvents() {
+  const { data, error } = await supabaseAdmin
+    .from('events')
+    .select('event_id, event_name, event_date, ticket_url, description')
+    .limit(5000)
+
+  if (error || !data) {
+    return { deleted: 0, error }
+  }
+
+  const idsToDelete = data
+    .filter((event) => {
+      const name = cleanEventName(event.event_name || '')
+      const ticketUrl = event.ticket_url || ''
+      const description = event.description || ''
+
+      if (isJunkTitle(name)) return true
+      if (isJunkUrl(ticketUrl)) return true
+      if (hasBadEventPattern(`${name} ${description} ${ticketUrl}`)) return true
+      if (!event.event_date && !looksLikeStrongUndatedEvent(`${name} ${description}`)) return true
+
+      return false
+    })
+    .map((event) => event.event_id)
+
+  let deleted = 0
+
+  for (let i = 0; i < idsToDelete.length; i += 100) {
+    const batch = idsToDelete.slice(i, i + 100)
+    const { error: deleteError } = await supabaseAdmin
+      .from('events')
+      .delete()
+      .in('event_id', batch)
+
+    if (!deleteError) deleted += batch.length
+  }
+
+  return { deleted, error: null }
+}
+
 function shouldSaveEvent(input: {
   event_name: string
   event_date: string | null
@@ -640,8 +988,20 @@ function shouldSaveEvent(input: {
   if (lowerUrl.includes('google.com/calendar')) return false
   if (lowerUrl.includes('ical=1')) return false
   if (lowerUrl.includes('action=template')) return false
+  if (lowerUrl.includes('/fetish-guide')) return false
+  if (lowerUrl.includes('/fetish-membership')) return false
+  if (lowerUrl.includes('/fetish-events-and-cost')) return false
 
   const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
+
+  if (hasBadEventPattern(combined)) return false
+
+  // Undated events are allowed, but only when the title/description has a
+  // strong event signal. This keeps the Date TBC tab from filling with
+  // gallery titles, marketing headings, Outlook links, and general page text.
+  if (!input.event_date && !looksLikeStrongUndatedEvent(`${eventName} ${input.description || ''}`)) {
+    return false
+  }
 
   if (!looksLikeEvent(combined) && !input.event_date) return false
 
@@ -660,6 +1020,8 @@ async function upsertEvent(input: {
 }) {
   const eventName = cleanEventName(input.event_name)
   const normalised = normalizeTitle(eventName)
+  const safeDescription = cleanDescription(input.description)
+  const safeImageUrl = validImageUrl(input.image_url)
 
   if (
     !shouldSaveEvent({
@@ -697,8 +1059,8 @@ async function upsertEvent(input: {
         event_name: eventName,
         event_date: input.event_date,
         start_time: input.start_time,
-        description: input.description,
-        image_url: input.image_url,
+        description: safeDescription,
+        image_url: safeImageUrl,
         source_url: input.source_url,
         status: 'published',
       })
@@ -737,8 +1099,8 @@ async function upsertEvent(input: {
         .from('events')
         .update({
           ticket_url: input.ticket_url,
-          description: input.description,
-          image_url: input.image_url,
+          description: safeDescription,
+          image_url: safeImageUrl,
           source_url: input.source_url,
           status: 'published',
         })
@@ -754,9 +1116,9 @@ async function upsertEvent(input: {
     event_date: input.event_date,
     start_time: input.start_time,
     event_type: 'Club Night',
-    description: input.description,
+    description: safeDescription,
     ticket_url: input.ticket_url,
-    image_url: input.image_url,
+    image_url: safeImageUrl,
     source_url: input.source_url,
     status: 'published',
   })
@@ -785,10 +1147,21 @@ export async function GET() {
   let failed = 0
   let timedOutOrEmpty = 0
   let venueImagesUpdated = 0
+  let existingJunkDeleted = 0
 
   const found: any[] = []
   const errors: any[] = []
   const runSeen = new Set<string>()
+
+  const cleanupResult = await cleanupBadExistingEvents()
+  existingJunkDeleted = cleanupResult.deleted
+
+  if (cleanupResult.error) {
+    errors.push({
+      stage: 'cleanup-existing-events',
+      error: cleanupResult.error.message,
+    })
+  }
 
   for (const source of sources || []) {
     console.log('SOURCE START:', source.source_url)
@@ -833,6 +1206,20 @@ export async function GET() {
 
         for (const event of jsonLdEvents) {
           candidatesFound++
+
+          const dedupeKey = eventDedupeKey(
+            source.venue_id,
+            event.name,
+            event.date || extractDate(`${event.name} ${event.description}`),
+            event.url || pageUrl
+          )
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
 
           const result = await upsertEvent({
             venue_id: source.venue_id,
@@ -883,6 +1270,20 @@ export async function GET() {
               startTime = startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
             }
           }
+
+          const dedupeKey = eventDedupeKey(
+            source.venue_id,
+            title,
+            eventDate,
+            calendarEvent.href
+          )
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
 
           const result = await upsertEvent({
             venue_id: source.venue_id,
@@ -1046,6 +1447,7 @@ export async function GET() {
     events_created: created,
     events_updated: updated,
     venue_images_updated: venueImagesUpdated,
+    existing_junk_deleted: existingJunkDeleted,
     skipped,
     failed,
     timedOutOrEmpty,
