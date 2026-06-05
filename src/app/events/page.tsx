@@ -4,6 +4,50 @@ import FallbackImage from '@/app/components/FallbackImage'
 
 const PLACEHOLDER_IMAGE = '/images/venue-placeholder.jpg'
 
+const EVENT_TAG_OPTIONS = [
+  'Newbie Friendly',
+  'Couples',
+  'Single Men Welcome',
+  'Single Women Welcome',
+  'Curvy / BBW',
+  'Interracial',
+  'Greedy Girls',
+  'Bi',
+  'Hotwife',
+  'Cuckold',
+  'Bull Night',
+  'Unicorn Friendly',
+  'Fetish',
+  'Kink',
+  'BDSM',
+  'Rope',
+  'Shibari',
+  'Dom/Sub',
+  'Leather',
+  'Latex',
+  'Roleplay',
+  'Masked',
+  'Fantasy',
+  'Voyeur',
+  'Exhibitionist',
+  'Nudist',
+  'Naturist',
+  'LGBTQ+',
+  'Trans Friendly',
+  'Social',
+  'Munch',
+  'Meet & Greet',
+  'Party',
+  'Club Night',
+  'Play Party',
+  'Sauna',
+  'Workshop',
+  'Hotel Takeover',
+  'Weekender',
+  'Festival',
+  'Retreat',
+]
+
 function formatDate(date: string | null) {
   if (!date) return 'Date TBC'
 
@@ -24,21 +68,55 @@ function getTodayString() {
   return new Date().toISOString().split('T')[0]
 }
 
-function getEventCategory(event: any) {
-  const text = `${event.event_name || ''} ${event.description || ''}`.toLowerCase()
+function inferEventTags(event: any) {
+  const savedTags = Array.isArray(event.tags) ? event.tags.filter(Boolean) : []
+  const text = `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`.toLowerCase()
+  const tags = new Set<string>(savedTags)
 
-  if (text.includes('newbie')) return 'Newbie'
-  if (text.includes('bbw') || text.includes('curvy')) return 'Curvy / BBW'
-  if (text.includes('interracial') || text.includes('black magic')) return 'Interracial'
-  if (text.includes('greedy girl')) return 'Greedy Girls'
-  if (text.includes('couple')) return 'Couples'
-  if (text.includes('bi')) return 'Bi'
-  if (text.includes('fetish')) return 'Fetish'
-  if (text.includes('kink')) return 'Kink'
-  if (text.includes('social')) return 'Social'
-  if (text.includes('sauna')) return 'Sauna'
+  if (text.includes('newbie') || text.includes('newcomer') || text.includes('first time')) tags.add('Newbie Friendly')
+  if (text.includes('couple')) tags.add('Couples')
+  if (text.includes('single men') || text.includes('single guy') || text.includes('single gent')) tags.add('Single Men Welcome')
+  if (text.includes('single women') || text.includes('single female') || text.includes('single ladies')) tags.add('Single Women Welcome')
+  if (text.includes('bbw') || text.includes('curvy') || text.includes('full figured') || text.includes('full figure')) tags.add('Curvy / BBW')
+  if (text.includes('interracial') || text.includes('black magic')) tags.add('Interracial')
+  if (text.includes('greedy girl')) tags.add('Greedy Girls')
+  if (text.includes('bi') || text.includes('bisexual')) tags.add('Bi')
+  if (text.includes('hotwife') || text.includes('hot wife')) tags.add('Hotwife')
+  if (text.includes('cuckold') || text.includes('cuck')) tags.add('Cuckold')
+  if (text.includes('bull')) tags.add('Bull Night')
+  if (text.includes('unicorn')) tags.add('Unicorn Friendly')
+  if (text.includes('fetish')) tags.add('Fetish')
+  if (text.includes('kink')) tags.add('Kink')
+  if (text.includes('bdsm')) tags.add('BDSM')
+  if (text.includes('rope')) tags.add('Rope')
+  if (text.includes('shibari')) tags.add('Shibari')
+  if (text.includes('dom') || text.includes('sub')) tags.add('Dom/Sub')
+  if (text.includes('leather')) tags.add('Leather')
+  if (text.includes('latex') || text.includes('rubber')) tags.add('Latex')
+  if (text.includes('roleplay') || text.includes('role play')) tags.add('Roleplay')
+  if (text.includes('mask') || text.includes('masquerade')) tags.add('Masked')
+  if (text.includes('fantasy')) tags.add('Fantasy')
+  if (text.includes('voyeur')) tags.add('Voyeur')
+  if (text.includes('exhibition')) tags.add('Exhibitionist')
+  if (text.includes('nudist') || text.includes('naturist') || text.includes('naked')) tags.add('Nudist')
+  if (text.includes('lgbt') || text.includes('queer')) tags.add('LGBTQ+')
+  if (text.includes('trans')) tags.add('Trans Friendly')
+  if (text.includes('social')) tags.add('Social')
+  if (text.includes('munch')) tags.add('Munch')
+  if (text.includes('meet') || text.includes('greet')) tags.add('Meet & Greet')
+  if (text.includes('party')) tags.add('Party')
+  if (text.includes('club night')) tags.add('Club Night')
+  if (text.includes('play party')) tags.add('Play Party')
+  if (text.includes('sauna')) tags.add('Sauna')
+  if (text.includes('workshop')) tags.add('Workshop')
+  if (text.includes('hotel takeover')) tags.add('Hotel Takeover')
+  if (text.includes('weekender') || text.includes('weekend')) tags.add('Weekender')
+  if (text.includes('festival') || text.includes('fest')) tags.add('Festival')
+  if (text.includes('retreat')) tags.add('Retreat')
 
-  return 'General'
+  if (tags.size === 0) tags.add('General')
+
+  return [...tags]
 }
 
 function distanceInMiles(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -60,12 +138,32 @@ function distanceInMiles(lat1: number, lon1: number, lat2: number, lon2: number)
   return radius * c
 }
 
+function makeEventsHref(params: Record<string, string | string[] | undefined>) {
+  const query = new URLSearchParams()
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (!value) return
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (item) query.append(key, item)
+      })
+      return
+    }
+
+    if (value) query.set(key, value)
+  })
+
+  const queryString = query.toString()
+  return queryString ? `/events?${queryString}` : '/events'
+}
+
 export default async function EventsPage({
   searchParams,
 }: {
   searchParams: Promise<{
     search?: string
-    type?: string
+    type?: string | string[]
     region?: string
     city?: string
     distance?: string
@@ -75,7 +173,11 @@ export default async function EventsPage({
   const params = await searchParams
 
   const search = params.search || ''
-  const type = params.type || ''
+  const selectedTags = Array.isArray(params.type)
+    ? params.type
+    : params.type
+      ? [params.type]
+      : []
   const region = params.region || ''
   const city = params.city || ''
   const distance = params.distance || ''
@@ -137,7 +239,7 @@ export default async function EventsPage({
     ?.filter((event) => {
       const venue = venueMap.get(event.venue_id)
       const searchTerm = search.toLowerCase()
-      const category = getEventCategory(event)
+      const eventTags = inferEventTags(event)
 
       const searchMatch =
         !search ||
@@ -146,11 +248,18 @@ export default async function EventsPage({
         event.description?.toLowerCase().includes(searchTerm) ||
         event.ticket_url?.toLowerCase().includes(searchTerm) ||
         event.source_url?.toLowerCase().includes(searchTerm) ||
+        eventTags.some((tag) => tag.toLowerCase().includes(searchTerm)) ||
         venue?.name?.toLowerCase().includes(searchTerm) ||
         venue?.city_area?.toLowerCase().includes(searchTerm) ||
         venue?.region?.toLowerCase().includes(searchTerm)
 
-      const typeMatch = !type || category.toLowerCase() === type.toLowerCase()
+      const tagMatch =
+        selectedTags.length === 0 ||
+        selectedTags.every((selectedTag) =>
+          eventTags.some(
+            (eventTag) => eventTag.toLowerCase() === selectedTag.toLowerCase()
+          )
+        )
 
       const regionMatch =
         !region || venue?.region?.toLowerCase() === region.toLowerCase()
@@ -173,7 +282,7 @@ export default async function EventsPage({
             Number(venue.longitude)
           ) <= selectedDistance)
 
-      return searchMatch && typeMatch && regionMatch && cityMatch && distanceMatch
+      return searchMatch && tagMatch && regionMatch && cityMatch && distanceMatch
     })
     .sort((a, b) => {
       if (dateView === 'tbc') return 0
@@ -193,7 +302,7 @@ export default async function EventsPage({
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm text-zinc-300 sm:text-lg">
-            Search by keyword, event type, town/city, distance, venue, or region.
+            Search by keyword, tags, town/city, distance, venue, or region.
           </p>
         </div>
 
@@ -224,7 +333,7 @@ export default async function EventsPage({
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
           {dateView === 'tbc' && <input type="hidden" name="date" value="tbc" />}
 
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="min-w-0 sm:col-span-2 lg:col-span-1">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Keyword
@@ -237,27 +346,26 @@ export default async function EventsPage({
               />
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 sm:col-span-2 lg:col-span-2">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
-                Event type
+                Event tags
               </label>
               <select
                 name="type"
-                defaultValue={type}
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                multiple
+                defaultValue={selectedTags}
+                size={8}
+                className="h-48 w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
               >
-                <option value="">All Types</option>
-                <option value="Newbie">Newbie</option>
-                <option value="Couples">Couples</option>
-                <option value="Curvy / BBW">Curvy / BBW</option>
-                <option value="Interracial">Interracial</option>
-                <option value="Greedy Girls">Greedy Girls</option>
-                <option value="Bi">Bi</option>
-                <option value="Fetish">Fetish</option>
-                <option value="Kink">Kink</option>
-                <option value="Social">Social</option>
-                <option value="Sauna">Sauna</option>
+                {EVENT_TAG_OPTIONS.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
               </select>
+              <p className="mt-2 text-xs text-zinc-500">
+                Hold Ctrl on Windows, Cmd on Mac, or tap multiple items on mobile.
+              </p>
             </div>
 
             <div className="min-w-0">
@@ -321,14 +429,27 @@ export default async function EventsPage({
             <div className="flex min-w-0 items-end">
               <button
                 type="submit"
-                className="w-full rounded-lg bg-blue-500 px-4 py-3 font-medium text-white"
+                className="w-full rounded-lg bg-blue-500 px-4 py-3 font-medium text-white hover:bg-blue-400"
               >
                 Search
               </button>
             </div>
           </div>
 
-          {(search || type || region || city || distance) && (
+          {selectedTags.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {selectedTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-1 text-xs text-blue-200"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {(search || selectedTags.length > 0 || region || city || distance) && (
             <Link
               href={dateView === 'tbc' ? '/events?date=tbc' : '/events'}
               className="mt-4 inline-block text-sm text-blue-400"
@@ -348,7 +469,7 @@ export default async function EventsPage({
             filteredEvents.map((event) => {
               const venue = venueMap.get(event.venue_id)
               const startTime = formatTime(event.start_time)
-              const category = getEventCategory(event)
+              const tags = inferEventTags(event)
 
               return (
                 <Link
@@ -368,9 +489,14 @@ export default async function EventsPage({
 
                     <div className="min-w-0 p-3 sm:p-4">
                       <div className="mb-2 flex min-w-0 flex-wrap gap-2">
-                        <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
-                          {category}
-                        </p>
+                        {tags.slice(0, 4).map((tag) => (
+                          <p
+                            key={tag}
+                            className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300"
+                          >
+                            {tag}
+                          </p>
+                        ))}
                       </div>
 
                       <h2 className="line-clamp-2 break-words text-base font-semibold leading-snug sm:text-lg">

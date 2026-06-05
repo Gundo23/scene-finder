@@ -6,7 +6,7 @@ const supabaseAdmin = createClient(
 )
 
 const MAX_SOURCES = 80
-const MAX_PAGES_PER_SOURCE = 5
+const MAX_PAGES_PER_SOURCE = 8
 const MAX_EVENTS_RETURNED = 150
 const FETCH_TIMEOUT_MS = 10000
 
@@ -76,6 +76,7 @@ const PAGE_HINTS = [
   '/club-nights',
   '/parties',
   '/party',
+  '/event-type',
 ]
 
 const JUNK_URL_PARTS = [
@@ -262,6 +263,20 @@ const JUNK_TITLES = [
   'subscribe',
   'gallery click the photo',
   'click the photo',
+  'view details',
+  'details',
+  'event diary',
+  'party pics',
+  'comments',
+  'book an event',
+  'book event via timetable',
+  'see our whats on page',
+  'full calendar',
+  'view this event',
+  'view this event click here',
+  'click here',
+  'leave a reply',
+  'cancel reply',
 ]
 
 const BAD_EVENT_PATTERNS = [
@@ -329,6 +344,20 @@ const BAD_EVENT_PATTERNS = [
   'subscribe',
   'gallery click the photo',
   'click the photo',
+  'view details',
+  'details',
+  'event diary',
+  'party pics',
+  'comments',
+  'book an event',
+  'book event via timetable',
+  'see our whats on page',
+  'full calendar',
+  'view this event',
+  'view this event click here',
+  'click here',
+  'leave a reply',
+  'cancel reply',
 ]
 
 
@@ -379,6 +408,24 @@ const BAD_IMAGE_PATTERNS = [
   'banner',
   'site-logo',
   'cropped-logo',
+  'hamburger',
+  'menu',
+  'footer_social',
+  'facebook.com/tr',
+  '1x1.jpg',
+]
+
+const TOWNHOUSE_EVENT_SEED_PATHS = [
+  '/events/the-wirral-munch-bdsm-social-and-play-event-8/',
+  '/events/wirral-swinging-social/',
+  '/events/newbies-notsos-swinging-party-19/',
+  '/events/newbies-and-notsos-swinging-saturday-with-live-music-3/',
+  '/events/ruby-slippers-all-female-party-its-hot/',
+  '/events/lust-the-ultimate-gangbang-and-cuck-event-for-swingers-5/',
+  '/events/tootsies-foot-fetish-event-7/',
+  '/events/school-of-kink-learn-your-bdsm-craft/',
+  '/events/stretch-6/',
+  '/events/new-years-eve-swinging-party-2/',
 ]
 
 function cleanText(value: string | null | undefined) {
@@ -456,6 +503,8 @@ function isJunkUrl(url: string) {
     if (full.includes('api.whatsapp.com/send')) return true
     if (full.includes('whatsapp://send')) return true
     if (full.includes('mailto:')) return true
+    if (full.includes('#respond')) return true
+    if (full.includes('/comments/')) return true
 
     return JUNK_URL_PARTS.some((part) => path.includes(part) || full.includes(part))
   } catch {
@@ -481,6 +530,42 @@ function normalizeTitle(value: string) {
     .trim()
 }
 
+function validDateOrNull(value: string | null) {
+  if (!value) return null
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(value)) return null
+
+  const [year, month, day] = value.split('-').map(Number)
+  if (month < 1 || month > 12) return null
+  if (day < 1 || day > 31) return null
+
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null
+  }
+
+  return value
+}
+
+function validTimeOrNull(value: string | null) {
+  if (!value) return null
+  if (!/^\d{2}:\d{2}$/.test(value)) return null
+
+  const [hour, minute] = value.split(':').map(Number)
+  if (hour < 0 || hour > 23) return null
+  if (minute < 0 || minute > 59) return null
+
+  return value
+}
+
+function eventUrlWithAnchor(pageUrl: string, eventName: string) {
+  const anchor = normalizeTitle(eventName).replace(/\s+/g, '-')
+  return `${pageUrl.split('#')[0]}#${encodeURIComponent(anchor)}`
+}
+
 function isJunkTitle(title: string) {
   const cleaned = normalizeTitle(title)
 
@@ -495,6 +580,15 @@ function isJunkTitle(title: string) {
   if (cleaned.startsWith('google calendar')) return true
   if (cleaned.startsWith('icalendar')) return true
   if (cleaned === 'untitled event') return true
+  if (cleaned === 'cancel reply') return true
+  if (cleaned === 'leave a reply') return true
+  if (cleaned === 'reply') return true
+  if (cleaned === 'view this event') return true
+  if (cleaned === 'view this event click here') return true
+  if (cleaned === 'click here') return true
+  if (cleaned === 'read more') return true
+  if (cleaned === 'whats on') return true
+  if (cleaned === 'what s on') return true
 
   // Social share buttons, hashtags and internal post IDs are never events.
   if (cleaned.startsWith('share on ')) return true
@@ -562,6 +656,22 @@ function cleanEventName(title: string) {
 
   cleaned = cleaned.replace(/\s+/g, ' ').trim()
 
+  const normalisedCleaned = normalizeTitle(cleaned)
+
+  if (
+    normalisedCleaned === 'cancel reply' ||
+    normalisedCleaned === 'leave a reply' ||
+    normalisedCleaned === 'reply' ||
+    normalisedCleaned === 'view this event' ||
+    normalisedCleaned === 'view this event click here' ||
+    normalisedCleaned === 'click here' ||
+    normalisedCleaned === 'read more' ||
+    normalisedCleaned === 'whats on' ||
+    normalisedCleaned === 'what s on'
+  ) {
+    return ''
+  }
+
   return cleaned || cleanText(title) || 'Untitled Event'
 }
 
@@ -604,7 +714,7 @@ function extractDate(value: string) {
     const day = match[1].padStart(2, '0')
     const month = monthMap[match[3].toLowerCase()]
     const year = match[4] || String(currentYear)
-    return `${year}-${month}-${day}`
+    return validDateOrNull(`${year}-${month}-${day}`)
   }
 
   match = text.match(
@@ -615,20 +725,20 @@ function extractDate(value: string) {
     const month = monthMap[match[1].toLowerCase()]
     const day = match[2].padStart(2, '0')
     const year = match[4] || String(currentYear)
-    return `${year}-${month}-${day}`
+    return validDateOrNull(`${year}-${month}-${day}`)
   }
 
   match = text.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/)
-  if (match) return `${match[1]}-${match[2]}-${match[3]}`
+  if (match) return validDateOrNull(`${match[1]}-${match[2]}-${match[3]}`)
 
   match = text.match(/\b(\d{1,2})\/(\d{1,2})\/(20\d{2})\b/)
   if (match) {
-    return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`
+    return validDateOrNull(`${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`)
   }
 
   match = text.match(/\b(\d{1,2})\/(\d{1,2})\b/)
   if (match) {
-    return `${currentYear}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`
+    return validDateOrNull(`${currentYear}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`)
   }
 
   return null
@@ -647,7 +757,7 @@ function extractTime(value: string) {
   if (meridian === 'pm' && hour < 12) hour += 12
   if (meridian === 'am' && hour === 12) hour = 0
 
-  return `${String(hour).padStart(2, '0')}:${minute}`
+  return validTimeOrNull(`${String(hour).padStart(2, '0')}:${minute}`)
 }
 
 function validImageUrl(url: string | null) {
@@ -742,7 +852,7 @@ function extractDateFromHtml(html: string) {
 
   if (timeDate) {
     const date = String(timeDate).slice(0, 10)
-    if (/^20\d{2}-\d{2}-\d{2}$/.test(date)) return date
+    if (/^20\d{2}-\d{2}-\d{2}$/.test(date)) return validDateOrNull(date)
   }
 
   return extractDate(cleanText(html).slice(0, 6000))
@@ -757,7 +867,7 @@ function extractCalendarDateFromRaw(raw: string) {
 
   if (datetime) {
     const date = String(datetime).slice(0, 10)
-    if (/^20\d{2}-\d{2}-\d{2}$/.test(date)) return date
+    if (/^20\d{2}-\d{2}-\d{2}$/.test(date)) return validDateOrNull(date)
   }
 
   return extractDate(raw)
@@ -848,6 +958,151 @@ function extractCalendarEventLinks(html: string, baseUrl: string) {
   return candidates
 }
 
+function extractTownhouseEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+  }[] = []
+
+  const monthMap: Record<string, string> = {
+    jan: '01',
+    january: '01',
+    feb: '02',
+    february: '02',
+    mar: '03',
+    march: '03',
+    apr: '04',
+    april: '04',
+    may: '05',
+    jun: '06',
+    june: '06',
+    jul: '07',
+    july: '07',
+    aug: '08',
+    august: '08',
+    sep: '09',
+    sept: '09',
+    september: '09',
+    oct: '10',
+    october: '10',
+    nov: '11',
+    november: '11',
+    dec: '12',
+    december: '12',
+  }
+
+  const dayWord =
+    '(?:mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)'
+
+  const seen = new Set<string>()
+  const currentYear = new Date().getFullYear()
+  const links = extractLinks(html, baseUrl)
+
+  // Townhouse uses WordPress event pages like /events/the-wirral-munch...
+  // These links are useful even when the visible calendar text is compact.
+  for (const link of links) {
+    if (!sameDomain(baseUrl, link.href)) continue
+    if (!link.href.includes('/events/')) continue
+    if (isJunkUrl(link.href)) continue
+
+    const title =
+      cleanEventName(link.text) ||
+      cleanText(link.raw.match(/title=["']([^"']+)["']/i)?.[1]) ||
+      cleanText(link.raw.match(/aria-label=["']([^"']+)["']/i)?.[1])
+
+    if (isJunkTitle(title)) continue
+
+    const eventDate = extractCalendarDateFromRaw(link.raw) || extractDate(`${link.raw} ${link.text}`)
+    const startTime = extractTime(link.raw)
+
+    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${link.href}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: link.href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: link.raw,
+    })
+  }
+
+  const text = cleanText(html)
+
+  // Handles compact Townhouse calendar text, for example:
+  // "FRI19jun8:00 pmHEAVY PETTING - Pet Play Event"
+  // and normal text, for example:
+  // "TUES 09 jun 7:00 pm The Wirral Munch BDSM Social and Play Event"
+  const eventPattern = new RegExp(
+    `\\b${dayWord}\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s*` +
+      `(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\\s*` +
+      `(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\s*` +
+      `([\\s\\S]{6,140}?)(?=\\b${dayWord}\\s*\\d{1,2}(?:st|nd|rd|th)?\\s*(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)|Search for:|Recent Posts|Recent Comments|Events\\s+\\*|©|$)`,
+    'gi'
+  )
+
+  let match
+
+  while ((match = eventPattern.exec(text)) !== null) {
+    const day = match[1].padStart(2, '0')
+    const month = monthMap[match[2].toLowerCase()]
+    let hour = Number(match[3])
+    const minute = match[4] || '00'
+    const meridian = match[5].toLowerCase()
+
+    if (meridian === 'pm' && hour < 12) hour += 12
+    if (meridian === 'am' && hour === 12) hour = 0
+
+    const eventDate = validDateOrNull(`${currentYear}-${month}-${day}`)
+    const startTime = validTimeOrNull(`${String(hour).padStart(2, '0')}:${minute}`)
+
+    let title = cleanEventName(match[6])
+      .replace(/^[-:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    title = title
+      .replace(/\b(current month|upcoming events|calendar|googlecal|event details tickets here)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (isJunkTitle(title)) continue
+    if (title.length > 120) title = title.slice(0, 120).trim()
+
+    const matchingLink = links.find((link) => {
+      if (!link.href.includes('/events/')) return false
+      const linkTitle = normalizeTitle(link.text)
+      const patternTitle = normalizeTitle(title)
+
+      return (
+        linkTitle.includes(patternTitle.slice(0, 20)) ||
+        patternTitle.includes(linkTitle.slice(0, 20)) ||
+        link.href.includes(patternTitle.split(' ').slice(0, 3).join('-'))
+      )
+    })
+
+    const href = matchingLink?.href || eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${href}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: match[0],
+    })
+  }
+
+  return candidates
+}
+
 async function fetchHtml(url: string) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -886,6 +1141,97 @@ async function fetchHtml(url: string) {
   }
 }
 
+
+async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,application/xml,text/xml,application/json') {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (compatible; SceneFinderBot/4.0; +https://scene-finder.local)',
+        Accept: accept,
+      },
+      cache: 'no-store',
+    })
+
+    clearTimeout(timeout)
+
+    if (!response.ok) return null
+
+    return await response.text()
+  } catch {
+    clearTimeout(timeout)
+    return null
+  }
+}
+
+async function discoverTownhouseEventUrls(sourceUrl: string) {
+  const discovered = new Set<string>()
+
+  for (const path of TOWNHOUSE_EVENT_SEED_PATHS) {
+    const url = absoluteUrl(sourceUrl, path)
+    if (url) discovered.add(url)
+  }
+
+  const sitemapUrls = [
+    absoluteUrl(sourceUrl, '/wp-sitemap-posts-ajde_events-1.xml'),
+    absoluteUrl(sourceUrl, '/wp-sitemap-posts-event-1.xml'),
+    absoluteUrl(sourceUrl, '/event-sitemap.xml'),
+    absoluteUrl(sourceUrl, '/events-sitemap.xml'),
+    absoluteUrl(sourceUrl, '/sitemap.xml'),
+  ].filter(Boolean) as string[]
+
+  for (const sitemapUrl of sitemapUrls) {
+    const xml = await fetchText(sitemapUrl, 'application/xml,text/xml,text/plain')
+    if (!xml) continue
+
+    const urls = [...xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)]
+      .map((match) => cleanText(match[1]))
+      .filter((url) => url.includes('townhouseswingers.com/events/'))
+
+    for (const url of urls) discovered.add(url)
+  }
+
+  const restUrls = [
+    absoluteUrl(sourceUrl, '/wp-json/wp/v2/ajde_events?per_page=100'),
+    absoluteUrl(sourceUrl, '/wp-json/wp/v2/event?per_page=100'),
+    absoluteUrl(sourceUrl, '/wp-json/wp/v2/search?subtype=ajde_events&per_page=100&search=event'),
+    absoluteUrl(sourceUrl, '/wp-json/wp/v2/search?subtype=event&per_page=100&search=event'),
+  ].filter(Boolean) as string[]
+
+  for (const restUrl of restUrls) {
+    const jsonText = await fetchText(restUrl, 'application/json,text/plain')
+    if (!jsonText) continue
+
+    try {
+      const parsed = JSON.parse(jsonText)
+      const items = Array.isArray(parsed) ? parsed : []
+
+      for (const item of items) {
+        const rawUrl =
+          item.link ||
+          item.url ||
+          item.guid?.rendered ||
+          item._links?.self?.[0]?.href ||
+          null
+
+        const eventUrl = rawUrl ? absoluteUrl(sourceUrl, rawUrl) : null
+
+        if (eventUrl && eventUrl.includes('/events/')) {
+          discovered.add(eventUrl)
+        }
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return [...discovered].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
+}
+
 async function updateVenueImageIfEmpty(venueId: string, imageUrl: string | null) {
   if (!imageUrl) return { updated: false, error: null }
 
@@ -912,11 +1258,84 @@ function eventDedupeKey(venueId: string, eventName: string, eventDate: string | 
 
   try {
     const parsed = new URL(ticketUrl)
-    const cleanPath = parsed.pathname.replace(/\/$/, '')
+    parsed.hash = ''
+    parsed.search = ''
+    const cleanPath = parsed.pathname.replace(/\/var\/.*$/i, '').replace(/\/$/, '')
     return `${venueId}|${cleanDate}|${cleanName}|${cleanPath}`
   } catch {
     return `${venueId}|${cleanDate}|${cleanName}|${ticketUrl}`
   }
+}
+
+
+function normalizeTicketUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+
+    parsed.hash = ''
+    parsed.search = ''
+
+    const cleanPath = parsed.pathname
+      .replace(/\/var\/.*$/i, '')
+      .replace(/\/$/, '')
+
+    return `${parsed.origin}${cleanPath}`
+  } catch {
+    return url
+  }
+}
+
+function inferEventTags(value: string | null | undefined) {
+  const text = normalizeTitle(value || '')
+  const tags = new Set<string>()
+
+  if (!text) return []
+
+  if (text.includes('newbie') || text.includes('newcomer') || text.includes('first time')) tags.add('Newbie Friendly')
+  if (text.includes('couple')) tags.add('Couples')
+  if (text.includes('single')) tags.add('Singles')
+  if (text.includes('single men') || text.includes('single guy') || text.includes('single gent')) tags.add('Single Men Welcome')
+  if (text.includes('single women') || text.includes('single female') || text.includes('single ladies')) tags.add('Single Women Welcome')
+  if (text.includes('bbw') || text.includes('curvy') || text.includes('full figured') || text.includes('full figure')) tags.add('Curvy / BBW')
+  if (text.includes('interracial') || text.includes('black magic')) tags.add('Interracial')
+  if (text.includes('greedy girl')) tags.add('Greedy Girls')
+  if (text.includes('bi') || text.includes('bisexual') || text.includes('biphoria')) tags.add('Bi')
+  if (text.includes('hotwife') || text.includes('hot wife')) tags.add('Hotwife')
+  if (text.includes('cuckold') || text.includes('cuck')) tags.add('Cuckold')
+  if (text.includes('bull')) tags.add('Bull Night')
+  if (text.includes('unicorn')) tags.add('Unicorn Friendly')
+  if (text.includes('gangbang')) tags.add('Gangbang')
+  if (text.includes('fetish')) tags.add('Fetish')
+  if (text.includes('kink')) tags.add('Kink')
+  if (text.includes('bdsm')) tags.add('BDSM')
+  if (text.includes('rope')) tags.add('Rope')
+  if (text.includes('shibari')) tags.add('Shibari')
+  if (text.includes('dom') || text.includes('sub')) tags.add('Dom/Sub')
+  if (text.includes('leather')) tags.add('Leather')
+  if (text.includes('latex') || text.includes('rubber')) tags.add('Latex')
+  if (text.includes('roleplay') || text.includes('role play')) tags.add('Roleplay')
+  if (text.includes('mask') || text.includes('masquerade')) tags.add('Masked')
+  if (text.includes('voyeur')) tags.add('Voyeur')
+  if (text.includes('exhibition')) tags.add('Exhibitionist')
+  if (text.includes('nudist') || text.includes('naturist') || text.includes('naked')) tags.add('Nudist')
+  if (text.includes('lgbt') || text.includes('queer')) tags.add('LGBTQ+')
+  if (text.includes('trans')) tags.add('Trans Friendly')
+  if (text.includes('social')) tags.add('Social')
+  if (text.includes('munch')) tags.add('Munch')
+  if (text.includes('meet') || text.includes('greet')) tags.add('Meet & Greet')
+  if (text.includes('party')) tags.add('Party')
+  if (text.includes('club night')) tags.add('Club Night')
+  if (text.includes('play party')) tags.add('Play Party')
+  if (text.includes('sauna')) tags.add('Sauna')
+  if (text.includes('workshop')) tags.add('Workshop')
+  if (text.includes('hotel takeover')) tags.add('Hotel Takeover')
+  if (text.includes('weekender') || text.includes('weekend')) tags.add('Weekender')
+  if (text.includes('festival') || text.includes('fest')) tags.add('Festival')
+  if (text.includes('photography')) tags.add('Photography')
+  if (text.includes('foot fetish') || text.includes('foot')) tags.add('Foot Fetish')
+  if (text.includes('pet play') || text.includes('puppy')) tags.add('Pet Play')
+
+  return [...tags]
 }
 
 
@@ -1074,11 +1493,14 @@ async function upsertEvent(input: {
   const normalised = normalizeTitle(eventName)
   const safeDescription = cleanDescription(input.description)
   const safeImageUrl = validImageUrl(input.image_url)
+  const safeTicketUrl = normalizeTicketUrl(input.ticket_url)
+  const tags = inferEventTags(`${eventName} ${safeDescription || ''} ${safeTicketUrl}`)
 
   if (
     !shouldSaveEvent({
       ...input,
       event_name: eventName,
+      ticket_url: safeTicketUrl,
     })
   ) {
     return { action: 'skipped', error: null }
@@ -1088,7 +1510,7 @@ async function upsertEvent(input: {
     .from('events')
     .select('event_id')
     .eq('venue_id', input.venue_id)
-    .eq('ticket_url', input.ticket_url)
+    .eq('ticket_url', safeTicketUrl)
     .limit(10)
 
   if (existingByUrl && existingByUrl.length > 0) {
@@ -1114,6 +1536,7 @@ async function upsertEvent(input: {
         description: safeDescription,
         image_url: safeImageUrl,
         source_url: input.source_url,
+        tags,
         status: 'published',
       })
       .eq('event_id', keeper.event_id)
@@ -1150,10 +1573,11 @@ async function upsertEvent(input: {
       const { error } = await supabaseAdmin
         .from('events')
         .update({
-          ticket_url: input.ticket_url,
+          ticket_url: safeTicketUrl,
           description: safeDescription,
           image_url: safeImageUrl,
           source_url: input.source_url,
+          tags,
           status: 'published',
         })
         .eq('event_id', keeper.event_id)
@@ -1169,9 +1593,10 @@ async function upsertEvent(input: {
     start_time: input.start_time,
     event_type: 'Club Night',
     description: safeDescription,
-    ticket_url: input.ticket_url,
+    ticket_url: safeTicketUrl,
     image_url: safeImageUrl,
     source_url: input.source_url,
+    tags,
     status: 'published',
   })
 
@@ -1218,10 +1643,20 @@ export async function GET() {
   for (const source of sources || []) {
     console.log('SOURCE START:', source.source_url)
 
-    const queue = [source.source_url]
+    const townhouseDiscoveredUrls =
+      source.venue_id === 'townhouse_wirral_near_liverpool'
+        ? await discoverTownhouseEventUrls(source.source_url)
+        : []
+
+    const queue = [source.source_url, ...townhouseDiscoveredUrls]
     const seenPages = new Set<string>()
 
-    while (queue.length && seenPages.size < MAX_PAGES_PER_SOURCE) {
+    const maxPagesForSource =
+      source.venue_id === 'townhouse_wirral_near_liverpool'
+        ? Math.max(MAX_PAGES_PER_SOURCE, 25)
+        : MAX_PAGES_PER_SOURCE
+
+    while (queue.length && seenPages.size < maxPagesForSource) {
       const pageUrl = queue.shift()
 
       if (!pageUrl || seenPages.has(pageUrl)) continue
@@ -1254,7 +1689,72 @@ export async function GET() {
         const pageText = cleanText(html).slice(0, 8000)
         const jsonLdEvents = extractJsonLdEvents(html, pageUrl)
         const calendarLinks = extractCalendarEventLinks(html, pageUrl)
+        const townhouseEvents =
+          source.venue_id === 'townhouse_wirral_near_liverpool'
+            ? extractTownhouseEvents(html, pageUrl)
+            : []
         const links = extractLinks(html, pageUrl)
+
+        for (const townhouseEvent of townhouseEvents) {
+          candidatesFound++
+
+          let eventHtml: string | null = null
+          let title = townhouseEvent.text
+          let description = townhouseEvent.text
+          let imageUrl = pageImage
+          let eventDate = townhouseEvent.event_date
+          let startTime = townhouseEvent.start_time
+
+          if (sameDomain(source.source_url, townhouseEvent.href) && townhouseEvent.href.includes('/events/')) {
+            eventHtml = await fetchHtml(townhouseEvent.href)
+
+            if (eventHtml) {
+              title = extractPageTitle(eventHtml) || title
+              description = extractMetaDescription(eventHtml) || cleanText(eventHtml).slice(0, 300)
+              imageUrl = extractBestImage(eventHtml, townhouseEvent.href) || pageImage
+              eventDate = eventDate || extractDateFromHtml(eventHtml)
+              startTime = startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
+            }
+          }
+
+          const ticketUrl = townhouseEvent.href || eventUrlWithAnchor(pageUrl, title)
+
+          const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: eventDate,
+            start_time: startTime,
+            description,
+            ticket_url: ticketUrl,
+            image_url: imageUrl,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else failed++
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: eventDate,
+              event_url: ticketUrl,
+              image_url: imageUrl,
+              method: 'townhouse-custom',
+            })
+          }
+        }
 
         for (const event of jsonLdEvents) {
           candidatesFound++

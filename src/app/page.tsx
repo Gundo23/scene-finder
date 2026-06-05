@@ -82,27 +82,27 @@ export default async function Home({
             </button>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-4 text-sm">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Link
               href="/events"
-              className="font-medium text-blue-400 hover:text-blue-300"
+              className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
             >
-              Browse events →
+              Browse Events →
             </Link>
 
             <Link
               href="/submit"
-              className="font-medium text-blue-400 hover:text-blue-300"
+              className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
             >
-              Submit a Club / Event →
+              Submit Club / Event →
             </Link>
 
             {search && (
               <Link
                 href="/"
-                className="font-medium text-zinc-400 hover:text-white"
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white sm:col-span-2"
               >
-                Clear search
+                Clear Search
               </Link>
             )}
           </div>
