@@ -1103,6 +1103,143 @@ function extractTownhouseEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+
+function decodeEscapedText(value: string) {
+  return value
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => {
+      try {
+        return String.fromCharCode(parseInt(code, 16))
+      } catch {
+        return ' '
+      }
+    })
+    .replace(/\\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/\\\//g, '/')
+    .replace(/\\n|\\r|\\t/g, ' ')
+}
+
+function isWixLikeSource(value: string | null | undefined) {
+  const lower = String(value || '').toLowerCase()
+
+  return (
+    lower.includes('wix') ||
+    lower.includes('wixstatic') ||
+    lower.includes('wix-vibe-site') ||
+    lower.includes('wixsite')
+  )
+}
+
+function discoverWixEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/events'),
+    absoluteUrl(sourceUrl, '/events/'),
+    absoluteUrl(sourceUrl, '/event'),
+    absoluteUrl(sourceUrl, '/calendar'),
+    absoluteUrl(sourceUrl, '/what-s-on'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
+}
+
+function extractWixCalendarTileEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+  }[] = []
+
+  const monthMap: Record<string, string> = {
+    january: '01',
+    february: '02',
+    march: '03',
+    april: '04',
+    may: '05',
+    june: '06',
+    july: '07',
+    august: '08',
+    september: '09',
+    october: '10',
+    november: '11',
+    december: '12',
+  }
+
+  const monthNames =
+    'January|February|March|April|May|June|July|August|September|October|November|December'
+
+  const weekdayNames =
+    'Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday'
+
+  const cleanedHtmlText = cleanText(html)
+  const decodedHtmlText = cleanText(decodeEscapedText(html))
+  const combinedText = `${cleanedHtmlText} ${decodedHtmlText}`
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const seen = new Set<string>()
+
+  const monthSectionPattern = new RegExp(
+    `\\b(${monthNames})\\s+(20\\d{2})([\\s\\S]{0,9000}?)(?=\\b(?:${monthNames})\\s+20\\d{2}\\b|$)`,
+    'gi'
+  )
+
+  let monthMatch
+
+  while ((monthMatch = monthSectionPattern.exec(combinedText)) !== null) {
+    const monthName = monthMatch[1].toLowerCase()
+    const year = monthMatch[2]
+    const month = monthMap[monthName]
+    const section = monthMatch[3]
+
+    if (!month) continue
+
+    const tilePattern = new RegExp(
+      `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${weekdayNames})\\s+` +
+        `(.{3,110}?\\([^)]*(?:am|pm)[^)]*\\))` +
+        `(?=\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${weekdayNames})\\s+|\\s+${monthNames}\\s+20\\d{2}\\b|$)`,
+      'gi'
+    )
+
+    let tileMatch
+
+    while ((tileMatch = tilePattern.exec(section)) !== null) {
+      const day = tileMatch[1].padStart(2, '0')
+      const rawTitleAndTime = cleanText(tileMatch[3])
+      const timeText = cleanText(rawTitleAndTime.match(/\(([^)]*)\)/)?.[1] || '')
+      let title = cleanEventName(rawTitleAndTime.replace(/\([^)]*\)/g, ''))
+
+      title = title
+        .replace(/^[-:|]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      if (isJunkTitle(title)) continue
+      if (title.length > 100) title = title.slice(0, 100).trim()
+
+      const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+      const startTime = extractTime(timeText)
+      const href = eventUrlWithAnchor(baseUrl, title)
+      const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}`
+
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      candidates.push({
+        href,
+        text: title,
+        event_date: eventDate,
+        start_time: startTime,
+        raw: `${monthMatch[1]} ${year} ${tileMatch[0]}`,
+      })
+    }
+  }
+
+  return candidates
+}
+
+
 async function fetchHtml(url: string) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -1610,7 +1747,7 @@ export async function GET(request: Request) {
 
   let sourcesQuery = supabaseAdmin
     .from('event_sources')
-    .select('source_id, venue_id, source_url, active')
+    .select('source_id, venue_id, source_url, active, collection_method')
     .eq('active', true)
 
   if (targetVenueId) {
@@ -1673,13 +1810,20 @@ export async function GET(request: Request) {
         ? await discoverTownhouseEventUrls(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls]
+    const wixDiscoveredUrls =
+      isWixLikeSource(source.source_url) || source.collection_method === 'User Submission'
+        ? discoverWixEventPages(source.source_url)
+        : []
+
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...wixDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
       source.venue_id === 'townhouse_wirral_near_liverpool'
         ? Math.max(MAX_PAGES_PER_SOURCE, 25)
-        : MAX_PAGES_PER_SOURCE
+        : isWixLikeSource(source.source_url)
+          ? Math.max(MAX_PAGES_PER_SOURCE, 12)
+          : MAX_PAGES_PER_SOURCE
 
     while (queue.length && seenPages.size < maxPagesForSource) {
       const pageUrl = queue.shift()
@@ -1717,6 +1861,10 @@ export async function GET(request: Request) {
         const townhouseEvents =
           source.venue_id === 'townhouse_wirral_near_liverpool'
             ? extractTownhouseEvents(html, pageUrl)
+            : []
+        const wixTileEvents =
+          isWixLikeSource(`${source.source_url} ${html}`)
+            ? extractWixCalendarTileEvents(html, pageUrl)
             : []
         const links = extractLinks(html, pageUrl)
 
@@ -1777,6 +1925,49 @@ export async function GET(request: Request) {
               event_url: ticketUrl,
               image_url: imageUrl,
               method: 'townhouse-custom',
+            })
+          }
+        }
+
+        for (const wixEvent of wixTileEvents) {
+          candidatesFound++
+
+          const title = wixEvent.text
+          const description = `${wixEvent.text}${wixEvent.raw ? ` - ${cleanText(wixEvent.raw).slice(0, 240)}` : ''}`
+          const ticketUrl = wixEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, wixEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: wixEvent.event_date,
+            start_time: wixEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: pageImage,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else failed++
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: wixEvent.event_date,
+              event_url: ticketUrl,
+              image_url: pageImage,
+              method: 'wix-calendar-tile',
             })
           }
         }
@@ -2006,6 +2197,11 @@ export async function GET(request: Request) {
         }
       }
     }
+
+    await supabaseAdmin
+      .from('event_sources')
+      .update({ last_checked: new Date().toISOString() })
+      .eq('source_id', source.source_id)
 
     console.log('SOURCE DONE:', source.source_url)
   }
