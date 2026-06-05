@@ -14,19 +14,87 @@ const REGIONS = [
 ]
 
 const CITIES = [
-  'Bath','Birmingham','Bradford','Brighton and Hove','Bristol','Cambridge','Canterbury','Carlisle','Chelmsford','Chester','Chichester','Colchester','Coventry','Derby','Doncaster','Durham','Ely','Exeter','Gloucester','Hereford','Kingston upon Hull','Lancaster','Leeds','Leicester','Lichfield','Lincoln','Liverpool','London','Manchester','Milton Keynes','Newcastle upon Tyne','Norwich','Nottingham','Oxford','Peterborough','Plymouth','Portsmouth','Preston','Ripon','St Albans','Salford','Salisbury','Sheffield','Southampton','Southend-on-Sea','Stoke-on-Trent','Sunderland','Truro','Wakefield','Wells','Westminster','Winchester','Wolverhampton','Worcester','York',
-  'Aberdeen','Dundee','Dunfermline','Edinburgh','Glasgow','Inverness','Perth','Stirling',
-  'Bangor','Cardiff','Newport','St Asaph','St Davids','Swansea','Wrexham'
+  'Bath',
+  'Birmingham',
+  'Bradford',
+  'Brighton and Hove',
+  'Bristol',
+  'Cambridge',
+  'Canterbury',
+  'Carlisle',
+  'Chelmsford',
+  'Chester',
+  'Chichester',
+  'Colchester',
+  'Coventry',
+  'Derby',
+  'Doncaster',
+  'Durham',
+  'Ely',
+  'Exeter',
+  'Gloucester',
+  'Hereford',
+  'Kingston upon Hull',
+  'Lancaster',
+  'Leeds',
+  'Leicester',
+  'Lichfield',
+  'Lincoln',
+  'Liverpool',
+  'London',
+  'Manchester',
+  'Milton Keynes',
+  'Newcastle upon Tyne',
+  'Norwich',
+  'Nottingham',
+  'Oxford',
+  'Peterborough',
+  'Plymouth',
+  'Portsmouth',
+  'Preston',
+  'Ripon',
+  'St Albans',
+  'Salford',
+  'Salisbury',
+  'Sheffield',
+  'Southampton',
+  'Southend-on-Sea',
+  'Stoke-on-Trent',
+  'Sunderland',
+  'Truro',
+  'Wakefield',
+  'Wells',
+  'Westminster',
+  'Winchester',
+  'Wolverhampton',
+  'Worcester',
+  'York',
+  'Aberdeen',
+  'Dundee',
+  'Dunfermline',
+  'Edinburgh',
+  'Glasgow',
+  'Inverness',
+  'Perth',
+  'Stirling',
+  'Bangor',
+  'Cardiff',
+  'Newport',
+  'St Asaph',
+  'St Davids',
+  'Swansea',
+  'Wrexham',
 ]
-
 
 export default async function Home({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string }>
+  searchParams: Promise<{ search?: string; city?: string; region?: string }>
 }) {
   const params = await searchParams
   const search = params.search || ''
+  const city = params.city || ''
+  const region = params.region || ''
 
   let query = supabase
     .from('venues')
@@ -37,6 +105,14 @@ export default async function Home({
     query = query.or(
       `name.ilike.%${search}%,city_area.ilike.%${search}%,region.ilike.%${search}%`
     )
+  }
+
+  if (city) {
+    query = query.ilike('city_area', `%${city}%`)
+  }
+
+  if (region) {
+    query = query.ilike('region', `%${region}%`)
   }
 
   const [
@@ -52,6 +128,8 @@ export default async function Home({
   if (error) {
     return <main className="p-8">Error loading venues: {error.message}</main>
   }
+
+  const hasFilters = Boolean(search || city || region)
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 text-white sm:px-6 sm:py-10">
@@ -129,54 +207,60 @@ export default async function Home({
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <select
               name="city"
+              defaultValue={city}
               className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
             >
               <option value="">Search by City</option>
-              {CITIES.map((city) => (
-                <option key={city} value={city}>{city}</option>
+              {CITIES.map((cityName) => (
+                <option key={cityName} value={cityName}>
+                  {cityName}
+                </option>
               ))}
             </select>
 
             <select
               name="region"
+              defaultValue={region}
               className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
             >
               <option value="">Search by Region</option>
-              {REGIONS.map((region) => (
-                <option key={region} value={region}>{region}</option>
+              {REGIONS.map((regionName) => (
+                <option key={regionName} value={regionName}>
+                  {regionName}
+                </option>
               ))}
             </select>
 
-          <div className="md:col-span-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Link
-              href="/events"
-              className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
-            >
-              Browse Events →
-            </Link>
-
-            <Link
-              href="/submit"
-              className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
-            >
-              Submit Club / Event →
-            </Link>
-
-            {search && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:col-span-2">
               <Link
-                href="/"
-                className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white sm:col-span-2"
+                href="/events"
+                className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
               >
-                Clear Search
+                Browse Events →
               </Link>
-            )}
-          </div>
+
+              <Link
+                href="/submit"
+                className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
+              >
+                Submit Club / Event →
+              </Link>
+
+              {hasFilters && (
+                <Link
+                  href="/"
+                  className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white sm:col-span-2"
+                >
+                  Clear Filters
+                </Link>
+              )}
+            </div>
           </div>
         </form>
 
         <div className="mt-6 flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">
-            {search ? `Results for "${search}"` : 'Featured venues'}
+            {hasFilters ? 'Search results' : 'Featured venues'}
           </h2>
 
           <p className="shrink-0 text-sm text-zinc-400">
