@@ -1603,17 +1603,40 @@ async function upsertEvent(input: {
   return { action: error ? 'error' : 'created', error }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const startedAt = Date.now()
+  const { searchParams } = new URL(request.url)
+  const targetVenueId = searchParams.get('venue_id')
 
-  const { data: sources, error } = await supabaseAdmin
+  let sourcesQuery = supabaseAdmin
     .from('event_sources')
     .select('source_id, venue_id, source_url, active')
     .eq('active', true)
-    .limit(MAX_SOURCES)
+
+  if (targetVenueId) {
+    sourcesQuery = sourcesQuery.eq('venue_id', targetVenueId)
+  }
+
+  const { data: sources, error } = await sourcesQuery.limit(MAX_SOURCES)
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 })
+  }
+
+  if (targetVenueId && (!sources || sources.length === 0)) {
+    return Response.json({
+      message: 'No active event source found for venue',
+      venue_id: targetVenueId,
+      checked_sources: 0,
+      checked_pages: 0,
+      candidates_found: 0,
+      events_created: 0,
+      events_updated: 0,
+      skipped: 0,
+      failed: 0,
+      found: [],
+      errors: [],
+    })
   }
 
   let checkedPages = 0
@@ -1630,14 +1653,16 @@ export async function GET() {
   const errors: any[] = []
   const runSeen = new Set<string>()
 
-  const cleanupResult = await cleanupBadExistingEvents()
-  existingJunkDeleted = cleanupResult.deleted
+  if (!targetVenueId) {
+    const cleanupResult = await cleanupBadExistingEvents()
+    existingJunkDeleted = cleanupResult.deleted
 
-  if (cleanupResult.error) {
-    errors.push({
-      stage: 'cleanup-existing-events',
-      error: cleanupResult.error.message,
-    })
+    if (cleanupResult.error) {
+      errors.push({
+        stage: 'cleanup-existing-events',
+        error: cleanupResult.error.message,
+      })
+    }
   }
 
   for (const source of sources || []) {
@@ -1993,6 +2018,7 @@ export async function GET() {
       max_pages_per_source: MAX_PAGES_PER_SOURCE,
       fetch_timeout_ms: FETCH_TIMEOUT_MS,
     },
+    target_venue_id: targetVenueId,
     checked_sources: sources?.length || 0,
     checked_pages: checkedPages,
     candidates_found: candidatesFound,
