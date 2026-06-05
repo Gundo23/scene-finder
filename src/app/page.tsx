@@ -2,6 +2,24 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import FallbackImage from '@/app/components/FallbackImage'
 
+const REGIONS = [
+  'North East',
+  'North West',
+  'Yorkshire and the Humber',
+  'East Midlands',
+  'West Midlands',
+  'East of England',
+  'London',
+  'South East',
+]
+
+const CITIES = [
+  'Bath','Birmingham','Bradford','Brighton and Hove','Bristol','Cambridge','Canterbury','Carlisle','Chelmsford','Chester','Chichester','Colchester','Coventry','Derby','Doncaster','Durham','Ely','Exeter','Gloucester','Hereford','Kingston upon Hull','Lancaster','Leeds','Leicester','Lichfield','Lincoln','Liverpool','London','Manchester','Milton Keynes','Newcastle upon Tyne','Norwich','Nottingham','Oxford','Peterborough','Plymouth','Portsmouth','Preston','Ripon','St Albans','Salford','Salisbury','Sheffield','Southampton','Southend-on-Sea','Stoke-on-Trent','Sunderland','Truro','Wakefield','Wells','Westminster','Winchester','Wolverhampton','Worcester','York',
+  'Aberdeen','Dundee','Dunfermline','Edinburgh','Glasgow','Inverness','Perth','Stirling',
+  'Bangor','Cardiff','Newport','St Asaph','St Davids','Swansea','Wrexham'
+]
+
+
 export default async function Home({
   searchParams,
 }: {
@@ -108,7 +126,28 @@ export default async function Home({
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <select
+              name="city"
+              className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+            >
+              <option value="">Search by City</option>
+              {CITIES.map((city) => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+
+            <select
+              name="region"
+              className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+            >
+              <option value="">Search by Region</option>
+              {REGIONS.map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+
+          <div className="md:col-span-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Link
               href="/events"
               className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
@@ -131,6 +170,7 @@ export default async function Home({
                 Clear Search
               </Link>
             )}
+          </div>
           </div>
         </form>
 
