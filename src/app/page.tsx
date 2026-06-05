@@ -204,11 +204,11 @@ export default async function Home({
             </button>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div className="mt-4 grid grid-cols-2 gap-3">
             <select
               name="city"
               defaultValue={city}
-              className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+              className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
             >
               <option value="">Search by City</option>
               {CITIES.map((cityName) => (
@@ -221,7 +221,7 @@ export default async function Home({
             <select
               name="region"
               defaultValue={region}
-              className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+              className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
             >
               <option value="">Search by Region</option>
               {REGIONS.map((regionName) => (
@@ -231,17 +231,17 @@ export default async function Home({
               ))}
             </select>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:col-span-2">
+            <div className="col-span-2 grid grid-cols-2 gap-3">
               <Link
                 href="/events"
-                className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
+                className="rounded-lg border border-blue-500 bg-blue-500/10 px-2 py-3 text-center text-xs font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white sm:px-4 sm:text-sm"
               >
                 Browse Events →
               </Link>
 
               <Link
                 href="/submit"
-                className="rounded-lg border border-blue-500 bg-blue-500/10 px-4 py-3 text-center text-sm font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white"
+                className="rounded-lg border border-blue-500 bg-blue-500/10 px-2 py-3 text-center text-xs font-medium text-blue-300 transition hover:bg-blue-500 hover:text-white sm:px-4 sm:text-sm"
               >
                 Submit Club / Event →
               </Link>
@@ -249,7 +249,7 @@ export default async function Home({
               {hasFilters && (
                 <Link
                   href="/"
-                  className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white sm:col-span-2"
+                  className="col-span-2 rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white"
                 >
                   Clear Filters
                 </Link>
