@@ -173,11 +173,9 @@ export default async function EventsPage({
   const params = await searchParams
 
   const search = params.search || ''
-  const selectedTags = Array.isArray(params.type)
-    ? params.type
-    : params.type
-      ? [params.type]
-      : []
+  const selectedTag = Array.isArray(params.type)
+    ? params.type[0] || ''
+    : params.type || ''
   const region = params.region || ''
   const city = params.city || ''
   const distance = params.distance || ''
@@ -254,11 +252,9 @@ export default async function EventsPage({
         venue?.region?.toLowerCase().includes(searchTerm)
 
       const tagMatch =
-        selectedTags.length === 0 ||
-        selectedTags.every((selectedTag) =>
-          eventTags.some(
-            (eventTag) => eventTag.toLowerCase() === selectedTag.toLowerCase()
-          )
+        !selectedTag ||
+        eventTags.some(
+          (eventTag) => eventTag.toLowerCase() === selectedTag.toLowerCase()
         )
 
       const regionMatch =
@@ -333,7 +329,7 @@ export default async function EventsPage({
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
           {dateView === 'tbc' && <input type="hidden" name="date" value="tbc" />}
 
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <div className="min-w-0 sm:col-span-2 lg:col-span-1">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Keyword
@@ -346,26 +342,22 @@ export default async function EventsPage({
               />
             </div>
 
-            <div className="min-w-0 sm:col-span-2 lg:col-span-2">
+            <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
-                Event tags
+                Event type
               </label>
               <select
                 name="type"
-                multiple
-                defaultValue={selectedTags}
-                size={8}
-                className="h-48 w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                defaultValue={selectedTag}
+                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
               >
+                <option value="">All Event Types</option>
                 {EVENT_TAG_OPTIONS.map((tag) => (
                   <option key={tag} value={tag}>
                     {tag}
                   </option>
                 ))}
               </select>
-              <p className="mt-2 text-xs text-zinc-500">
-                Hold Ctrl on Windows, Cmd on Mac, or tap multiple items on mobile.
-              </p>
             </div>
 
             <div className="min-w-0">
@@ -436,20 +428,15 @@ export default async function EventsPage({
             </div>
           </div>
 
-          {selectedTags.length > 0 && (
+          {selectedTag && (
             <div className="mt-4 flex flex-wrap gap-2">
-              {selectedTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-1 text-xs text-blue-200"
-                >
-                  {tag}
-                </span>
-              ))}
+              <span className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-1 text-xs text-blue-200">
+                {selectedTag}
+              </span>
             </div>
           )}
 
-          {(search || selectedTags.length > 0 || region || city || distance) && (
+          {(search || selectedTag || region || city || distance) && (
             <Link
               href={dateView === 'tbc' ? '/events?date=tbc' : '/events'}
               className="mt-4 inline-block text-sm text-blue-400"
