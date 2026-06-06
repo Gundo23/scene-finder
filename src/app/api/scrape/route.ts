@@ -2254,6 +2254,173 @@ async function discoverTownhouseEventUrls(sourceUrl: string) {
   return [...discovered].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
 }
 
+
+function isClubAlchemySource(value: string | null | undefined) {
+  const lower = String(value || '').toLowerCase()
+  return lower.includes('clubalchemy.co.uk')
+}
+
+function isClubAlchemyEventPage(url: string | null | undefined) {
+  if (!url) return false
+
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname.toLowerCase().replace(/\/$/, '')
+
+    return (
+      parsed.hostname.replace(/^www\./, '') === 'clubalchemy.co.uk' &&
+      path.startsWith('/events/') &&
+      path !== '/events'
+    )
+  } catch {
+    return false
+  }
+}
+
+function extractClubAlchemyDateFromUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    const path = parsed.pathname.toLowerCase()
+
+    const match = path.match(/\b(20\d{2})-(\d{2})-(\d{2})\b/)
+    if (!match) return null
+
+    return validDateOrNull(`${match[1]}-${match[2]}-${match[3]}`)
+  } catch {
+    return null
+  }
+}
+
+function cleanClubAlchemyTitle(value: string, fallbackUrl: string) {
+  let title = cleanEventName(value)
+    .replace(/\s*\|\s*club alchemy\s*$/i, '')
+    .replace(/\s*-\s*club alchemy\s*$/i, '')
+    .replace(/^events?\s*[-–:]\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!title || isJunkTitle(title)) {
+    try {
+      const slug = new URL(fallbackUrl).pathname.split('/').filter(Boolean).pop() || ''
+      title = slug
+        .replace(/\b20\d{2}-\d{2}-\d{2}\b/g, '')
+        .replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    } catch {
+      title = ''
+    }
+  }
+
+  return title
+}
+
+async function discoverClubAlchemyEventUrls(sourceUrl: string) {
+  const discovered = new Set<string>()
+
+  const seedUrls = [
+    absoluteUrl(sourceUrl, '/events'),
+    absoluteUrl(sourceUrl, '/events/'),
+  ].filter(Boolean) as string[]
+
+  for (const url of seedUrls) discovered.add(url)
+
+  const sitemapUrls = [
+    absoluteUrl(sourceUrl, '/sitemap.xml'),
+    absoluteUrl(sourceUrl, '/server-sitemap.xml'),
+    absoluteUrl(sourceUrl, '/page-sitemap.xml'),
+    absoluteUrl(sourceUrl, '/post-sitemap.xml'),
+  ].filter(Boolean) as string[]
+
+  for (const sitemapUrl of sitemapUrls) {
+    const xml = await fetchText(sitemapUrl, 'application/xml,text/xml,text/plain')
+    if (!xml) continue
+
+    const urls = [...xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)]
+      .map((match) => cleanText(match[1]))
+      .filter((url) => isClubAlchemyEventPage(url))
+
+    for (const url of urls) discovered.add(url)
+  }
+
+  return [...discovered].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
+}
+
+function extractClubAlchemyEventLinks(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const links = extractLinks(html, baseUrl)
+
+  for (const link of links) {
+    if (!isClubAlchemyEventPage(link.href)) continue
+    if (isJunkUrl(link.href)) continue
+
+    const rawTitle =
+      link.text ||
+      cleanText(link.raw.match(/title=["']([^"']+)["']/i)?.[1]) ||
+      cleanText(link.raw.match(/aria-label=["']([^"']+)["']/i)?.[1]) ||
+      link.href
+
+    const title = cleanClubAlchemyTitle(rawTitle, link.href)
+    if (!title || isJunkTitle(title)) continue
+
+    const eventDate =
+      extractClubAlchemyDateFromUrl(link.href) ||
+      extractCalendarDateFromRaw(link.raw) ||
+      extractDate(`${link.raw} ${link.text} ${link.href}`)
+
+    const startTime = extractTime(`${link.raw} ${link.text}`)
+    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(link.href)}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: link.href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: link.raw || link.text,
+    })
+  }
+
+  return candidates
+}
+
+function extractClubAlchemySelfEvent(html: string, pageUrl: string) {
+  if (!isClubAlchemyEventPage(pageUrl)) return null
+
+  const pageTitle = extractPageTitle(html)
+  const title = cleanClubAlchemyTitle(pageTitle, pageUrl)
+  const description =
+    extractMetaDescription(html) ||
+    cleanDescription(cleanText(html).slice(0, 700)) ||
+    title
+
+  const eventDate =
+    extractClubAlchemyDateFromUrl(pageUrl) ||
+    extractDateFromHtml(html) ||
+    extractDate(`${pageTitle} ${description} ${pageUrl}`)
+
+  if (!title || isJunkTitle(title)) return null
+
+  return {
+    href: pageUrl,
+    text: title,
+    event_date: eventDate,
+    start_time: extractTime(cleanText(html).slice(0, 3000)),
+    raw: description,
+  }
+}
+
 async function updateVenueImageIfEmpty(venueId: string, imageUrl: string | null) {
   if (!imageUrl) return { updated: false, error: null }
 
@@ -2761,7 +2928,12 @@ export async function GET(request: Request) {
         ? discoverWixEventPages(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls]
+    const clubAlchemyDiscoveredUrls =
+      isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
+        ? await discoverClubAlchemyEventUrls(source.source_url)
+        : []
+
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...clubAlchemyDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -2769,9 +2941,11 @@ export async function GET(request: Request) {
         ? Math.max(MAX_PAGES_PER_SOURCE, 25)
         : source.venue_id === 'xtasia_west_bromwich'
           ? Math.max(MAX_PAGES_PER_SOURCE, 12)
-          : isWixLikeSource(source.source_url)
-            ? Math.max(MAX_PAGES_PER_SOURCE, 12)
-            : MAX_PAGES_PER_SOURCE
+          : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
+            ? Math.max(MAX_PAGES_PER_SOURCE, 30)
+            : isWixLikeSource(source.source_url)
+              ? Math.max(MAX_PAGES_PER_SOURCE, 12)
+              : MAX_PAGES_PER_SOURCE
 
     while (queue.length && seenPages.size < maxPagesForSource) {
       const pageUrl = queue.shift()
@@ -2831,7 +3005,85 @@ export async function GET(request: Request) {
           isWixLikeSource(`${source.source_url} ${html}`)
             ? extractWixCalendarTileEvents(html, pageUrl)
             : []
+        const clubAlchemyEvents =
+          isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
+            ? [
+                ...extractClubAlchemyEventLinks(html, pageUrl),
+                ...(extractClubAlchemySelfEvent(html, pageUrl)
+                  ? [extractClubAlchemySelfEvent(html, pageUrl)!]
+                  : []),
+              ]
+            : []
         const links = extractLinks(html, pageUrl)
+
+        for (const clubAlchemyEvent of clubAlchemyEvents) {
+          candidatesFound++
+
+          let eventHtml: string | null = null
+          let title = clubAlchemyEvent.text
+          let description = clubAlchemyEvent.raw || clubAlchemyEvent.text
+          let imageUrl = pageImage
+          let eventDate = clubAlchemyEvent.event_date
+          let startTime = clubAlchemyEvent.start_time
+          const ticketUrl = clubAlchemyEvent.href || eventUrlWithAnchor(pageUrl, title)
+
+          if (sameDomain(source.source_url, ticketUrl) && isClubAlchemyEventPage(ticketUrl)) {
+            eventHtml = ticketUrl === pageUrl ? html : await fetchHtml(ticketUrl)
+
+            if (eventHtml) {
+              const selfEvent = extractClubAlchemySelfEvent(eventHtml, ticketUrl)
+              title = selfEvent?.text || cleanClubAlchemyTitle(extractPageTitle(eventHtml) || title, ticketUrl) || title
+              description =
+                selfEvent?.raw ||
+                extractMetaDescription(eventHtml) ||
+                cleanText(eventHtml).slice(0, 300) ||
+                description
+              imageUrl = extractBestImage(eventHtml, ticketUrl) || pageImage
+              eventDate =
+                eventDate ||
+                selfEvent?.event_date ||
+                extractClubAlchemyDateFromUrl(ticketUrl) ||
+                extractDateFromHtml(eventHtml)
+              startTime = startTime || selfEvent?.start_time || extractTime(cleanText(eventHtml).slice(0, 3000))
+            }
+          }
+
+          const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: eventDate,
+            start_time: startTime,
+            description,
+            ticket_url: ticketUrl,
+            image_url: imageUrl,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else failed++
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: eventDate,
+              event_url: ticketUrl,
+              image_url: imageUrl,
+              method: 'club-alchemy-custom',
+            })
+          }
+        }
 
         for (const questEvent of questEvents) {
           candidatesFound++
@@ -3141,7 +3393,7 @@ export async function GET(request: Request) {
             !isJunkUrl(link.href) &&
             !seenPages.has(link.href) &&
             !queue.includes(link.href) &&
-            queue.length + seenPages.size < MAX_PAGES_PER_SOURCE
+            queue.length + seenPages.size < maxPagesForSource
           ) {
             queue.push(link.href)
           }
