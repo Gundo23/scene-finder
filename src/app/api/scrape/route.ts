@@ -1797,13 +1797,15 @@ function cleanIcsEventTitleForVenue(venueId: string, title: string) {
 
 async function cleanupExistingVenueJunk(venueId: string) {
   const isVanillaVenue = isVanillaAlternativeSource(venueId)
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue) return 0
+  const isLeBoudoirVenue = isLeBoudoirSource(venueId)
+
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
     .select('event_id, event_name, event_date, description, ticket_url')
     .eq('venue_id', venueId)
-    .limit(1000)
+    .limit(2000)
 
   const idsToDelete =
     data
@@ -1823,18 +1825,29 @@ async function cleanupExistingVenueJunk(venueId: string) {
           if (cleanText(event.event_name || '').length > 120) return true
         }
 
+        if (isLeBoudoirVenue) {
+          return isLeBoudoirJunkExistingEvent(event)
+        }
+
         return false
       })
       .map((event) => event.event_id) || []
 
   if (idsToDelete.length === 0) return 0
 
-  const { error } = await supabaseAdmin
-    .from('events')
-    .delete()
-    .in('event_id', idsToDelete)
+  let deleted = 0
 
-  return error ? 0 : idsToDelete.length
+  for (let index = 0; index < idsToDelete.length; index += 100) {
+    const batch = idsToDelete.slice(index, index + 100)
+    const { error } = await supabaseAdmin
+      .from('events')
+      .delete()
+      .in('event_id', batch)
+
+    if (!error) deleted += batch.length
+  }
+
+  return deleted
 }
 
 async function scrapeIcsSource(source: {
@@ -2229,6 +2242,624 @@ function extractVanillaAlternativeEvents(html: string, baseUrl: string) {
 
   return candidates
 }
+
+
+function isLeBoudoirSource(value: string | null | undefined) {
+  const lower = String(value || '').toLowerCase()
+
+  return (
+    lower.includes('le_boudoir_club_london') ||
+    lower.includes('leboudoir.club') ||
+    lower.includes('le boudoir')
+  )
+}
+
+function isLeBoudoirJunkEventTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+
+  if (!cleaned) return true
+
+  const exactJunk = new Set([
+    'buy tickets',
+    'ticket',
+    'tickets',
+    'upcoming',
+    'le boudoir',
+    'le boudoir club',
+    'le boudoir london',
+    'le boudoir club london',
+    'le boudoir club create order',
+    'create order',
+    'order',
+    'checkout',
+    'cart',
+    'basket',
+    'event',
+    'events',
+    'all events',
+    'more events',
+    'load more',
+    'show more',
+    'view details',
+    'details',
+    'read more',
+    'learn more',
+    'book now',
+    'booking',
+    'rsvp',
+    'register',
+    'sign up',
+    'log in',
+    'login',
+    'members',
+    'membership',
+    'home',
+    'about',
+    'contact',
+  ])
+
+  if (exactJunk.has(cleaned)) return true
+
+  const junkFragments = [
+    'create order',
+    'buy tickets',
+    'add to cart',
+    'checkout',
+    'powered by',
+    'privacy policy',
+    'terms and conditions',
+    'cookie policy',
+    'eventbrite',
+    'square.site',
+    'squareup',
+    'facebook',
+    'instagram',
+    'whatsapp',
+    'share this',
+    'share on',
+    'sign in',
+    'log in',
+    'subscribe',
+    'newsletter',
+  ]
+
+  if (junkFragments.some((fragment) => cleaned.includes(fragment))) return true
+
+  // Le Boudoir real events are event titles, not one-word venue/UI labels.
+  if (cleaned.length < 8) return true
+
+  return false
+}
+
+function isLeBoudoirJunkExistingEvent(event: {
+  event_name?: string | null
+  event_date?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  const name = event.event_name || ''
+  const combined = normalizeTitle(
+    `${event.event_name || ''} ${event.description || ''} ${event.ticket_url || ''}`
+  )
+
+  if (isLeBoudoirJunkEventTitle(name)) return true
+  if (!event.event_date) return true
+
+  const url = String(event.ticket_url || '').toLowerCase()
+  if (url.includes('/checkout')) return true
+  if (url.includes('/cart')) return true
+  if (url.includes('/create-order')) return true
+  if (url.includes('create-order')) return true
+
+  if (combined.includes('le boudoir club create order')) return true
+  if (combined.includes('buy tickets')) return true
+  if (combined.includes('upcoming')) return true
+
+  return false
+}
+
+
+
+function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('club_bacchus_dundee') ||
+    combined.includes('clubbacchusdundee.uk') ||
+    combined.includes('club_f_birmingham') ||
+    combined.includes('clubf.uk') ||
+    combined.includes('the_playgrounds_cleckheaton') ||
+    combined.includes('theplaygrounds.co.uk') ||
+    combined.includes('hellfire_club_sunbury_on_thames_london_area') ||
+    combined.includes('theold-hellfireclub.co.uk') ||
+    combined.includes('tockify.com/hellfireclubuk') ||
+    combined.includes('ecclesia_glasgow') ||
+    combined.includes('ecclesiaglasgow.com')
+  )
+}
+
+function isHellfireSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+  return combined.includes('hellfire_club_sunbury_on_thames_london_area') || combined.includes('theold-hellfireclub.co.uk') || combined.includes('tockify.com/hellfireclubuk')
+}
+
+function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (sameDomainOrClubAlchemy(source.source_url, pageUrl)) return true
+
+  // Hellfire embeds/links its live calendar on Tockify, so allow this one external host.
+  if (isHellfireSource(source.venue_id, source.source_url)) {
+    try {
+      const host = new URL(pageUrl).hostname.replace(/^www\./, '').toLowerCase()
+      if (host === 'tockify.com' && pageUrl.toLowerCase().includes('/hellfireclubuk')) return true
+    } catch {
+      return false
+    }
+  }
+
+  return false
+}
+
+function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
+  const urls = new Set<string>()
+
+  urls.add(source.source_url)
+
+  if (source.venue_id === 'club_bacchus_dundee') {
+    const url = absoluteUrl(source.source_url, '/events/')
+    if (url) urls.add(url)
+  }
+
+  if (source.venue_id === 'club_f_birmingham') {
+    for (const path of ['/events', '/events/', '/whats-on', '/calendar']) {
+      const url = absoluteUrl(source.source_url, path)
+      if (url) urls.add(url)
+    }
+  }
+
+  if (source.venue_id === 'the_playgrounds_cleckheaton') {
+    for (const path of ['/events-2', '/platinum', '/tickets']) {
+      const url = absoluteUrl(source.source_url, path)
+      if (url) urls.add(url)
+    }
+  }
+
+  if (source.venue_id === 'ecclesia_glasgow') {
+    for (const path of [
+      '/upcoming-events/',
+      '/event_listing_category/parties/',
+      '/event_listing_category/socials/',
+      '/event_listing_category/workshops/',
+      '/event_listing_type/kink-events/',
+    ]) {
+      const url = absoluteUrl(source.source_url, path)
+      if (url) urls.add(url)
+    }
+  }
+
+  if (isHellfireSource(source.venue_id, source.source_url)) {
+    for (const url of [
+      'https://www.theold-hellfireclub.co.uk/Table_Matrix5_Icons.html',
+      'https://www.theold-hellfireclub.co.uk/HellfireCalendar2020.html',
+      'https://tockify.com/hellfireclubuk/',
+    ]) {
+      urls.add(url)
+    }
+  }
+
+  return [...urls].filter((url) => !isJunkUrl(url))
+}
+
+function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
+  if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
+  if (venueId === 'ecclesia_glasgow') return extractEcclesiaEvents(html, pageUrl)
+  if (venueId === 'club_f_birmingham') return extractGenericDatedBlockEvents(html, pageUrl, 'club-f-custom')
+  if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
+
+  return [] as {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[]
+}
+
+function monthNameToNumber(value: string | null | undefined) {
+  const monthMap: Record<string, string> = {
+    jan: '01',
+    january: '01',
+    feb: '02',
+    february: '02',
+    mar: '03',
+    march: '03',
+    apr: '04',
+    april: '04',
+    may: '05',
+    jun: '06',
+    june: '06',
+    jul: '07',
+    july: '07',
+    aug: '08',
+    august: '08',
+    sep: '09',
+    sept: '09',
+    september: '09',
+    oct: '10',
+    october: '10',
+    nov: '11',
+    november: '11',
+    dec: '12',
+    december: '12',
+  }
+
+  return monthMap[String(value || '').toLowerCase()] || null
+}
+
+function futureSafeYear(month: string, day: string, explicitYear?: string | null) {
+  if (explicitYear) return explicitYear
+
+  const now = new Date()
+  const currentYear = now.getFullYear()
+  const candidate = new Date(Date.UTC(currentYear, Number(month) - 1, Number(day)))
+  const today = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()))
+
+  // If an undated page month/day has already passed by more than 7 days, assume next year.
+  if (candidate.getTime() < today.getTime() - 7 * 86400000) return String(currentYear + 1)
+
+  return String(currentYear)
+}
+
+function normaliseTwoDigitYear(value: string | null | undefined) {
+  if (!value) return null
+  const raw = String(value)
+  if (/^20\d{2}$/.test(raw)) return raw
+  if (/^\d{2}$/.test(raw)) return `20${raw}`
+  return null
+}
+
+function extractDateFromNumericParts(day: string, month: string, year: string | null | undefined) {
+  const fullYear = normaliseTwoDigitYear(year) || String(new Date().getFullYear())
+  return validDateOrNull(`${fullYear}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`)
+}
+
+function cleanTargetVenueTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/\b\d+\s+days?\s+to\s+the\s+event\b/gi, '')
+    .replace(/\bmore info\b/gi, '')
+    .replace(/\bbook tickets? here\b/gi, '')
+    .replace(/\bdetails\b/gi, '')
+    .replace(/\btickets?\b/gi, '')
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function pushTargetCandidate(
+  candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[],
+  seen: Set<string>,
+  input: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }
+) {
+  const title = cleanTargetVenueTitle(input.text)
+  if (!title || isJunkTitle(title)) return
+  if (!input.event_date && !looksLikeStrongUndatedEvent(`${title} ${input.raw}`)) return
+
+  const key = `${normalizeTitle(title)}|${input.event_date || 'no-date'}|${normalizeTicketUrl(input.href)}`
+  if (seen.has(key)) return
+  seen.add(key)
+
+  candidates.push({
+    href: input.href,
+    text: title.length > 130 ? title.slice(0, 130).trim() : title,
+    event_date: input.event_date,
+    start_time: input.start_time,
+    raw: cleanText(input.raw || title).slice(0, 500),
+    image_url: validImageUrl(input.image_url || null),
+    method: input.method,
+  })
+}
+
+function extractClubBacchusEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const text = cleanText(html)
+  const months =
+    'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
+  const monthSectionPattern = new RegExp(
+    `\\b(${months})\\b\\s+([\\s\\S]{0,6000}?)(?=\\b(?:${months})\\b\\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|\\d{1,2})|©|Privacy Settings|$)`,
+    'gi'
+  )
+
+  let monthMatch
+
+  while ((monthMatch = monthSectionPattern.exec(text)) !== null) {
+    const month = monthNameToNumber(monthMatch[1])
+    if (!month) continue
+
+    const section = monthMatch[2]
+    const eventPattern =
+      /\b(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)?\s*(\d{1,2})(?:st|nd|rd|th)?\s+(.{5,130}?)(?:\s+(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm))(?:\s*[-–—]\s*(?:late|\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)))?)?(?=\s+(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)?\s*\d{1,2}(?:st|nd|rd|th)?\s+|$)/gi
+
+    let eventMatch
+
+    while ((eventMatch = eventPattern.exec(section)) !== null) {
+      const day = eventMatch[1].padStart(2, '0')
+      const year = futureSafeYear(month, day)
+      const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+      const raw = cleanText(eventMatch[0])
+      let title = cleanTargetVenueTitle(eventMatch[2])
+
+      title = title
+        .replace(/\b(?:wear|come|open to all|subs in uniform|doms as teachers)\b[\s\S]*$/i, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+      if (!eventDate || !title || title.length < 5) continue
+
+      pushTargetCandidate(candidates, seen, {
+        href: eventUrlWithAnchor(baseUrl, title),
+        text: title,
+        event_date: eventDate,
+        start_time: extractTime(raw),
+        raw,
+        image_url: extractBestImage(html, baseUrl),
+        method: 'club-bacchus-custom',
+      })
+    }
+  }
+
+  return candidates
+}
+
+function extractPlaygroundsEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const text = cleanText(decodeEscapedText(html))
+  const links = extractLinks(html, baseUrl)
+  const image = extractBestImage(html, baseUrl)
+
+  const pattern =
+    /(?:Image:\s*)?([A-Z0-9][A-Z0-9 '&+.,:/!-]{5,90}?)\s+(?:\d+\s+days?\s+to\s+the\s+event\s+)?\1?\s*(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(20\d{2}),\s*(\d{1,2}:\d{2})/gi
+
+  let match
+
+  while ((match = pattern.exec(text)) !== null) {
+    const month = monthNameToNumber(match[3])
+    if (!month) continue
+
+    const eventDate = validDateOrNull(`${match[4]}-${month}-${match[2].padStart(2, '0')}`)
+    const title = cleanTargetVenueTitle(match[1])
+    const startTime = validTimeOrNull(match[5])
+    const matchingLink =
+      links.find((link) => normalizeTitle(link.text).includes('book') && !isJunkUrl(link.href)) ||
+      links.find((link) => normalizeTitle(link.text).includes(normalizeTitle(title).slice(0, 20)) && !isJunkUrl(link.href))
+
+    pushTargetCandidate(candidates, seen, {
+      href: matchingLink?.href || eventUrlWithAnchor(baseUrl, title),
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: match[0],
+      image_url: image,
+      method: 'playgrounds-custom',
+    })
+  }
+
+  return candidates
+}
+
+function extractEcclesiaEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const text = cleanText(html)
+  const links = extractLinks(html, baseUrl)
+  const image = extractBestImage(html, baseUrl)
+
+  const categoryPattern =
+    /\b(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\s+\2\s*-\s*\d{1,2}\s+\2\s+(.{5,120}?)\s+(\d{1,2})-(\d{1,2})-(\d{2,4})\s*@\s*(\d{1,2}):(\d{2})/gi
+
+  let match
+
+  while ((match = categoryPattern.exec(text)) !== null) {
+    const year = normaliseTwoDigitYear(match[6]) || String(new Date().getFullYear())
+    const eventDate = validDateOrNull(`${year}-${match[5].padStart(2, '0')}-${match[4].padStart(2, '0')}`)
+    const title = cleanTargetVenueTitle(match[3])
+    const startTime = validTimeOrNull(`${match[7].padStart(2, '0')}:${match[8]}`)
+    const matchingLink = links.find((link) => normalizeTitle(link.text).includes(normalizeTitle(title).slice(0, 20)) && !isJunkUrl(link.href))
+
+    pushTargetCandidate(candidates, seen, {
+      href: matchingLink?.href || eventUrlWithAnchor(baseUrl, title),
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: match[0],
+      image_url: image,
+      method: 'ecclesia-category-custom',
+    })
+  }
+
+  const eventPageTitle = extractPageTitle(html)
+  const eventPageDate =
+    extractDateFromHtml(html) ||
+    extractDate(text.slice(0, 2000))
+
+  if (baseUrl.includes('/event/') && eventPageTitle && eventPageDate) {
+    pushTargetCandidate(candidates, seen, {
+      href: baseUrl,
+      text: eventPageTitle,
+      event_date: eventPageDate,
+      start_time: extractTime(text.slice(0, 3000)),
+      raw: extractMetaDescription(html) || text.slice(0, 500),
+      image_url: image,
+      method: 'ecclesia-event-page',
+    })
+  }
+
+  return candidates
+}
+
+function extractHellfireEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const image = extractBestImage(html, baseUrl)
+  const jsonEvents = extractJsonLdEvents(html, baseUrl)
+
+  for (const event of jsonEvents) {
+    pushTargetCandidate(candidates, seen, {
+      href: event.url || baseUrl,
+      text: event.name,
+      event_date: event.date || extractDate(`${event.name} ${event.description}`),
+      start_time: event.start_time || extractTime(`${event.name} ${event.description}`),
+      raw: event.description || event.name,
+      image_url: event.image_url || image,
+      method: 'hellfire-jsonld',
+    })
+  }
+
+  const text = cleanText(decodeEscapedText(html))
+  const pattern =
+    /([A-Z][A-Za-z0-9 '&+.,:/!-]{5,90}?)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*(20\d{2})?/gi
+
+  let match
+
+  while ((match = pattern.exec(text)) !== null) {
+    const month = monthNameToNumber(match[3])
+    if (!month) continue
+
+    const year = futureSafeYear(month, match[2].padStart(2, '0'), match[4])
+    const eventDate = validDateOrNull(`${year}-${month}-${match[2].padStart(2, '0')}`)
+    const title = cleanTargetVenueTitle(match[1])
+
+    pushTargetCandidate(candidates, seen, {
+      href: eventUrlWithAnchor(baseUrl, title),
+      text: title,
+      event_date: eventDate,
+      start_time: extractTime(match[0]),
+      raw: match[0],
+      image_url: image,
+      method: 'hellfire-custom',
+    })
+  }
+
+  return candidates
+}
+
+function extractGenericDatedBlockEvents(html: string, baseUrl: string, method: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const text = cleanText(decodeEscapedText(html))
+  const image = extractBestImage(html, baseUrl)
+
+  const patterns = [
+    /([A-Z][A-Za-z0-9 '&+.,:/!-]{5,100}?)\s+(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(20\d{2})(?:,\s*)?(\d{1,2}:\d{2})?/gi,
+    /(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(20\d{2})\s+([A-Z][A-Za-z0-9 '&+.,:/!-]{5,100}?)(?=\s+\d{1,2}\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|december)|$)/gi,
+    /([A-Z][A-Za-z0-9 '&+.,:/!-]{5,100}?)\s+(\d{1,2})[\/.-](\d{1,2})[\/.-](20\d{2}|\d{2})(?:\s+(\d{1,2}:\d{2}))?/gi,
+  ]
+
+  for (const pattern of patterns) {
+    let match
+
+    while ((match = pattern.exec(text)) !== null) {
+      let title = ''
+      let eventDate: string | null = null
+      let startTime: string | null = null
+
+      if (pattern === patterns[0]) {
+        const month = monthNameToNumber(match[3])
+        if (!month) continue
+        title = match[1]
+        eventDate = validDateOrNull(`${match[4]}-${month}-${match[2].padStart(2, '0')}`)
+        startTime = match[5] ? validTimeOrNull(match[5]) : extractTime(match[0])
+      } else if (pattern === patterns[1]) {
+        const month = monthNameToNumber(match[2])
+        if (!month) continue
+        title = match[4]
+        eventDate = validDateOrNull(`${match[3]}-${month}-${match[1].padStart(2, '0')}`)
+        startTime = extractTime(match[0])
+      } else {
+        title = match[1]
+        eventDate = extractDateFromNumericParts(match[2], match[3], match[4])
+        startTime = match[5] ? validTimeOrNull(match[5]) : extractTime(match[0])
+      }
+
+      pushTargetCandidate(candidates, seen, {
+        href: eventUrlWithAnchor(baseUrl, title),
+        text: title,
+        event_date: eventDate,
+        start_time: startTime,
+        raw: match[0],
+        image_url: image,
+        method,
+      })
+    }
+  }
+
+  return candidates
+}
+
 
 
 async function fetchHtml(url: string) {
@@ -3127,6 +3758,7 @@ async function cleanupBadExistingEvents() {
       const ticketUrl = event.ticket_url || ''
       const description = event.description || ''
 
+      if (isLeBoudoirSource(event.venue_id) && isLeBoudoirJunkExistingEvent(event)) return true
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
       if (isJunkUrl(ticketUrl)) return true
@@ -3160,6 +3792,11 @@ function shouldSaveEvent(input: {
   description: string | null
 }) {
   const eventName = cleanEventName(input.event_name)
+
+  if (isLeBoudoirSource(input.venue_id)) {
+    if (isLeBoudoirJunkEventTitle(eventName)) return false
+    if (!input.event_date) return false
+  }
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return false
   if (isJunkTitle(eventName)) return false
@@ -3393,7 +4030,10 @@ export async function GET(request: Request) {
   for (const source of sources || []) {
     console.log('SOURCE START:', source.source_url)
 
-    if (isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)) {
+    if (
+      isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`) ||
+      isLeBoudoirSource(`${source.source_url} ${source.venue_id}`)
+    ) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
 
@@ -3522,7 +4162,12 @@ export async function GET(request: Request) {
         ? await discoverClubAlchemyEventUrls(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls]
+    const targetVenueDiscoveredUrls =
+      isTargetVenueSource(source.venue_id, source.source_url)
+        ? discoverTargetVenueEventPages(source)
+        : []
+
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -3534,6 +4179,8 @@ export async function GET(request: Request) {
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
             : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
               ? Math.max(MAX_PAGES_PER_SOURCE, 10)
+            : isTargetVenueSource(source.venue_id, source.source_url)
+              ? Math.max(MAX_PAGES_PER_SOURCE, 18)
             : isWixLikeSource(source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 12)
               : MAX_PAGES_PER_SOURCE
@@ -3542,7 +4189,7 @@ export async function GET(request: Request) {
       const pageUrl = queue.shift()
 
       if (!pageUrl || seenPages.has(pageUrl)) continue
-      if (!sameDomainOrClubAlchemy(source.source_url, pageUrl)) continue
+      if (!allowedSourcePageForVenue(source, pageUrl)) continue
       if (isJunkUrl(pageUrl)) continue
 
       seenPages.add(pageUrl)
@@ -3599,6 +4246,10 @@ export async function GET(request: Request) {
         const vanillaAlternativeEvents =
           isVanillaAlternativeSource(`${source.source_url} ${source.venue_id} ${pageUrl}`)
             ? extractVanillaAlternativeEvents(html, pageUrl)
+            : []
+        const targetVenueEvents =
+          isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
+            ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
         let clubAlchemyBundleEvents: {
           href: string
@@ -3698,6 +4349,83 @@ export async function GET(request: Request) {
               event_url: ticketUrl,
               image_url: imageUrl,
               method: 'club-alchemy-custom',
+            })
+          }
+        }
+
+
+        for (const targetVenueEvent of targetVenueEvents) {
+          candidatesFound++
+
+          let eventHtml: string | null = null
+          let title = targetVenueEvent.text
+          let description = targetVenueEvent.raw || targetVenueEvent.text
+          let imageUrl = targetVenueEvent.image_url || pageImage
+          let eventDate = targetVenueEvent.event_date
+          let startTime = targetVenueEvent.start_time
+          const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
+
+          if (allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
+            eventHtml = await fetchHtml(ticketUrl)
+
+            if (eventHtml) {
+              const detailTitle = extractPageTitle(eventHtml)
+              const detailDescription = extractMetaDescription(eventHtml)
+              const detailDate = extractDateFromHtml(eventHtml)
+              const detailImage = extractBestImage(eventHtml, ticketUrl)
+
+              if (detailTitle && !isJunkTitle(detailTitle)) title = detailTitle
+              description = detailDescription || description
+              imageUrl = detailImage || imageUrl
+              eventDate = eventDate || detailDate
+              startTime = startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
+            }
+          }
+
+          const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: eventDate,
+            start_time: startTime,
+            description,
+            ticket_url: ticketUrl,
+            image_url: imageUrl,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else {
+            failed++
+
+            if (errors.length < 20) {
+              errors.push({
+                venue_id: source.venue_id,
+                event_name: title,
+                event_date: eventDate,
+                error: result.error?.message || 'Unknown upsert error',
+              })
+            }
+          }
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: eventDate,
+              event_url: ticketUrl,
+              image_url: imageUrl,
+              method: targetVenueEvent.method,
             })
           }
         }
@@ -4053,7 +4781,7 @@ export async function GET(request: Request) {
           const combined = `${link.href} ${link.text} ${link.raw}`
 
           if (
-            sameDomainOrClubAlchemy(source.source_url, link.href) &&
+            allowedSourcePageForVenue(source, link.href) &&
             looksLikeUsefulPage(combined) &&
             !isJunkUrl(link.href) &&
             !seenPages.has(link.href) &&
