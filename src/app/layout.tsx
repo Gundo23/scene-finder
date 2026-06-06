@@ -16,6 +16,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'Scene Finder',
   description: 'Find clubs. Discover events. Explore the scene.',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/icon-192.png',
+    apple: '/apple-touch-icon.png',
+  },
+  themeColor: '#09090b',
 }
 
 export default function RootLayout({
