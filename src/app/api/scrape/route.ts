@@ -2510,12 +2510,6 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
   if (sameDomainOrClubAlchemy(source.source_url, pageUrl)) return true
 
   // Hellfire embeds/links its live calendar on Tockify, so allow this one external host.
-  if (isPandoraSource(source.venue_id, source.source_url)) {
-    for (const url of discoverPandoraEventPages(source.source_url)) {
-      urls.add(url)
-    }
-  }
-
   if (isHellfireSource(source.venue_id, source.source_url)) {
     try {
       const host = new URL(pageUrl).hostname.replace(/^www\./, '').toLowerCase()
