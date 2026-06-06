@@ -2341,6 +2341,124 @@ function extractClubAlchemyDateFromUrl(url: string) {
   }
 }
 
+function extractClubAlchemyTimeFromText(value: string | null | undefined) {
+  const text = cleanText(decodeEscapedText(String(value || '')))
+
+  const twentyFourHour =
+    text.match(/\b([01]?\d|2[0-3])[:.](\d{2})\s*(?:-|–|—|to)\s*([01]?\d|2[0-3])[:.](\d{2})\b/) ||
+    text.match(/\b([01]?\d|2[0-3])[:.](\d{2})\b/)
+
+  if (twentyFourHour) {
+    return validTimeOrNull(`${String(twentyFourHour[1]).padStart(2, '0')}:${twentyFourHour[2]}`)
+  }
+
+  return extractTime(text)
+}
+
+function extractScriptUrls(html: string, baseUrl: string) {
+  const urls = new Set<string>()
+
+  const scripts = [
+    ...html.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*>/gi),
+    ...html.matchAll(/<link[^>]+href=["']([^"']+\.js(?:\?[^"']*)?)["'][^>]*>/gi),
+  ]
+
+  for (const match of scripts) {
+    const url = absoluteUrl(baseUrl, match[1])
+    if (url && !isJunkUrl(url)) urls.add(url)
+  }
+
+  return [...urls]
+}
+
+function extractClubAlchemyEventUrlsFromText(value: string, baseUrl: string) {
+  const urls = new Set<string>()
+  const decoded = decodeEscapedText(value)
+
+  const fullUrlPattern =
+    /https?:\/\/(?:www\.)?(?:clubalchemy\.co\.uk|oid2yvxyy4-btej6sd4xq-uk\.a\.run\.app)\/events\/[a-z0-9][a-z0-9_-]*(?:20\d{2}-\d{2}-\d{2})?[a-z0-9_-]*/gi
+
+  for (const match of decoded.matchAll(fullUrlPattern)) {
+    const url = publicClubAlchemyUrl(match[0])
+    if (url && isClubAlchemyEventPage(url) && !isJunkUrl(url)) urls.add(url)
+  }
+
+  const pathPattern =
+    /(?:["'`:]|href=|url\()\s*(\/events\/[a-z0-9][a-z0-9_-]*(?:20\d{2}-\d{2}-\d{2})?[a-z0-9_-]*)/gi
+
+  for (const match of decoded.matchAll(pathPattern)) {
+    const url = publicClubAlchemyUrl(absoluteUrl(baseUrl, match[1]))
+    if (url && isClubAlchemyEventPage(url) && !isJunkUrl(url)) urls.add(url)
+  }
+
+  return [...urls]
+}
+
+function extractClubAlchemyEventCandidatesFromText(value: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const decoded = decodeEscapedText(value)
+  const discoveredUrls = extractClubAlchemyEventUrlsFromText(decoded, baseUrl)
+
+  for (const href of discoveredUrls) {
+    const title = cleanClubAlchemyTitle('', href)
+    const eventDate = extractClubAlchemyDateFromUrl(href)
+
+    if (!title || isJunkTitle(title)) continue
+
+    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: null,
+      raw: title,
+    })
+  }
+
+  const objectLikePattern =
+    /(?:title|name)["']?\s*[:=]\s*["']([^"']{3,80})["'][\s\S]{0,900}?(?:date|eventDate|startDate|startsAt|start)["']?\s*[:=]\s*["']?([^"',}\]\s]{8,30})/gi
+
+  let match
+  while ((match = objectLikePattern.exec(decoded)) !== null) {
+    const rawTitle = cleanText(match[1])
+    const date = extractDate(match[2]) || extractDate(match[0])
+    if (!date) continue
+
+    const nearbyUrls = extractClubAlchemyEventUrlsFromText(match[0], baseUrl)
+    const href =
+      nearbyUrls[0] ||
+      eventUrlWithAnchor(baseUrl, rawTitle)
+
+    const title = cleanClubAlchemyTitle(rawTitle, href)
+    if (!title || isJunkTitle(title)) continue
+
+    const key = `${normalizeTitle(title)}|${date}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: date,
+      start_time: extractClubAlchemyTimeFromText(match[0]),
+      raw: cleanText(match[0]).slice(0, 500),
+    })
+  }
+
+  return candidates
+}
+
 function cleanClubAlchemyTitle(value: string, fallbackUrl: string) {
   let title = cleanEventName(value)
     .replace(/\s*\|\s*club alchemy\s*$/i, '')
@@ -2381,10 +2499,13 @@ function cleanClubAlchemyTitle(value: string, fallbackUrl: string) {
 
 async function discoverClubAlchemyEventUrls(sourceUrl: string) {
   const discovered = new Set<string>()
+  const bundleUrls = new Set<string>()
 
   const seedUrls = [
     absoluteUrl(sourceUrl, '/events'),
     absoluteUrl(sourceUrl, '/events/'),
+    absoluteUrl(sourceUrl, '/calendar'),
+    absoluteUrl(sourceUrl, '/calendar/'),
   ].filter(Boolean) as string[]
 
   for (const url of seedUrls) discovered.add(url)
@@ -2402,14 +2523,49 @@ async function discoverClubAlchemyEventUrls(sourceUrl: string) {
     const xml = await fetchText(sitemapUrl, 'application/xml,text/xml,text/plain')
     if (!xml) continue
 
+    for (const url of extractClubAlchemyEventUrlsFromText(xml, sitemapUrl)) {
+      discovered.add(url)
+    }
+
     const urls = [...xml.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)]
       .map((match) => cleanText(match[1]))
       .filter((url) => isClubAlchemyEventPage(url))
 
-    for (const url of urls) discovered.add(url)
+    for (const url of urls) {
+      const publicUrl = publicClubAlchemyUrl(url) || url
+      discovered.add(publicUrl)
+    }
   }
 
-  return [...discovered].filter((url) => !isJunkUrl(url))
+  for (const seedUrl of seedUrls) {
+    const html = await fetchText(seedUrl, 'text/html,application/xhtml+xml,text/plain')
+    if (!html) continue
+
+    for (const url of extractClubAlchemyEventUrlsFromText(html, seedUrl)) {
+      discovered.add(url)
+    }
+
+    for (const scriptUrl of extractScriptUrls(html, seedUrl)) {
+      if (isClubAlchemyHost(scriptUrl) || scriptUrl.includes('/assets/')) {
+        bundleUrls.add(scriptUrl)
+      }
+    }
+  }
+
+  // Club Alchemy is a React/Vite app. The event links/details can live in the JS bundle,
+  // while the raw HTML only shows generic meta tags. Scan the public bundle for event slugs.
+  for (const scriptUrl of [...bundleUrls].slice(0, 6)) {
+    const js = await fetchText(scriptUrl, 'application/javascript,text/javascript,text/plain,*/*')
+    if (!js) continue
+
+    for (const url of extractClubAlchemyEventUrlsFromText(js, scriptUrl)) {
+      discovered.add(url)
+    }
+  }
+
+  return [...discovered]
+    .map((url) => publicClubAlchemyUrl(url) || url)
+    .filter((url) => !isJunkUrl(url))
 }
 
 function extractClubAlchemyEventLinks(html: string, baseUrl: string) {
@@ -3075,10 +3231,32 @@ export async function GET(request: Request) {
           isWixLikeSource(`${source.source_url} ${html}`)
             ? extractWixCalendarTileEvents(html, pageUrl)
             : []
+        let clubAlchemyBundleEvents: {
+          href: string
+          text: string
+          event_date: string | null
+          start_time: string | null
+          raw: string
+        }[] = []
+
+        if (isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich') {
+          const scriptUrls = extractScriptUrls(html, pageUrl)
+
+          for (const scriptUrl of scriptUrls.slice(0, 4)) {
+            const js = await fetchText(scriptUrl, 'application/javascript,text/javascript,text/plain,*/*')
+            if (js) {
+              clubAlchemyBundleEvents.push(
+                ...extractClubAlchemyEventCandidatesFromText(js, scriptUrl)
+              )
+            }
+          }
+        }
+
         const clubAlchemyEvents =
           isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? [
                 ...extractClubAlchemyEventLinks(html, pageUrl),
+                ...clubAlchemyBundleEvents,
                 ...(extractClubAlchemySelfEvent(html, pageUrl)
                   ? [extractClubAlchemySelfEvent(html, pageUrl)!]
                   : []),
