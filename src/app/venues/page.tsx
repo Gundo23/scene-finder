@@ -141,45 +141,40 @@ export default async function Home({
             </p>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.22),rgba(24,24,27,0.92)_45%,rgba(9,9,11,1)_100%)] px-6 py-7 sm:px-10 sm:py-9">
-            <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 text-center sm:flex-row sm:justify-between sm:text-left">
-              <div className="max-w-md">
-                <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-300">
-                  Discover the scene
-                </p>
+          <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.22),rgba(24,24,27,0.92)_45%,rgba(9,9,11,1)_100%)] px-5 py-7 text-center sm:px-10 sm:py-9">
+            <div className="mx-auto flex max-w-3xl flex-col items-center">
+              <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-300">
+                Discover the scene
+              </p>
 
-                <p className="mt-2 text-sm leading-6 text-zinc-300 sm:text-base">
-                  Search clubs, socials, saunas, kink nights and lifestyle events across the UK.
-                </p>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200 sm:text-sm">
-                    {venueCount || 0} Venues
-                  </span>
-
-                  <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200 sm:text-sm">
-                    {eventCount || 0} Events
-                  </span>
-
-                  <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs font-medium text-zinc-300 sm:text-sm">
-                    Updated Daily
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex h-28 w-40 shrink-0 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 sm:h-32 sm:w-48">
+              <div className="mt-5 flex justify-center">
                 <FallbackImage
                   src="/images/home-hero.jpg"
                   fallbackSrc="/images/venue-placeholder.jpg"
                   alt="Scene Finder"
-                  className="h-full w-full object-contain"
+                  className="h-36 w-36 object-contain sm:h-44 sm:w-44"
                 />
               </div>
-            </div>
-          
 
-          
-</div>
+              <p className="mt-5 max-w-xl text-sm leading-6 text-zinc-300 sm:text-base">
+                Search clubs, socials, saunas, kink nights and lifestyle events across the UK.
+              </p>
+
+              <div className="mt-4 flex flex-nowrap items-center justify-center gap-2">
+                <span className="whitespace-nowrap rounded-full border border-blue-500/40 bg-blue-500/10 px-2.5 py-1 text-[11px] font-medium text-blue-200 sm:px-3 sm:text-sm">
+                  {venueCount || 0} Venues
+                </span>
+
+                <span className="whitespace-nowrap rounded-full border border-blue-500/40 bg-blue-500/10 px-2.5 py-1 text-[11px] font-medium text-blue-200 sm:px-3 sm:text-sm">
+                  {eventCount || 0} Events
+                </span>
+
+                <span className="whitespace-nowrap rounded-full border border-zinc-700 bg-zinc-900/80 px-2.5 py-1 text-[11px] font-medium text-zinc-300 sm:px-3 sm:text-sm">
+                  Updated Daily
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
