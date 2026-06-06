@@ -1266,6 +1266,265 @@ function extractQuestEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+
+function discoverXtasiaEventPages(sourceUrl: string) {
+  const pages = [
+    'https://xtasia.co.uk/page/swingers-diary',
+    'https://xtasia.co.uk/page/fetish-diary',
+    'https://www.xtasia.co.uk/page/swingers-diary',
+    'https://www.xtasia.co.uk/page/fetish-diary',
+  ]
+
+  return [...new Set(pages)]
+    .map((url) => absoluteUrl(sourceUrl, url))
+    .filter(Boolean) as string[]
+}
+
+function unfoldIcsLines(ics: string) {
+  const lines = ics.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  const output: string[] = []
+
+  for (const line of lines) {
+    if ((line.startsWith(' ') || line.startsWith('\t')) && output.length > 0) {
+      output[output.length - 1] += line.slice(1)
+    } else {
+      output.push(line)
+    }
+  }
+
+  return output
+}
+
+function decodeIcsText(value: string | null | undefined) {
+  if (!value) return ''
+
+  return cleanText(
+    value
+      .replace(/\\n/g, ' ')
+      .replace(/\\,/g, ',')
+      .replace(/\\;/g, ';')
+      .replace(/\\\\/g, '\\')
+  )
+}
+
+function parseIcsDate(value: string | null | undefined) {
+  if (!value) return null
+
+  const raw = String(value).trim()
+
+  let match = raw.match(/^(20\d{2})(\d{2})(\d{2})/)
+  if (match) return validDateOrNull(`${match[1]}-${match[2]}-${match[3]}`)
+
+  match = raw.match(/^(20\d{2})-(\d{2})-(\d{2})/)
+  if (match) return validDateOrNull(`${match[1]}-${match[2]}-${match[3]}`)
+
+  return null
+}
+
+function parseIcsTime(value: string | null | undefined) {
+  if (!value) return null
+
+  const raw = String(value).trim()
+  const match = raw.match(/^20\d{6}T(\d{2})(\d{2})/)
+
+  if (!match) return null
+
+  return validTimeOrNull(`${match[1]}:${match[2]}`)
+}
+
+function parseIcsEvents(ics: string, baseUrl: string, diaryName: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+  }[] = []
+
+  const lines = unfoldIcsLines(ics)
+  const events: Record<string, string>[] = []
+  let current: Record<string, string> | null = null
+
+  for (const line of lines) {
+    if (line === 'BEGIN:VEVENT') {
+      current = {}
+      continue
+    }
+
+    if (line === 'END:VEVENT') {
+      if (current) events.push(current)
+      current = null
+      continue
+    }
+
+    if (!current) continue
+
+    const separatorIndex = line.indexOf(':')
+    if (separatorIndex === -1) continue
+
+    const rawKey = line.slice(0, separatorIndex)
+    const value = line.slice(separatorIndex + 1)
+    const key = rawKey.split(';')[0].toUpperCase()
+
+    current[key] = value
+  }
+
+  const today = new Date().toISOString().split('T')[0]
+  const seen = new Set<string>()
+
+  for (const event of events) {
+    let title = cleanEventName(decodeIcsText(event.SUMMARY || ''))
+      .replace(/^@?\s*Xtasia\s*[-–:]\s*/i, '')
+      .replace(/^Flirts\s*[-–:]\s*/i, 'Flirts - ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isJunkTitle(title)) continue
+
+    const eventDate = parseIcsDate(event.DTSTART)
+    if (!eventDate) continue
+    if (eventDate < today) continue
+
+    const description = decodeIcsText(event.DESCRIPTION || `${title} ${diaryName}`)
+    const startTime = parseIcsTime(event.DTSTART)
+    const ticketUrl = event.URL ? decodeIcsText(event.URL) : eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate}|${startTime || ''}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: ticketUrl || eventUrlWithAnchor(baseUrl, title),
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: description || `${title} ${diaryName}`,
+    })
+  }
+
+  return candidates
+}
+
+function extractGoogleCalendarIds(html: string, baseUrl: string) {
+  const ids = new Set<string>()
+
+  const iframeMatches = [
+    ...html.matchAll(/<iframe[^>]+src=["']([^"']*calendar\.google\.com\/calendar\/embed[^"']+)["'][^>]*>/gi),
+    ...html.matchAll(/<iframe[^>]+src=["']([^"']*google\.com\/calendar\/embed[^"']+)["'][^>]*>/gi),
+  ]
+
+  for (const match of iframeMatches) {
+    const iframeUrl = absoluteUrl(baseUrl, match[1])
+    if (!iframeUrl) continue
+
+    try {
+      const parsed = new URL(iframeUrl)
+      const srcValues = parsed.searchParams.getAll('src')
+
+      for (const src of srcValues) {
+        if (src) ids.add(src)
+      }
+    } catch {
+      continue
+    }
+  }
+
+  const encodedSrcMatches = [...html.matchAll(/src=([^&"'<>]+@[^&"'<>]+)/gi)]
+
+  for (const match of encodedSrcMatches) {
+    try {
+      ids.add(decodeURIComponent(match[1]))
+    } catch {
+      ids.add(match[1])
+    }
+  }
+
+  return [...ids]
+}
+
+async function extractXtasiaEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+  }[] = []
+
+  const diaryName = baseUrl.includes('fetish') ? 'Fetish Diary' : 'Swingers Diary'
+  const calendarIds = extractGoogleCalendarIds(html, baseUrl)
+
+  for (const calendarId of calendarIds) {
+    const encodedId = encodeURIComponent(calendarId)
+    const icsUrls = [
+      `https://calendar.google.com/calendar/ical/${encodedId}/public/basic.ics`,
+      `https://calendar.google.com/calendar/ical/${encodedId}/private/basic.ics`,
+    ]
+
+    for (const icsUrl of icsUrls) {
+      const ics = await fetchText(icsUrl, 'text/calendar,text/plain,*/*')
+      if (!ics || !ics.includes('BEGIN:VCALENDAR')) continue
+
+      candidates.push(...parseIcsEvents(ics, baseUrl, diaryName))
+      break
+    }
+  }
+
+  if (candidates.length === 0) {
+    const text = cleanText(html)
+    const currentYear = new Date().getFullYear()
+    const monthMap: Record<string, string> = {
+      jan: '01',
+      january: '01',
+      feb: '02',
+      february: '02',
+      mar: '03',
+      march: '03',
+      apr: '04',
+      april: '04',
+      may: '05',
+      jun: '06',
+      june: '06',
+      jul: '07',
+      july: '07',
+      aug: '08',
+      august: '08',
+      sep: '09',
+      sept: '09',
+      september: '09',
+      oct: '10',
+      october: '10',
+      nov: '11',
+      november: '11',
+      dec: '12',
+      december: '12',
+    }
+
+    const pattern = /\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\s+(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(.{6,100}?)(?=\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\s+\d{1,2}\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)|$)/gi
+
+    let match
+
+    while ((match = pattern.exec(text)) !== null) {
+      const day = match[1].padStart(2, '0')
+      const month = monthMap[match[2].toLowerCase()]
+      const eventDate = validDateOrNull(`${currentYear}-${month}-${day}`)
+      let title = cleanEventName(match[3]).replace(/^[-–:]+/g, '').trim()
+
+      if (!eventDate || !title || isJunkTitle(title)) continue
+
+      candidates.push({
+        href: eventUrlWithAnchor(baseUrl, title),
+        text: title,
+        event_date: eventDate,
+        start_time: extractTime(match[3]),
+        raw: `${title} ${diaryName}`,
+      })
+    }
+  }
+
+  return candidates
+}
+
 function decodeEscapedText(value: string) {
   return value
     .replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => {
@@ -1991,20 +2250,27 @@ export async function GET(request: Request) {
         ? [absoluteUrl(source.source_url, '/upcoming-events/')].filter(Boolean) as string[]
         : []
 
+    const xtasiaDiscoveredUrls =
+      source.venue_id === 'xtasia_west_bromwich'
+        ? discoverXtasiaEventPages(source.source_url)
+        : []
+
     const wixDiscoveredUrls =
       isWixLikeSource(source.source_url) || source.collection_method === 'User Submission'
         ? discoverWixEventPages(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...wixDiscoveredUrls]
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
       source.venue_id === 'townhouse_wirral_near_liverpool'
         ? Math.max(MAX_PAGES_PER_SOURCE, 25)
-        : isWixLikeSource(source.source_url)
+        : source.venue_id === 'xtasia_west_bromwich'
           ? Math.max(MAX_PAGES_PER_SOURCE, 12)
-          : MAX_PAGES_PER_SOURCE
+          : isWixLikeSource(source.source_url)
+            ? Math.max(MAX_PAGES_PER_SOURCE, 12)
+            : MAX_PAGES_PER_SOURCE
 
     while (queue.length && seenPages.size < maxPagesForSource) {
       const pageUrl = queue.shift()
@@ -2046,6 +2312,10 @@ export async function GET(request: Request) {
         const questEvents =
           source.venue_id === 'quest_leeds_leeds'
             ? extractQuestEvents(html, pageUrl)
+            : []
+        const xtasiaEvents =
+          source.venue_id === 'xtasia_west_bromwich'
+            ? await extractXtasiaEvents(html, pageUrl)
             : []
         const wixTileEvents =
           isWixLikeSource(`${source.source_url} ${html}`)
@@ -2092,6 +2362,49 @@ export async function GET(request: Request) {
               event_url: ticketUrl,
               image_url: pageImage,
               method: 'quest-custom',
+            })
+          }
+        }
+
+        for (const xtasiaEvent of xtasiaEvents) {
+          candidatesFound++
+
+          const title = xtasiaEvent.text
+          const description = xtasiaEvent.raw || `${xtasiaEvent.text} Xtasia diary`
+          const ticketUrl = xtasiaEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, xtasiaEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: xtasiaEvent.event_date,
+            start_time: xtasiaEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: pageImage,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else failed++
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: xtasiaEvent.event_date,
+              event_url: ticketUrl,
+              image_url: pageImage,
+              method: 'xtasia-calendar',
             })
           }
         }
