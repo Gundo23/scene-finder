@@ -1529,6 +1529,172 @@ async function extractXtasiaEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+
+function isIcsSourceUrl(url: string | null | undefined) {
+  const lower = String(url || '').toLowerCase()
+
+  return (
+    lower.endsWith('.ics') ||
+    lower.includes('/calendar/ical/') ||
+    lower.includes('basic.ics')
+  )
+}
+
+function xtasiaPublicPageForIcs(sourceUrl: string) {
+  const lower = sourceUrl.toLowerCase()
+
+  if (lower.includes('fjos8ldou4a3euibard9if9kfs')) {
+    return 'https://www.xtasia.co.uk/page/fetish-diary'
+  }
+
+  if (lower.includes('0phh2fhvukhsm7j271ep7jvvlk')) {
+    return 'https://www.xtasia.co.uk/page/swingers-diary'
+  }
+
+  return 'https://www.xtasia.co.uk/en'
+}
+
+function xtasiaDiaryNameForIcs(sourceUrl: string) {
+  const lower = sourceUrl.toLowerCase()
+
+  if (lower.includes('fjos8ldou4a3euibard9if9kfs')) return 'Xtasia Fetish Diary'
+  if (lower.includes('0phh2fhvukhsm7j271ep7jvvlk')) return 'Xtasia Swingers Diary'
+
+  return 'Xtasia Diary'
+}
+
+function cleanIcsEventTitleForVenue(venueId: string, title: string) {
+  let cleaned = cleanEventName(title)
+
+  if (venueId === 'xtasia_west_bromwich') {
+    cleaned = cleaned
+      .replace(/^@?\s*Xtasia\s*[-–:]\s*/i, '')
+      .replace(/^Xtasia\s+/i, '')
+      .replace(/^Flirts\s*[-–:]\s*/i, 'Flirts - ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  return cleaned
+}
+
+async function scrapeIcsSource(source: {
+  venue_id: string
+  source_url: string
+}) {
+  const diaryPage =
+    source.venue_id === 'xtasia_west_bromwich'
+      ? xtasiaPublicPageForIcs(source.source_url)
+      : source.source_url
+
+  const diaryName =
+    source.venue_id === 'xtasia_west_bromwich'
+      ? xtasiaDiaryNameForIcs(source.source_url)
+      : 'Calendar'
+
+  const ics = await fetchText(source.source_url, 'text/calendar,text/plain,*/*')
+
+  if (!ics || !ics.includes('BEGIN:VCALENDAR')) {
+    return {
+      checked_pages: 1,
+      candidates_found: 0,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed: 1,
+      timedOutOrEmpty: 1,
+      found: [] as any[],
+      errors: [] as any[],
+      failed_pages: [
+        {
+          venue_id: source.venue_id,
+          page_url: source.source_url,
+          reason: 'ICS fetch returned empty/null or no calendar data',
+        },
+      ],
+    }
+  }
+
+  const icsEvents = parseIcsEvents(ics, diaryPage, diaryName)
+
+  let candidatesFound = 0
+  let created = 0
+  let updated = 0
+  let skipped = 0
+  let failed = 0
+
+  const found: any[] = []
+  const errors: any[] = []
+  const runSeen = new Set<string>()
+
+  for (const event of icsEvents) {
+    candidatesFound++
+
+    const title = cleanIcsEventTitleForVenue(source.venue_id, event.text)
+    const description = event.raw || `${title} ${diaryName}`
+    const ticketUrl = eventUrlWithAnchor(diaryPage, title)
+    const dedupeKey = eventDedupeKey(source.venue_id, title, event.event_date, ticketUrl)
+
+    if (runSeen.has(dedupeKey)) {
+      skipped++
+      continue
+    }
+
+    runSeen.add(dedupeKey)
+
+    const result = await upsertEvent({
+      venue_id: source.venue_id,
+      event_name: title,
+      event_date: event.event_date,
+      start_time: event.start_time,
+      description,
+      ticket_url: ticketUrl,
+      image_url: null,
+      source_url: source.source_url,
+    })
+
+    if (result.action === 'created') created++
+    else if (result.action === 'updated') updated++
+    else if (result.action === 'skipped') skipped++
+    else {
+      failed++
+
+      if (errors.length < 20) {
+        errors.push({
+          venue_id: source.venue_id,
+          event_name: title,
+          event_date: event.event_date,
+          error: result.error?.message || 'Unknown upsert error',
+        })
+      }
+    }
+
+    if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+      found.push({
+        venue_id: source.venue_id,
+        event_name: title,
+        event_date: event.event_date,
+        event_url: ticketUrl,
+        image_url: null,
+        method: 'ics-calendar',
+      })
+    }
+  }
+
+  return {
+    checked_pages: 1,
+    candidates_found: candidatesFound,
+    created,
+    updated,
+    skipped,
+    failed,
+    timedOutOrEmpty: 0,
+    found,
+    errors,
+    failed_pages: [] as any[],
+  }
+}
+
 function decodeEscapedText(value: string) {
   return value
     .replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => {
@@ -2285,6 +2451,41 @@ export async function GET(request: Request) {
 
   for (const source of sources || []) {
     console.log('SOURCE START:', source.source_url)
+
+    if (isIcsSourceUrl(source.source_url)) {
+      const result = await scrapeIcsSource({
+        venue_id: source.venue_id,
+        source_url: source.source_url,
+      })
+
+      checkedPages += result.checked_pages
+      candidatesFound += result.candidates_found
+      created += result.created
+      updated += result.updated
+      skipped += result.skipped
+      failed += result.failed
+      timedOutOrEmpty += result.timedOutOrEmpty
+
+      for (const item of result.found) {
+        if (found.length < MAX_EVENTS_RETURNED) found.push(item)
+      }
+
+      for (const item of result.errors) {
+        if (errors.length < 20) errors.push(item)
+      }
+
+      for (const item of result.failed_pages) {
+        if (failedPages.length < 30) failedPages.push(item)
+      }
+
+      await supabaseAdmin
+        .from('event_sources')
+        .update({ last_checked: new Date().toISOString() })
+        .eq('source_id', source.source_id)
+
+      console.log('SOURCE DONE:', source.source_url)
+      continue
+    }
 
     const townhouseDiscoveredUrls =
       source.venue_id === 'townhouse_wirral_near_liverpool'
