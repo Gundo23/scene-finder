@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { cleanText } from '@/lib/cleanText'
 
 function formatDate(date: string | null) {
   if (!date) return 'Date TBC'
@@ -22,7 +23,9 @@ function getTodayString() {
 }
 
 function getEventCategory(event: any) {
-  const text = `${event.event_name || ''} ${event.description || ''}`.toLowerCase()
+  const text = cleanText(
+    `${event.event_name || ''} ${event.description || ''}`
+  ).toLowerCase()
 
   if (text.includes('newbie')) return 'Newbie'
   if (text.includes('bbw') || text.includes('curvy')) return 'Curvy / BBW'
@@ -78,6 +81,11 @@ export default async function VenuePage({
 
   const sortedEvents = events || []
 
+  const venueName = cleanText(venue.name)
+  const venueCity = cleanText(venue.city_area || '')
+  const venueRegion = cleanText(venue.region || '')
+  const venueNotes = venue.notes ? cleanText(venue.notes) : ''
+
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
       <section className="mx-auto max-w-5xl">
@@ -94,15 +102,15 @@ export default async function VenuePage({
         <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
           <p className="text-sm font-medium text-blue-400">Venue</p>
 
-          <h1 className="mt-2 text-4xl font-bold">{venue.name}</h1>
+          <h1 className="mt-2 text-4xl font-bold">{venueName}</h1>
 
           <p className="mt-3 text-zinc-400">
-            {venue.city_area} • {venue.region}
+            {venueCity} • {venueRegion}
           </p>
 
           {venue.postcode && (
             <p className="mt-2 text-sm text-zinc-500">
-              Postcode: {venue.postcode}
+              Postcode: {cleanText(venue.postcode)}
             </p>
           )}
 
@@ -122,11 +130,11 @@ export default async function VenuePage({
               href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
               className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:text-white"
             >
-              More events in {venue.city_area}
+              More events in {venueCity}
             </Link>
           </div>
 
-          {venue.notes && <p className="mt-6 text-zinc-300">{venue.notes}</p>}
+          {venueNotes && <p className="mt-6 text-zinc-300">{venueNotes}</p>}
         </div>
 
         <div className="mt-10 flex items-end justify-between gap-4">
@@ -143,6 +151,12 @@ export default async function VenuePage({
             sortedEvents.map((event) => {
               const startTime = formatTime(event.start_time)
               const category = getEventCategory(event)
+              const eventName = cleanText(event.event_name)
+              const eventType = event.event_type ? cleanText(event.event_type) : 'Event'
+              const eventStatus = event.status ? cleanText(event.status) : 'unknown'
+              const eventDescription = event.description
+                ? cleanText(event.description)
+                : ''
 
               return (
                 <Link key={event.event_id} href={`/events/${event.event_id}`}>
@@ -150,7 +164,7 @@ export default async function VenuePage({
                     {event.image_url && (
                       <img
                         src={event.image_url}
-                        alt={event.event_name}
+                        alt={eventName}
                         className="h-56 w-full object-cover"
                       />
                     )}
@@ -161,7 +175,7 @@ export default async function VenuePage({
                       </p>
 
                       <h3 className="text-2xl font-semibold hover:text-blue-400">
-                        {event.event_name}
+                        {eventName}
                       </h3>
 
                       <p className="mt-3 text-sm text-zinc-400">
@@ -170,12 +184,12 @@ export default async function VenuePage({
                       </p>
 
                       <p className="mt-2 text-sm text-zinc-500">
-                        {event.event_type} • {event.status}
+                        {eventType} • {eventStatus}
                       </p>
 
-                      {event.description && (
+                      {eventDescription && (
                         <p className="mt-3 line-clamp-2 text-sm text-zinc-400">
-                          {event.description}
+                          {eventDescription}
                         </p>
                       )}
 

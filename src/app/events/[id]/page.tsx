@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import { cleanText } from '@/lib/cleanText'
 
 function formatDate(date: string | null) {
   if (!date) return 'Date TBC'
@@ -65,6 +66,13 @@ export default async function EventDetailPage({
   const startTime = formatTime(event.start_time)
   const endTime = formatTime(event.end_time)
 
+  const eventName = cleanText(event.event_name)
+  const eventType = cleanText(event.event_type || 'Event')
+  const eventDescription = event.description ? cleanText(event.description) : ''
+  const venueName = venue?.name ? cleanText(venue.name) : ''
+  const venueCity = venue?.city_area ? cleanText(venue.city_area) : ''
+  const venueRegion = venue?.region ? cleanText(venue.region) : ''
+
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
       <section className="mx-auto max-w-4xl">
@@ -84,17 +92,17 @@ export default async function EventDetailPage({
           {event.image_url && (
             <img
               src={event.image_url}
-              alt={event.event_name}
+              alt={eventName}
               className="h-80 w-full object-cover"
             />
           )}
 
           <div className="p-6">
             <p className="text-sm font-medium text-blue-400">
-              {event.event_type || 'Event'}
+              {eventType}
             </p>
 
-            <h1 className="mt-2 text-4xl font-bold">{event.event_name}</h1>
+            <h1 className="mt-2 text-4xl font-bold">{eventName}</h1>
 
             <div className="mt-6 grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-5 sm:grid-cols-2">
               <div>
@@ -121,14 +129,14 @@ export default async function EventDetailPage({
                       href={`/venue/${venue.venue_id}`}
                       className="mt-1 inline-block font-medium text-blue-400"
                     >
-                      {venue.name}
+                      {venueName}
                     </Link>
                   </div>
 
                   <div>
                     <p className="text-sm text-zinc-500">Location</p>
                     <p className="mt-1 font-medium text-zinc-100">
-                      {venue.city_area} • {venue.region}
+                      {venueCity} • {venueRegion}
                     </p>
                   </div>
                 </>
@@ -136,12 +144,12 @@ export default async function EventDetailPage({
             </div>
 
             <p className="mt-4 text-sm text-zinc-500">
-              Status: {event.status || 'unknown'}
+              Status: {cleanText(event.status || 'unknown')}
             </p>
 
-            {event.description && (
+            {eventDescription && (
               <p className="mt-6 whitespace-pre-line text-zinc-300">
-                {event.description}
+                {eventDescription}
               </p>
             )}
 
