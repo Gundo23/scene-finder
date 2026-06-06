@@ -505,6 +505,24 @@ export default async function EventsPage({
               />
             </div>
 
+            <div className="min-w-0">
+              <label className="mb-2 block text-sm font-medium text-zinc-300">
+                Distance from postcode
+              </label>
+              <select
+                name="distance"
+                defaultValue={distance}
+                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+              >
+                <option value="">Any distance</option>
+                <option value="5">Within 5 miles</option>
+                <option value="10">Within 10 miles</option>
+                <option value="25">Within 25 miles</option>
+                <option value="50">Within 50 miles</option>
+                <option value="100">Within 100 miles</option>
+              </select>
+            </div>
+
             <div className="min-w-0 lg:col-span-2">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Date range
@@ -525,24 +543,6 @@ export default async function EventsPage({
                   className="min-w-0 bg-zinc-950 px-3 py-3 text-white [color-scheme:dark]"
                 />
               </div>
-            </div>
-
-            <div className="min-w-0">
-              <label className="mb-2 block text-sm font-medium text-zinc-300">
-                Distance from postcode
-              </label>
-              <select
-                name="distance"
-                defaultValue={distance}
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
-              >
-                <option value="">Any distance</option>
-                <option value="5">Within 5 miles</option>
-                <option value="10">Within 10 miles</option>
-                <option value="25">Within 25 miles</option>
-                <option value="50">Within 50 miles</option>
-                <option value="100">Within 100 miles</option>
-              </select>
             </div>
 
             <div className="flex min-w-0 items-end">
