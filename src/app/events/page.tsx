@@ -168,6 +168,8 @@ export default async function EventsPage({
     city?: string
     distance?: string
     date?: string
+    fromDate?: string
+    toDate?: string
   }>
 }) {
   const params = await searchParams
@@ -180,6 +182,8 @@ export default async function EventsPage({
   const city = params.city || ''
   const distance = params.distance || ''
   const dateView = params.date === 'tbc' ? 'tbc' : 'dated'
+  const fromDate = params.fromDate || ''
+  const toDate = params.toDate || ''
   const today = getTodayString()
 
   const selectedDistance = distance ? Number(distance) : null
@@ -189,7 +193,11 @@ export default async function EventsPage({
   if (dateView === 'tbc') {
     eventsQuery = eventsQuery.is('event_date', null)
   } else {
-    eventsQuery = eventsQuery.gte('event_date', today)
+    eventsQuery = eventsQuery.gte('event_date', fromDate || today)
+
+    if (toDate) {
+      eventsQuery = eventsQuery.lte('event_date', toDate)
+    }
   }
 
   const { data: events } = await eventsQuery.order('event_date', {
@@ -329,7 +337,7 @@ export default async function EventsPage({
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
           {dateView === 'tbc' && <input type="hidden" name="date" value="tbc" />}
 
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-8">
             <div className="min-w-0 sm:col-span-2 lg:col-span-1">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Keyword
@@ -359,6 +367,34 @@ export default async function EventsPage({
                 ))}
               </select>
             </div>
+
+            {dateView === 'dated' && (
+              <>
+                <div className="min-w-0">
+                  <label className="mb-2 block text-sm font-medium text-zinc-300">
+                    From Date
+                  </label>
+                  <input
+                    type="date"
+                    name="fromDate"
+                    defaultValue={fromDate}
+                    className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <label className="mb-2 block text-sm font-medium text-zinc-300">
+                    To Date
+                  </label>
+                  <input
+                    type="date"
+                    name="toDate"
+                    defaultValue={toDate}
+                    className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                  />
+                </div>
+              </>
+            )}
 
             <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
@@ -436,7 +472,23 @@ export default async function EventsPage({
             </div>
           )}
 
-          {(search || selectedTag || region || city || distance) && (
+          {dateView === 'dated' && (fromDate || toDate) && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {fromDate && (
+                <span className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-1 text-xs text-blue-200">
+                  From {formatDate(fromDate)}
+                </span>
+              )}
+
+              {toDate && (
+                <span className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-1 text-xs text-blue-200">
+                  To {formatDate(toDate)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {(search || selectedTag || region || city || distance || fromDate || toDate) && (
             <Link
               href={dateView === 'tbc' ? '/events?date=tbc' : '/events'}
               className="mt-4 inline-block text-sm text-blue-400"
@@ -448,7 +500,7 @@ export default async function EventsPage({
 
         <p className="mt-6 text-sm text-zinc-400">
           Showing {filteredEvents?.length || 0}{' '}
-          {dateView === 'tbc' ? 'Date TBC events' : 'dated upcoming events'}
+          {dateView === 'tbc' ? 'Date TBC events' : 'dated events'}
         </p>
 
         <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
