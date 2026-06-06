@@ -66,17 +66,21 @@ function formatTime(time: string | null) {
 }
 
 function inferEventTags(event: any) {
-  const savedTags = Array.isArray(event.tags) ? event.tags.filter(Boolean) : []
+  const savedTags = Array.isArray(event.tags)
+    ? event.tags.map((tag: string) => cleanText(tag)).filter(Boolean)
+    : []
+
   const text = cleanText(
     `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`
   ).toLowerCase()
 
+  const compactText = text.replace(/[^a-z0-9]/g, '')
   const tags = new Set<string>(savedTags)
 
   if (text.includes('newbie') || text.includes('newcomer') || text.includes('first time')) tags.add('Newbie Friendly')
   if (text.includes('couple')) tags.add('Couples')
-  if (text.includes('single men') || text.includes('single guy') || text.includes('single gent')) tags.add('Single Men Welcome')
-  if (text.includes('single women') || text.includes('single female') || text.includes('single ladies')) tags.add('Single Women Welcome')
+  if (text.includes('single men') || text.includes('single man') || text.includes('single male') || text.includes('single guy') || text.includes('single gent')) tags.add('Single Men Welcome')
+  if (text.includes('single women') || text.includes('single woman') || text.includes('single female') || text.includes('single ladies') || text.includes('single lady')) tags.add('Single Women Welcome')
   if (text.includes('bbw') || text.includes('curvy') || text.includes('full figured') || text.includes('full figure')) tags.add('Curvy / BBW')
   if (text.includes('interracial') || text.includes('black magic')) tags.add('Interracial')
   if (text.includes('greedy girl')) tags.add('Greedy Girls')
@@ -86,8 +90,44 @@ function inferEventTags(event: any) {
   if (text.includes('bull')) tags.add('Bull Night')
   if (text.includes('unicorn')) tags.add('Unicorn Friendly')
   if (text.includes('fetish')) tags.add('Fetish')
-  if (text.includes('kink')) tags.add('Kink')
-  if (text.includes('bdsm')) tags.add('BDSM')
+
+  if (
+    text.includes('kink') ||
+    text.includes('fetish') ||
+    text.includes('bdsm') ||
+    compactText.includes('bdsm') ||
+    text.includes('bondage') ||
+    text.includes('domination') ||
+    text.includes('dominance') ||
+    text.includes('submission') ||
+    text.includes('submissive') ||
+    text.includes('dom/sub') ||
+    text.includes('dom sub') ||
+    text.includes('d/s')
+  ) {
+    tags.add('Kink')
+  }
+
+  if (
+    text.includes('bdsm') ||
+    compactText.includes('bdsm') ||
+    text.includes('b d s m') ||
+    text.includes('b.d.s.m') ||
+    text.includes('bondage') ||
+    text.includes('discipline') ||
+    text.includes('dominance') ||
+    text.includes('domination') ||
+    text.includes('submission') ||
+    text.includes('submissive') ||
+    text.includes('sadism') ||
+    text.includes('masochism') ||
+    text.includes('dom/sub') ||
+    text.includes('dom sub') ||
+    text.includes('d/s')
+  ) {
+    tags.add('BDSM')
+  }
+
   if (text.includes('rope')) tags.add('Rope')
   if (text.includes('shibari')) tags.add('Shibari')
   if (text.includes('dom') || text.includes('sub')) tags.add('Dom/Sub')
