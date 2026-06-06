@@ -1805,16 +1805,30 @@ async function upsertEvent(input: {
     return { action: 'skipped', error: null }
   }
 
+  // Important: do not treat a repeated ticket URL as the same event by itself.
+  // Some venues, especially Quest, use the same page/anchor for recurring events.
+  // A URL match only updates an existing event when the title AND date also match.
   const { data: existingByUrl } = await supabaseAdmin
     .from('events')
-    .select('event_id')
+    .select('event_id, event_name, event_date')
     .eq('venue_id', input.venue_id)
     .eq('ticket_url', safeTicketUrl)
-    .limit(10)
+    .limit(50)
 
-  if (existingByUrl && existingByUrl.length > 0) {
-    const keeper = existingByUrl[0]
-    const duplicates = existingByUrl.slice(1)
+  const matchingByUrl =
+    existingByUrl?.filter((event) => {
+      const sameTitle = normalizeTitle(event.event_name) === normalised
+
+      if (input.event_date) {
+        return sameTitle && event.event_date === input.event_date
+      }
+
+      return sameTitle && !event.event_date
+    }) || []
+
+  if (matchingByUrl.length > 0) {
+    const keeper = matchingByUrl[0]
+    const duplicates = matchingByUrl.slice(1)
 
     if (duplicates.length > 0) {
       await supabaseAdmin
