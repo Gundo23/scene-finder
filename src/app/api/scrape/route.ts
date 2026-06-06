@@ -490,9 +490,9 @@ function isJunkUrl(url: string) {
     const path = parsed.pathname.toLowerCase()
     const full = url.toLowerCase()
 
-    if (full.includes('google.com/calendar')) return true
+    if (full.includes('google.com/calendar') && !full.includes('/calendar/ical/')) return true
     if (full.includes('action=template')) return true
-    if (full.includes('ical=1')) return true
+    if (full.includes('ical=1') && !full.includes('/calendar/ical/')) return true
     if (full.includes('/wp-json/')) return true
     if (full.includes('/feed/')) return true
     if (full.includes('facebook.com/sharer')) return true
@@ -1336,6 +1336,212 @@ function parseIcsTime(value: string | null | undefined) {
   return validTimeOrNull(`${match[1]}:${match[2]}`)
 }
 
+function parseIcsDateTimeParts(value: string | null | undefined) {
+  if (!value) return null
+
+  const raw = String(value).trim()
+  const match =
+    raw.match(/^(20\d{2})(\d{2})(\d{2})T?(\d{2})?(\d{2})?/) ||
+    raw.match(/^(20\d{2})-(\d{2})-(\d{2})T?(\d{2})?:?(\d{2})?/)
+
+  if (!match) return null
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4] || '0')
+  const minute = Number(match[5] || '0')
+
+  const date = validDateOrNull(
+    `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  )
+
+  if (!date) return null
+
+  return { year, month, day, hour, minute, date }
+}
+
+function datePartsToString(date: Date) {
+  return validDateOrNull(
+    `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`
+  )
+}
+
+function parseIcsUntil(value: string | null | undefined) {
+  const parts = parseIcsDateTimeParts(value)
+  if (!parts) return null
+
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, 23, 59, 59))
+}
+
+function parseRRule(value: string | null | undefined) {
+  const output: Record<string, string> = {}
+  if (!value) return output
+
+  for (const part of String(value).split(';')) {
+    const [key, val] = part.split('=')
+    if (!key || !val) continue
+    output[key.toUpperCase()] = val
+  }
+
+  return output
+}
+
+function getIcsDurationDays(startValue: string | null | undefined, endValue: string | null | undefined) {
+  const start = parseIcsDateTimeParts(startValue)
+  const end = parseIcsDateTimeParts(endValue)
+
+  if (!start || !end) return 0
+
+  const startDate = new Date(Date.UTC(start.year, start.month - 1, start.day))
+  const endDate = new Date(Date.UTC(end.year, end.month - 1, end.day))
+  const diff = Math.round((endDate.getTime() - startDate.getTime()) / 86400000)
+
+  return Math.max(0, Math.min(diff, 7))
+}
+
+function expandIcsDates(event: Record<string, string>) {
+  const start = parseIcsDateTimeParts(event.DTSTART)
+  if (!start) return []
+
+  const startDate = new Date(Date.UTC(start.year, start.month - 1, start.day))
+  const today = new Date()
+  const todayDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+  const defaultUntil = new Date(todayDate)
+  defaultUntil.setUTCDate(defaultUntil.getUTCDate() + 120)
+
+  const rrule = parseRRule(event.RRULE)
+  const frequency = rrule.FREQ
+  const interval = Math.max(1, Number(rrule.INTERVAL || '1') || 1)
+  const countLimit = Math.min(Math.max(Number(rrule.COUNT || '0') || 0, 0), 200)
+  const untilDate = parseIcsUntil(rrule.UNTIL) || defaultUntil
+  const durationDays = getIcsDurationDays(event.DTSTART, event.DTEND)
+
+  const excluded = new Set<string>()
+  for (const key of Object.keys(event)) {
+    if (!key.startsWith('EXDATE')) continue
+    for (const raw of String(event[key]).split(',')) {
+      const parts = parseIcsDateTimeParts(raw)
+      if (parts?.date) excluded.add(parts.date)
+    }
+  }
+
+  const output: { event_date: string; start_time: string | null }[] = []
+  const addOccurrence = (date: Date) => {
+    for (let offset = 0; offset <= durationDays; offset++) {
+      const occurrence = new Date(date)
+      occurrence.setUTCDate(occurrence.getUTCDate() + offset)
+
+      const eventDate = datePartsToString(occurrence)
+      if (!eventDate) continue
+      if (eventDate < todayDate.toISOString().split('T')[0]) continue
+      if (excluded.has(eventDate)) continue
+
+      const startTime =
+        offset === 0 && typeof start.hour === 'number'
+          ? validTimeOrNull(`${String(start.hour).padStart(2, '0')}:${String(start.minute).padStart(2, '0')}`)
+          : null
+
+      output.push({ event_date: eventDate, start_time: startTime })
+    }
+  }
+
+  if (!frequency) {
+    addOccurrence(startDate)
+    return output
+  }
+
+  const byDays = String(rrule.BYDAY || '')
+    .split(',')
+    .map((day) => day.trim().toUpperCase())
+    .filter(Boolean)
+
+  const dayMap: Record<string, number> = {
+    SU: 0,
+    MO: 1,
+    TU: 2,
+    WE: 3,
+    TH: 4,
+    FR: 5,
+    SA: 6,
+  }
+
+  let generated = 0
+
+  if (frequency === 'DAILY') {
+    const current = new Date(startDate)
+
+    while (current <= untilDate && generated < (countLimit || 200)) {
+      addOccurrence(current)
+      generated++
+      current.setUTCDate(current.getUTCDate() + interval)
+    }
+
+    return output
+  }
+
+  if (frequency === 'WEEKLY') {
+    const weekStart = new Date(startDate)
+    const daysToUse = byDays.length > 0 ? byDays : [Object.keys(dayMap).find((key) => dayMap[key] === startDate.getUTCDay()) || 'MO']
+
+    while (weekStart <= untilDate && generated < (countLimit || 200)) {
+      for (const byDay of daysToUse) {
+        const targetDay = dayMap[byDay.replace(/^\d+/, '')]
+        if (targetDay === undefined) continue
+
+        const occurrence = new Date(weekStart)
+        const diff = targetDay - occurrence.getUTCDay()
+        occurrence.setUTCDate(occurrence.getUTCDate() + diff)
+
+        if (occurrence < startDate) continue
+        if (occurrence > untilDate) continue
+
+        addOccurrence(occurrence)
+        generated++
+        if (countLimit && generated >= countLimit) break
+      }
+
+      weekStart.setUTCDate(weekStart.getUTCDate() + 7 * interval)
+    }
+
+    return output
+  }
+
+  if (frequency === 'MONTHLY') {
+    const current = new Date(startDate)
+
+    while (current <= untilDate && generated < (countLimit || 120)) {
+      addOccurrence(current)
+      generated++
+      current.setUTCMonth(current.getUTCMonth() + interval)
+    }
+
+    return output
+  }
+
+  addOccurrence(startDate)
+  return output
+}
+
+function isJunkIcsCalendarEntry(title: string, description: string) {
+  const combined = normalizeTitle(`${title} ${description}`)
+
+  const junk = [
+    'this months swingers diary',
+    'this months fetish diary',
+    'years swingers diary',
+    'years fetish diary',
+    'xtasia is listed on fabswingers',
+    'fabswingers',
+    'ffff',
+    'closed for private event',
+    'flirts spa closed',
+    'closed midday',
+  ]
+
+  return junk.some((item) => combined.includes(item))
+}
+
 function parseIcsEvents(ics: string, baseUrl: string, diaryName: string) {
   const candidates: {
     href: string
@@ -1370,44 +1576,53 @@ function parseIcsEvents(ics: string, baseUrl: string, diaryName: string) {
     const value = line.slice(separatorIndex + 1)
     const key = rawKey.split(';')[0].toUpperCase()
 
-    current[key] = value
+    if (current[key]) {
+      current[key] = `${current[key]},${value}`
+    } else {
+      current[key] = value
+    }
   }
 
-  const today = new Date().toISOString().split('T')[0]
   const seen = new Set<string>()
 
   for (const event of events) {
-    let title = cleanEventName(decodeIcsText(event.SUMMARY || ''))
+    const rawTitle = decodeIcsText(event.SUMMARY || '')
+    const rawDescription = decodeIcsText(event.DESCRIPTION || `${rawTitle} ${diaryName}`)
+
+    let title = cleanEventName(rawTitle)
       .replace(/^@?\s*Xtasia\s*[-–:]\s*/i, '')
+      .replace(/^Xtasia\s+/i, '')
       .replace(/^Flirts\s*[-–:]\s*/i, 'Flirts - ')
       .replace(/\s+/g, ' ')
       .trim()
 
     if (!title || isJunkTitle(title)) continue
+    if (isJunkIcsCalendarEntry(title, rawDescription)) continue
 
-    const eventDate = parseIcsDate(event.DTSTART)
-    if (!eventDate) continue
-    if (eventDate < today) continue
+    const occurrences = expandIcsDates(event)
 
-    const description = decodeIcsText(event.DESCRIPTION || `${title} ${diaryName}`)
-    const startTime = parseIcsTime(event.DTSTART)
-    const ticketUrl = event.URL ? decodeIcsText(event.URL) : eventUrlWithAnchor(baseUrl, title)
-    const key = `${normalizeTitle(title)}|${eventDate}|${startTime || ''}`
+    for (const occurrence of occurrences) {
+      if (!occurrence.event_date) continue
 
-    if (seen.has(key)) continue
-    seen.add(key)
+      const ticketUrl = event.URL ? decodeIcsText(event.URL) : eventUrlWithAnchor(baseUrl, title)
+      const key = `${normalizeTitle(title)}|${occurrence.event_date}|${occurrence.start_time || ''}`
 
-    candidates.push({
-      href: ticketUrl || eventUrlWithAnchor(baseUrl, title),
-      text: title,
-      event_date: eventDate,
-      start_time: startTime,
-      raw: description || `${title} ${diaryName}`,
-    })
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      candidates.push({
+        href: ticketUrl || eventUrlWithAnchor(baseUrl, title),
+        text: title,
+        event_date: occurrence.event_date,
+        start_time: occurrence.start_time,
+        raw: rawDescription || `${title} ${diaryName}`,
+      })
+    }
   }
 
   return candidates
 }
+
 
 function extractGoogleCalendarIds(html: string, baseUrl: string) {
   const ids = new Set<string>()
@@ -1571,11 +1786,39 @@ function cleanIcsEventTitleForVenue(venueId: string, title: string) {
       .replace(/^@?\s*Xtasia\s*[-–:]\s*/i, '')
       .replace(/^Xtasia\s+/i, '')
       .replace(/^Flirts\s*[-–:]\s*/i, 'Flirts - ')
+      .replace(/\s*-\s*to\s*$/i, '')
       .replace(/\s+/g, ' ')
       .trim()
   }
 
   return cleaned
+}
+
+
+async function cleanupExistingVenueJunk(venueId: string) {
+  if (venueId !== 'xtasia_west_bromwich') return 0
+
+  const { data } = await supabaseAdmin
+    .from('events')
+    .select('event_id, event_name, description')
+    .eq('venue_id', venueId)
+    .limit(1000)
+
+  const idsToDelete =
+    data
+      ?.filter((event) =>
+        isJunkIcsCalendarEntry(event.event_name || '', event.description || '')
+      )
+      .map((event) => event.event_id) || []
+
+  if (idsToDelete.length === 0) return 0
+
+  const { error } = await supabaseAdmin
+    .from('events')
+    .delete()
+    .in('event_id', idsToDelete)
+
+  return error ? 0 : idsToDelete.length
 }
 
 async function scrapeIcsSource(source: {
@@ -1592,6 +1835,8 @@ async function scrapeIcsSource(source: {
       ? xtasiaDiaryNameForIcs(source.source_url)
       : 'Calendar'
 
+  const existingJunkDeleted = await cleanupExistingVenueJunk(source.venue_id)
+
   const ics = await fetchText(source.source_url, 'text/calendar,text/plain,*/*')
 
   if (!ics || !ics.includes('BEGIN:VCALENDAR')) {
@@ -1605,6 +1850,7 @@ async function scrapeIcsSource(source: {
       timedOutOrEmpty: 1,
       found: [] as any[],
       errors: [] as any[],
+      existing_junk_deleted: existingJunkDeleted,
       failed_pages: [
         {
           venue_id: source.venue_id,
@@ -1632,6 +1878,12 @@ async function scrapeIcsSource(source: {
 
     const title = cleanIcsEventTitleForVenue(source.venue_id, event.text)
     const description = event.raw || `${title} ${diaryName}`
+
+    if (!title || isJunkIcsCalendarEntry(title, description)) {
+      skipped++
+      continue
+    }
+
     const ticketUrl = eventUrlWithAnchor(diaryPage, title)
     const dedupeKey = eventDedupeKey(source.venue_id, title, event.event_date, ticketUrl)
 
@@ -1691,6 +1943,7 @@ async function scrapeIcsSource(source: {
     timedOutOrEmpty: 0,
     found,
     errors,
+    existing_junk_deleted: existingJunkDeleted,
     failed_pages: [] as any[],
   }
 }
@@ -2465,6 +2718,7 @@ export async function GET(request: Request) {
       skipped += result.skipped
       failed += result.failed
       timedOutOrEmpty += result.timedOutOrEmpty
+      existingJunkDeleted += result.existing_junk_deleted || 0
 
       for (const item of result.found) {
         if (found.length < MAX_EVENTS_RETURNED) found.push(item)
