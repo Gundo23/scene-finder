@@ -2647,6 +2647,154 @@ function extractClubAlchemySelfEvent(html: string, pageUrl: string) {
   }
 }
 
+
+function clubAlchemyApiUrl(sourceUrl: string) {
+  const input = {
+    0: { json: null, meta: { values: ['undefined'] } },
+    1: {
+      json: { query: '', status: 'all', eventType: null },
+      meta: { values: { eventType: ['undefined'] } },
+    },
+    2: { json: null, meta: { values: ['undefined'] } },
+  }
+
+  const base = publicClubAlchemyUrl(sourceUrl) || 'https://www.clubalchemy.co.uk/events'
+
+  try {
+    const parsed = new URL('/api/trpc/notices.getActive,events.search,events.pastList', base)
+    parsed.searchParams.set('batch', '1')
+    parsed.searchParams.set('input', JSON.stringify(input))
+    return parsed.toString()
+  } catch {
+    return 'https://www.clubalchemy.co.uk/api/trpc/notices.getActive,events.search,events.pastList?batch=1&input=' + encodeURIComponent(JSON.stringify(input))
+  }
+}
+
+function parseClubAlchemyApiDateParts(value: string | null | undefined) {
+  if (!value) return { event_date: null as string | null, start_time: null as string | null }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return { event_date: null as string | null, start_time: null as string | null }
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(date)
+
+    const get = (type: string) => parts.find((part) => part.type === type)?.value || ''
+    const year = get('year')
+    const month = get('month')
+    const day = get('day')
+    const hour = get('hour') === '24' ? '00' : get('hour')
+    const minute = get('minute')
+
+    return {
+      event_date: validDateOrNull(`${year}-${month}-${day}`),
+      start_time: validTimeOrNull(`${hour}:${minute}`),
+    }
+  } catch {
+    const isoDate = String(value).slice(0, 10)
+    const isoTime = String(value).slice(11, 16)
+
+    return {
+      event_date: validDateOrNull(isoDate),
+      start_time: validTimeOrNull(isoTime),
+    }
+  }
+}
+
+function clubAlchemyEventPageUrl(event: any) {
+  const slug = cleanText(event?.slug)
+  if (!slug) return 'https://www.clubalchemy.co.uk/events'
+  return `https://www.clubalchemy.co.uk/events/${slug}`
+}
+
+function cleanClubAlchemyApiTitle(event: any) {
+  const rawTitle = cleanText(event?.title || '')
+  const titleFromSlug = cleanClubAlchemyTitle('', clubAlchemyEventPageUrl(event))
+  const title = rawTitle && !isJunkTitle(rawTitle) ? rawTitle : titleFromSlug
+
+  return cleanEventName(title.replace(/_/g, ' ')).replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+async function fetchClubAlchemyApiEvents(sourceUrl: string) {
+  const apiUrl = clubAlchemyApiUrl(sourceUrl)
+  const jsonText = await fetchText(apiUrl, 'application/json,text/plain,*/*')
+
+  if (!jsonText) return [] as {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[]
+
+  try {
+    const parsed = JSON.parse(jsonText)
+    const batchItems = Array.isArray(parsed) ? parsed : [parsed]
+    const eventsPayload = batchItems
+      .map((item) => item?.result?.data?.json)
+      .find((value) => Array.isArray(value))
+
+    if (!Array.isArray(eventsPayload)) return []
+
+    const seen = new Set<string>()
+    const candidates: {
+      href: string
+      text: string
+      event_date: string | null
+      start_time: string | null
+      raw: string
+      image_url: string | null
+      method: string
+    }[] = []
+
+    for (const event of eventsPayload) {
+      if (!event || event.isPublished === false) continue
+
+      const title = cleanClubAlchemyApiTitle(event)
+      const { event_date, start_time } = parseClubAlchemyApiDateParts(event.startDate)
+      const eventPageUrl = clubAlchemyEventPageUrl(event)
+      const imageUrl = validImageUrl(event.imageUrl) || validImageUrl(event.eventTypeImageUrl) || null
+      const description = cleanText(
+        event.description ||
+          event.shortDescription ||
+          event.guestListInstructions ||
+          title
+      )
+      const ticketOrEventUrl = cleanText(event.ticketUrl) || eventPageUrl
+      const key = `${normalizeTitle(title)}|${event_date || 'no-date'}|${event.id || event.slug || ticketOrEventUrl}`
+
+      if (!title || isJunkTitle(title)) continue
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      candidates.push({
+        href: ticketOrEventUrl,
+        text: title,
+        event_date,
+        start_time,
+        raw: description,
+        image_url: imageUrl,
+        method: 'club-alchemy-api',
+      })
+    }
+
+    return candidates
+  } catch (err: any) {
+    console.log('CLUB ALCHEMY API PARSE ERROR:', err?.message || 'Unknown parse error')
+    return []
+  }
+}
+
 async function updateVenueImageIfEmpty(venueId: string, imageUrl: string | null) {
   if (!imageUrl) return { updated: false, error: null }
 
@@ -3132,6 +3280,65 @@ export async function GET(request: Request) {
 
       console.log('SOURCE DONE:', source.source_url)
       continue
+    }
+
+    const clubAlchemyApiEvents =
+      isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
+        ? await fetchClubAlchemyApiEvents(source.source_url)
+        : []
+
+    for (const clubAlchemyApiEvent of clubAlchemyApiEvents) {
+      candidatesFound++
+
+      const title = clubAlchemyApiEvent.text
+      const description = clubAlchemyApiEvent.raw || clubAlchemyApiEvent.text
+      const ticketUrl = clubAlchemyApiEvent.href || eventUrlWithAnchor(source.source_url, title)
+      const dedupeKey = eventDedupeKey(source.venue_id, title, clubAlchemyApiEvent.event_date, ticketUrl)
+
+      if (runSeen.has(dedupeKey)) {
+        skipped++
+        continue
+      }
+
+      runSeen.add(dedupeKey)
+
+      const result = await upsertEvent({
+        venue_id: source.venue_id,
+        event_name: title,
+        event_date: clubAlchemyApiEvent.event_date,
+        start_time: clubAlchemyApiEvent.start_time,
+        description,
+        ticket_url: ticketUrl,
+        image_url: clubAlchemyApiEvent.image_url,
+        source_url: source.source_url,
+      })
+
+      if (result.action === 'created') created++
+      else if (result.action === 'updated') updated++
+      else if (result.action === 'skipped') skipped++
+      else {
+        failed++
+
+        if (errors.length < 20) {
+          errors.push({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: clubAlchemyApiEvent.event_date,
+            error: result.error?.message || 'Unknown upsert error',
+          })
+        }
+      }
+
+      if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+        found.push({
+          venue_id: source.venue_id,
+          event_name: cleanEventName(title),
+          event_date: clubAlchemyApiEvent.event_date,
+          event_url: ticketUrl,
+          image_url: clubAlchemyApiEvent.image_url,
+          method: clubAlchemyApiEvent.method,
+        })
+      }
     }
 
     const townhouseDiscoveredUrls =
