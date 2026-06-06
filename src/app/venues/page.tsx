@@ -139,28 +139,6 @@ export default async function Home({
             <p className="text-sm font-medium uppercase tracking-wide text-blue-400">
               Scene Finder
             </p>
-
-            <h1 className="mt-3 max-w-4xl text-3xl font-bold tracking-tight sm:text-5xl">
-              Find venues and events near you.
-            </h1>
-
-            <p className="mt-3 max-w-2xl text-sm text-zinc-300 sm:text-lg">
-              Search clubs, socials, saunas, kink nights and lifestyle events across the UK.
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200 sm:text-sm">
-                {venueCount || 0} Venues
-              </span>
-
-              <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200 sm:text-sm">
-                {eventCount || 0} Events
-              </span>
-
-              <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs font-medium text-zinc-300 sm:text-sm">
-                Updated Daily
-              </span>
-            </div>
           </div>
 
           <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.22),rgba(24,24,27,0.92)_45%,rgba(9,9,11,1)_100%)] px-6 py-7 sm:px-10 sm:py-9">
@@ -171,8 +149,22 @@ export default async function Home({
                 </p>
 
                 <p className="mt-2 text-sm leading-6 text-zinc-300 sm:text-base">
-                  Browse trusted venue listings, upcoming parties and community submitted events in one place.
+                  Search clubs, socials, saunas, kink nights and lifestyle events across the UK.
                 </p>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200 sm:text-sm">
+                    {venueCount || 0} Venues
+                  </span>
+
+                  <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-200 sm:text-sm">
+                    {eventCount || 0} Events
+                  </span>
+
+                  <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs font-medium text-zinc-300 sm:text-sm">
+                    Updated Daily
+                  </span>
+                </div>
               </div>
 
               <div className="flex h-28 w-40 shrink-0 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4 sm:h-32 sm:w-48">
