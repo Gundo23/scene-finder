@@ -1796,19 +1796,35 @@ function cleanIcsEventTitleForVenue(venueId: string, title: string) {
 
 
 async function cleanupExistingVenueJunk(venueId: string) {
-  if (venueId !== 'xtasia_west_bromwich') return 0
+  const isVanillaVenue = isVanillaAlternativeSource(venueId)
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
-    .select('event_id, event_name, description')
+    .select('event_id, event_name, event_date, description, ticket_url')
     .eq('venue_id', venueId)
     .limit(1000)
 
   const idsToDelete =
     data
-      ?.filter((event) =>
-        isJunkIcsCalendarEntry(event.event_name || '', event.description || '')
-      )
+      ?.filter((event) => {
+        if (venueId === 'xtasia_west_bromwich') {
+          return isJunkIcsCalendarEntry(event.event_name || '', event.description || '')
+        }
+
+        if (isVanillaVenue) {
+          const combined = normalizeTitle(`${event.event_name || ''} ${event.description || ''} ${event.ticket_url || ''}`)
+          if (!event.event_date) return true
+          if (combined.includes('review')) return true
+          if (combined.includes('testimonial')) return true
+          if (combined.includes('honestly i had')) return true
+          if (combined.includes('regular attendee')) return true
+          if (combined.includes('wonderful welcome')) return true
+          if (cleanText(event.event_name || '').length > 120) return true
+        }
+
+        return false
+      })
       .map((event) => event.event_id) || []
 
   if (idsToDelete.length === 0) return 0
@@ -2078,6 +2094,137 @@ function extractWixCalendarTileEvents(html: string, baseUrl: string) {
         raw: `${monthMatch[1]} ${year} ${tileMatch[0]}`,
       })
     }
+  }
+
+  return candidates
+}
+
+
+function isVanillaAlternativeSource(value: string | null | undefined) {
+  const lower = String(value || '').toLowerCase()
+
+  return (
+    lower.includes('va2.co.uk') ||
+    lower.includes('vanillaalternative') ||
+    lower.includes('vanilla-alternative') ||
+    lower.includes('vanilla_alternative')
+  )
+}
+
+function discoverVanillaAlternativeEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/book/timetableactivity.aspx?parkid=1'),
+    'https://va2.co.uk/book/timetableactivity.aspx?parkid=1',
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
+}
+
+function decodeHtmlAttribute(value: string | null | undefined) {
+  if (!value) return ''
+
+  return cleanText(value)
+    .replace(/&amp;amp;/g, '&')
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function cleanVanillaAlternativeEventName(value: string, fallback: string) {
+  let title = cleanText(value || fallback)
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Timetable cards sometimes append the poster/date line, e.g. "UNTAMED 6TH JUNE".
+  title = title
+    .replace(/\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*(?:\d{2,4})?\b/gi, '')
+    .replace(/\b(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}(?:st|nd|rd|th)?\s*(?:\d{2,4})?\b/gi, '')
+    .replace(/\b20\d{2}\b/g, '')
+    .replace(/\b\d{1,2}\s*\/\s*\d{1,2}\s*\/\s*\d{2,4}\b/g, '')
+    .replace(/\bday\s*\/\s*evening\b/gi, 'Day / Evening')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  title = cleanEventName(title)
+    .replace(/^[-–—:]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!title || isJunkTitle(title)) {
+    title = cleanEventName(fallback)
+      .replace(/^[-–—:]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  return title
+}
+
+function extractVanillaAlternativeEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+  }[] = []
+
+  const seen = new Set<string>()
+  const eventPattern = /bookingClickDependencyCheck\(\s*'([^']+)'[\s\S]{0,900}?'([^']*BookActivity\.aspx[^']*slotDate=([^']+?))'\s*\)/gi
+
+  const matches = [...html.matchAll(eventPattern)]
+
+  for (let index = 0; index < matches.length; index++) {
+    const match = matches[index]
+    const rawFallbackTitle = decodeHtmlAttribute(match[1])
+    const rawHref = decodeHtmlAttribute(match[2])
+    const rawSlotDate = decodeHtmlAttribute(match[3])
+    const blockStart = Math.max(0, match.index || 0)
+    const blockEnd = index + 1 < matches.length ? matches[index + 1].index || blockStart + 4000 : blockStart + 4000
+    const block = html.slice(blockStart, blockEnd)
+
+    const dateMatch = rawSlotDate.match(/(\d{1,2})\/(\d{1,2})\/(20\d{2})\s+(\d{1,2}):(\d{2})/)
+    if (!dateMatch) continue
+
+    const eventDate = validDateOrNull(
+      `${dateMatch[3]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`
+    )
+    const startTime = validTimeOrNull(`${dateMatch[4].padStart(2, '0')}:${dateMatch[5]}`)
+
+    if (!eventDate) continue
+
+    const displayTitleRaw =
+      cleanText(
+        block.match(/<span[^>]+text-transform\s*:\s*uppercase[^>]*>([\s\S]*?)<\/span>/i)?.[1]
+          ?.replace(/<br\s*\/?>/gi, ' ')
+      ) || ''
+
+    const title = cleanVanillaAlternativeEventName(displayTitleRaw, rawFallbackTitle)
+    if (!title || isJunkTitle(title)) continue
+
+    const ticketUrl = absoluteUrl(baseUrl, rawHref) || eventUrlWithAnchor(baseUrl, title)
+    const rawImage =
+      block.match(/<img[^>]+class=["'][^"']*eachCellImage[^"']*["'][^>]+src=["']([^"']+)["']/i)?.[1] ||
+      block.match(/<img[^>]+src=["']([^"']+)["'][^>]+class=["'][^"']*eachCellImage[^"']*["']/i)?.[1]
+    const imageUrl = validImageUrl(absoluteUrl(baseUrl, decodeHtmlAttribute(rawImage)))
+    const displayTime = cleanText(block.match(/\b\d{1,2}\s+[A-Za-z]{3}\s+\d{2}\s+@\s+\d{1,2}:\d{2}\s+-\s+\d{1,2}\s+[A-Za-z]{3}\s+\d{2}\s+@\s+\d{1,2}:\d{2}/i)?.[0])
+    const description = cleanText(`${title}${displayTime ? ` - ${displayTime}` : ''}`)
+    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(ticketUrl)}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: ticketUrl,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: description || title,
+      image_url: imageUrl,
+    })
   }
 
   return candidates
@@ -3246,6 +3393,10 @@ export async function GET(request: Request) {
   for (const source of sources || []) {
     console.log('SOURCE START:', source.source_url)
 
+    if (isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)) {
+      existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
+    }
+
     if (isIcsSourceUrl(source.source_url)) {
       const result = await scrapeIcsSource({
         venue_id: source.venue_id,
@@ -3361,12 +3512,17 @@ export async function GET(request: Request) {
         ? discoverWixEventPages(source.source_url)
         : []
 
+    const vanillaAlternativeDiscoveredUrls =
+      isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
+        ? discoverVanillaAlternativeEventPages(source.source_url)
+        : []
+
     const clubAlchemyDiscoveredUrls =
       isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
         ? await discoverClubAlchemyEventUrls(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...clubAlchemyDiscoveredUrls]
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -3376,6 +3532,8 @@ export async function GET(request: Request) {
           ? Math.max(MAX_PAGES_PER_SOURCE, 12)
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
+            : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
+              ? Math.max(MAX_PAGES_PER_SOURCE, 10)
             : isWixLikeSource(source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 12)
               : MAX_PAGES_PER_SOURCE
@@ -3437,6 +3595,10 @@ export async function GET(request: Request) {
         const wixTileEvents =
           isWixLikeSource(`${source.source_url} ${html}`)
             ? extractWixCalendarTileEvents(html, pageUrl)
+            : []
+        const vanillaAlternativeEvents =
+          isVanillaAlternativeSource(`${source.source_url} ${source.venue_id} ${pageUrl}`)
+            ? extractVanillaAlternativeEvents(html, pageUrl)
             : []
         let clubAlchemyBundleEvents: {
           href: string
@@ -3536,6 +3698,49 @@ export async function GET(request: Request) {
               event_url: ticketUrl,
               image_url: imageUrl,
               method: 'club-alchemy-custom',
+            })
+          }
+        }
+
+        for (const vanillaEvent of vanillaAlternativeEvents) {
+          candidatesFound++
+
+          const title = vanillaEvent.text
+          const description = vanillaEvent.raw || vanillaEvent.text
+          const ticketUrl = vanillaEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, vanillaEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: vanillaEvent.event_date,
+            start_time: vanillaEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: vanillaEvent.image_url,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else failed++
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: vanillaEvent.event_date,
+              event_url: ticketUrl,
+              image_url: vanillaEvent.image_url,
+              method: 'vanilla-alternative-timetable',
             })
           }
         }
@@ -3840,6 +4045,11 @@ export async function GET(request: Request) {
         }
 
         for (const link of links) {
+          if (isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)) {
+            skipped++
+            continue
+          }
+
           const combined = `${link.href} ${link.text} ${link.raw}`
 
           if (
