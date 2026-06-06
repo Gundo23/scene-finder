@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import FallbackImage from '@/app/components/FallbackImage'
 
 export default function SubmitPage() {
   const [loading, setLoading] = useState(false)
@@ -39,11 +40,22 @@ export default function SubmitPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-4 py-10 text-white">
+    <main className="min-h-screen bg-zinc-950 px-4 py-10 pb-24 text-white">
       <div className="mx-auto max-w-2xl">
-        <h1 className="mb-2 text-4xl font-bold">Submit a Club or Event</h1>
+        <div className="mb-6 flex justify-center">
+          <FallbackImage
+            src="/images/home-hero.jpg"
+            fallbackSrc="/images/venue-placeholder.jpg"
+            alt="Scene Finder"
+            className="h-24 w-24 object-contain sm:h-28 sm:w-28"
+          />
+        </div>
 
-        <p className="mb-8 text-zinc-400">
+        <h1 className="mb-2 text-center text-4xl font-bold">
+          Submit a Club or Event
+        </h1>
+
+        <p className="mb-8 text-center text-zinc-400">
           Missing something from Scene Finder? Send it to us for review.
         </p>
 
