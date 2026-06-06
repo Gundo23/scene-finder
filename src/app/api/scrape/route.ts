@@ -1104,6 +1104,168 @@ function extractTownhouseEvents(html: string, baseUrl: string) {
 }
 
 
+
+function extractQuestEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+  }[] = []
+
+  const monthMap: Record<string, string> = {
+    jan: '01',
+    january: '01',
+    feb: '02',
+    february: '02',
+    mar: '03',
+    march: '03',
+    apr: '04',
+    april: '04',
+    may: '05',
+    jun: '06',
+    june: '06',
+    jul: '07',
+    july: '07',
+    aug: '08',
+    august: '08',
+    sep: '09',
+    sept: '09',
+    september: '09',
+    oct: '10',
+    october: '10',
+    nov: '11',
+    november: '11',
+    dec: '12',
+    december: '12',
+  }
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|tr)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .filter((line) => !/^\*+$/.test(line.replace(/\s+/g, '')))
+
+  const pageYear =
+    cleanText(html).match(/\b(?:events?|calendar)\s+(20\d{2})\b/i)?.[1] ||
+    cleanText(html).match(/\b(20\d{2})\b/)?.[1] ||
+    String(new Date().getFullYear())
+
+  const dateLinePattern = new RegExp(
+    '^\\s*(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\\s+' +
+      '(\\d{1,2})\\s*(?:st|nd|rd|th)?\\s+' +
+      '(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\\s*' +
+      '(20\\d{2})?\\s*(.*)$',
+    'i'
+  )
+
+  const genericTitlePattern = /^(?:[-–—:]|\s)*(?:day\/?night|day|night|evening|afternoon|all day|all day\/evening)?\s*(?:event|even|night)?\s*(?:[-–—:]|\s)*$/i
+
+  const skipTitleLine = (line: string) => {
+    const lower = normalizeTitle(line)
+
+    if (!lower) return true
+    if (genericTitlePattern.test(line)) return true
+    if (lower.includes('doors open')) return true
+    if (lower.includes('entrance')) return true
+    if (lower.includes('members')) return true
+    if (lower.includes('non members')) return true
+    if (lower.includes('nonmembers')) return true
+    if (lower.includes('closed between')) return true
+    if (lower.includes('must bring')) return true
+    if (lower.includes('no id')) return true
+    if (lower.includes('please contact')) return true
+    if (lower.includes('fab swingers')) return true
+    if (lower.includes('quest member')) return true
+    if (lower.includes('id must be')) return true
+    if (lower.includes('please note')) return true
+    if (lower.includes('june july events')) return true
+    if (lower.includes('upcoming events')) return true
+
+    return false
+  }
+
+  const cleanQuestTitle = (value: string) => {
+    let title = cleanText(value)
+      .replace(/^[-–—:]+/g, '')
+      .replace(/\b(day\/?night|day|night|evening|afternoon|all day|all day\/evening)\s+event\b/gi, '')
+      .replace(/\beven\b/gi, '')
+      .replace(/^[-–—:]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    title = cleanEventName(title)
+      .replace(/^[-–—:]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    return title
+  }
+
+  const seen = new Set<string>()
+
+  for (let index = 0; index < lines.length; index++) {
+    const dateMatch = lines[index].match(dateLinePattern)
+    if (!dateMatch) continue
+
+    const day = dateMatch[2].padStart(2, '0')
+    const month = monthMap[dateMatch[3].toLowerCase()]
+    const year = dateMatch[4] || pageYear
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+
+    if (!eventDate) continue
+
+    const block: string[] = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (lines[next].match(dateLinePattern)) break
+      block.push(lines[next])
+    }
+
+    let title = cleanQuestTitle(dateMatch[5] || '')
+
+    if (!title || isJunkTitle(title) || skipTitleLine(title)) {
+      const titleLine = block.slice(1).find((line) => !skipTitleLine(line) && !isJunkTitle(line))
+      title = titleLine ? cleanQuestTitle(titleLine) : ''
+    }
+
+    if (!title || isJunkTitle(title)) continue
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const raw = block.join(' ')
+    const startTime = extractTime(raw)
+    const description = block
+      .slice(1)
+      .filter((line) => normalizeTitle(line) !== normalizeTitle(title))
+      .filter((line) => !/^[-–—:]+$/.test(line))
+      .slice(0, 8)
+      .join(' ')
+
+    const key = `${normalizeTitle(title)}|${eventDate}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: eventUrlWithAnchor(baseUrl, title),
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: description || raw,
+    })
+  }
+
+  return candidates
+}
+
 function decodeEscapedText(value: string) {
   return value
     .replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => {
@@ -1810,12 +1972,17 @@ export async function GET(request: Request) {
         ? await discoverTownhouseEventUrls(source.source_url)
         : []
 
+    const questDiscoveredUrls =
+      source.venue_id === 'quest_leeds_leeds'
+        ? [absoluteUrl(source.source_url, '/upcoming-events/')].filter(Boolean) as string[]
+        : []
+
     const wixDiscoveredUrls =
       isWixLikeSource(source.source_url) || source.collection_method === 'User Submission'
         ? discoverWixEventPages(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...wixDiscoveredUrls]
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...wixDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -1862,11 +2029,58 @@ export async function GET(request: Request) {
           source.venue_id === 'townhouse_wirral_near_liverpool'
             ? extractTownhouseEvents(html, pageUrl)
             : []
+        const questEvents =
+          source.venue_id === 'quest_leeds_leeds'
+            ? extractQuestEvents(html, pageUrl)
+            : []
         const wixTileEvents =
           isWixLikeSource(`${source.source_url} ${html}`)
             ? extractWixCalendarTileEvents(html, pageUrl)
             : []
         const links = extractLinks(html, pageUrl)
+
+        for (const questEvent of questEvents) {
+          candidatesFound++
+
+          const title = questEvent.text
+          const description = questEvent.raw || questEvent.text
+          const ticketUrl = questEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, questEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: questEvent.event_date,
+            start_time: questEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: pageImage,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else failed++
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: questEvent.event_date,
+              event_url: ticketUrl,
+              image_url: pageImage,
+              method: 'quest-custom',
+            })
+          }
+        }
 
         for (const townhouseEvent of townhouseEvents) {
           candidatesFound++
