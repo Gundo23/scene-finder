@@ -1001,6 +1001,68 @@ function extractTownhouseEvents(html: string, baseUrl: string) {
   const currentYear = new Date().getFullYear()
   const links = extractLinks(html, baseUrl)
 
+  // EventON directory parser. Townhouse renders the event-directory list as EventON rows,
+  // where the title/date are often split across nested spans and are not readable as a
+  // simple text line. Parse the raw row blocks first so we do not depend on crawling
+  // individual detail pages.
+  const eventOnBlocks = [
+    ...html.matchAll(/<(?:div|li|article|a)[^>]+class=["'][^"']*(?:eventon_list_event|evo_eventtop|evcal_list_a)[^"']*["'][^>]*>[\s\S]*?(?=<\/(?:div|li|article|a)>\s*<(?:div|li|article|a)[^>]+class=["'][^"']*(?:eventon_list_event|evo_eventtop|evcal_list_a)|$)/gi),
+  ]
+
+  for (const blockMatch of eventOnBlocks) {
+    const block = blockMatch[0]
+    const rawTitle =
+      cleanText(block.match(/<span[^>]+class=["'][^"']*(?:evcal_event_title|evcal_desc2)[^"']*["'][^>]*>([\s\S]*?)<\/span>/i)?.[1]) ||
+      cleanText(block.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)?.[1])
+
+    let title = cleanEventName(rawTitle)
+      .replace(/^[-–—:]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isJunkTitle(title)) continue
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const rawHref =
+      block.match(/href=["']([^"']+)["']/i)?.[1] ||
+      links.find((link) => normalizeTitle(link.text).includes(normalizeTitle(title).slice(0, 24)))?.href ||
+      null
+
+    const href = absoluteUrl(baseUrl, rawHref) || eventUrlWithAnchor(baseUrl, title)
+
+    const rawDay =
+      block.match(/<em[^>]+class=["'][^"']*date[^"']*["'][^>]*>(\d{1,2})<\/em>/i)?.[1] ||
+      block.match(/<span[^>]+class=["'][^"']*evo_start[^"']*["'][^>]*>[\s\S]*?(\d{1,2})[\s\S]*?<\/span>/i)?.[1]
+
+    const rawMonth =
+      block.match(/<em[^>]+class=["'][^"']*month[^"']*["'][^>]*>([A-Za-z]{3,9})<\/em>/i)?.[1] ||
+      block.match(/\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b/i)?.[1]
+
+    const rawYear =
+      block.match(/data-year=["'](20\d{2})["']/i)?.[1] ||
+      block.match(/\b(20\d{2})\b/)?.[1] ||
+      html.slice(Math.max(0, blockMatch.index || 0 - 600), (blockMatch.index || 0) + 300).match(/\b(20\d{2})\b/)?.[1] ||
+      String(currentYear)
+
+    const month = rawMonth ? monthMap[rawMonth.toLowerCase()] : null
+    const eventDate = rawDay && month ? validDateOrNull(`${rawYear}-${month}-${rawDay.padStart(2, '0')}`) : extractDate(block)
+    const startTime = extractTime(block)
+
+    if (!eventDate) continue
+
+    const key = `${normalizeTitle(title)}|${eventDate}|${href}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: cleanText(block).slice(0, 500),
+    })
+  }
+
   // Townhouse uses WordPress event pages like /events/the-wirral-munch...
   // These links are useful even when the visible calendar text is compact.
   for (const link of links) {
