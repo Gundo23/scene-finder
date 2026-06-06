@@ -65,13 +65,12 @@ function formatTime(time: string | null) {
   return time.slice(0, 5)
 }
 
-function getTodayString() {
-  return new Date().toISOString().split('T')[0]
-}
-
 function inferEventTags(event: any) {
   const savedTags = Array.isArray(event.tags) ? event.tags.filter(Boolean) : []
-  const text = cleanText(`${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`).toLowerCase()
+  const text = cleanText(
+    `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`
+  ).toLowerCase()
+
   const tags = new Set<string>(savedTags)
 
   if (text.includes('newbie') || text.includes('newcomer') || text.includes('first time')) tags.add('Newbie Friendly')
@@ -139,26 +138,6 @@ function distanceInMiles(lat1: number, lon1: number, lat2: number, lon2: number)
   return radius * c
 }
 
-function makeEventsHref(params: Record<string, string | string[] | undefined>) {
-  const query = new URLSearchParams()
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (!value) return
-
-    if (Array.isArray(value)) {
-      value.forEach((item) => {
-        if (item) query.append(key, item)
-      })
-      return
-    }
-
-    if (value) query.set(key, value)
-  })
-
-  const queryString = query.toString()
-  return queryString ? `/events?${queryString}` : '/events'
-}
-
 export default async function EventsPage({
   searchParams,
 }: {
@@ -168,7 +147,6 @@ export default async function EventsPage({
     region?: string
     city?: string
     distance?: string
-    date?: string
   }>
 }) {
   const params = await searchParams
@@ -180,23 +158,12 @@ export default async function EventsPage({
   const region = params.region || ''
   const city = params.city || ''
   const distance = params.distance || ''
-  const dateView = params.date === 'tbc' ? 'tbc' : 'dated'
-  const today = getTodayString()
-
   const selectedDistance = distance ? Number(distance) : null
 
-  let eventsQuery = supabase.from('events').select('*').limit(1000)
-
-  if (dateView === 'tbc') {
-    eventsQuery = eventsQuery.is('event_date', null)
-  } else {
-    eventsQuery = eventsQuery.gte('event_date', today)
-  }
-
-  const { data: events } = await eventsQuery.order('event_date', {
-    ascending: dateView !== 'tbc',
-    nullsFirst: false,
-  })
+  const { data: events } = await supabase
+    .from('events')
+    .select('*')
+    .limit(1000)
 
   const { data: venues } = await supabase
     .from('venues')
@@ -237,20 +204,20 @@ export default async function EventsPage({
   const filteredEvents = events
     ?.filter((event) => {
       const venue = venueMap.get(event.venue_id)
-      const searchTerm = search.toLowerCase()
+      const searchTerm = cleanText(search).toLowerCase()
       const eventTags = inferEventTags(event)
 
       const searchMatch =
         !search ||
-        cleanText(event.event_name).toLowerCase().includes(searchTerm) ||
-        event.event_type?.toLowerCase().includes(searchTerm) ||
-        cleanText(event.description).toLowerCase().includes(searchTerm) ||
-        event.ticket_url?.toLowerCase().includes(searchTerm) ||
-        event.source_url?.toLowerCase().includes(searchTerm) ||
+        cleanText(event.event_name || '').toLowerCase().includes(searchTerm) ||
+        cleanText(event.event_type || '').toLowerCase().includes(searchTerm) ||
+        cleanText(event.description || '').toLowerCase().includes(searchTerm) ||
+        cleanText(event.ticket_url || '').toLowerCase().includes(searchTerm) ||
+        cleanText(event.source_url || '').toLowerCase().includes(searchTerm) ||
         eventTags.some((tag) => tag.toLowerCase().includes(searchTerm)) ||
-        cleanText(venue?.name).toLowerCase().includes(searchTerm) ||
-        cleanText(venue?.city_area).toLowerCase().includes(searchTerm) ||
-        cleanText(venue?.region).toLowerCase().includes(searchTerm)
+        cleanText(venue?.name || '').toLowerCase().includes(searchTerm) ||
+        cleanText(venue?.city_area || '').toLowerCase().includes(searchTerm) ||
+        cleanText(venue?.region || '').toLowerCase().includes(searchTerm)
 
       const tagMatch =
         !selectedTag ||
@@ -259,12 +226,15 @@ export default async function EventsPage({
         )
 
       const regionMatch =
-        !region || venue?.region?.toLowerCase() === region.toLowerCase()
+        !region ||
+        cleanText(venue?.region || '').toLowerCase() ===
+          cleanText(region).toLowerCase()
 
       const cityMatch =
         !city ||
         !selectedDistance ||
-        venue?.city_area?.toLowerCase() === city.toLowerCase()
+        cleanText(venue?.city_area || '').toLowerCase() ===
+          cleanText(city).toLowerCase()
 
       const distanceMatch =
         !city ||
@@ -282,7 +252,9 @@ export default async function EventsPage({
       return searchMatch && tagMatch && regionMatch && cityMatch && distanceMatch
     })
     .sort((a, b) => {
-      if (dateView === 'tbc') return 0
+      if (!a.event_date && !b.event_date) return 0
+      if (!a.event_date) return 1
+      if (!b.event_date) return -1
       return new Date(a.event_date).getTime() - new Date(b.event_date).getTime()
     })
 
@@ -304,41 +276,15 @@ export default async function EventsPage({
 
         <div className="mt-5">
           <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
-            {dateView === 'tbc' ? 'Date TBC Events' : 'Upcoming Events'}
+            All Events
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm text-zinc-300 sm:text-lg">
-            Search by keyword, tags, town/city, distance, venue, or region.
+            Search all events by keyword, tags, town/city, distance, venue, or region.
           </p>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800 bg-zinc-900 p-2">
-          <Link
-            href="/events"
-            className={`rounded-xl px-4 py-3 text-center text-sm font-medium ${
-              dateView === 'dated'
-                ? 'bg-blue-500 text-white'
-                : 'bg-zinc-950 text-zinc-400'
-            }`}
-          >
-            Dated events
-          </Link>
-
-          <Link
-            href="/events?date=tbc"
-            className={`rounded-xl px-4 py-3 text-center text-sm font-medium ${
-              dateView === 'tbc'
-                ? 'bg-blue-500 text-white'
-                : 'bg-zinc-950 text-zinc-400'
-            }`}
-          >
-            Date TBC events
-          </Link>
-        </div>
-
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
-          {dateView === 'tbc' && <input type="hidden" name="date" value="tbc" />}
-
           <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <div className="min-w-0 sm:col-span-2 lg:col-span-1">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
@@ -447,18 +393,14 @@ export default async function EventsPage({
           )}
 
           {(search || selectedTag || region || city || distance) && (
-            <Link
-              href={dateView === 'tbc' ? '/events?date=tbc' : '/events'}
-              className="mt-4 inline-block text-sm text-blue-400"
-            >
+            <Link href="/events" className="mt-4 inline-block text-sm text-blue-400">
               Clear filters
             </Link>
           )}
         </form>
 
         <p className="mt-6 text-sm text-zinc-400">
-          Showing {filteredEvents?.length || 0}{' '}
-          {dateView === 'tbc' ? 'Date TBC events' : 'dated upcoming events'}
+          Showing {filteredEvents?.length || 0} of {events?.length || 0} events
         </p>
 
         <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
@@ -479,7 +421,7 @@ export default async function EventsPage({
                       <FallbackImage
                         src={event.image_url}
                         fallbackSrc={PLACEHOLDER_IMAGE}
-                        alt={cleanText(event.event_name)}
+                        alt={cleanText(event.event_name || 'Event')}
                         className="h-full w-full object-cover"
                       />
                     </div>
@@ -497,18 +439,18 @@ export default async function EventsPage({
                       </div>
 
                       <h2 className="line-clamp-2 break-words text-base font-semibold leading-snug sm:text-lg">
-                        {cleanText(event.event_name)}
+                        {cleanText(event.event_name || 'Untitled event')}
                       </h2>
 
                       {venue && (
                         <p className="mt-2 truncate text-sm font-medium text-blue-400">
-                          {cleanText(venue.name)}
+                          {cleanText(venue.name || '')}
                         </p>
                       )}
 
                       {venue && (
                         <p className="mt-1 truncate text-xs text-zinc-400 sm:text-sm">
-                          {cleanText(venue.city_area)} • {cleanText(venue.region)}
+                          {cleanText(venue.city_area || '')} • {cleanText(venue.region || '')}
                         </p>
                       )}
 
@@ -532,9 +474,7 @@ export default async function EventsPage({
               )
             })
           ) : (
-            <p className="text-zinc-400">
-              No {dateView === 'tbc' ? 'Date TBC' : 'dated upcoming'} events found.
-            </p>
+            <p className="text-zinc-400">No events found.</p>
           )}
         </div>
       </section>
