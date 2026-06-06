@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import FallbackImage from '@/app/components/FallbackImage'
+import { cleanText } from '@/lib/cleanText'
 
 const PLACEHOLDER_IMAGE = '/images/venue-placeholder.jpg'
 
@@ -70,7 +71,7 @@ function getTodayString() {
 
 function inferEventTags(event: any) {
   const savedTags = Array.isArray(event.tags) ? event.tags.filter(Boolean) : []
-  const text = `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`.toLowerCase()
+  const text = cleanText(`${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`).toLowerCase()
   const tags = new Set<string>(savedTags)
 
   if (text.includes('newbie') || text.includes('newcomer') || text.includes('first time')) tags.add('Newbie Friendly')
@@ -241,15 +242,15 @@ export default async function EventsPage({
 
       const searchMatch =
         !search ||
-        event.event_name?.toLowerCase().includes(searchTerm) ||
+        cleanText(event.event_name).toLowerCase().includes(searchTerm) ||
         event.event_type?.toLowerCase().includes(searchTerm) ||
-        event.description?.toLowerCase().includes(searchTerm) ||
+        cleanText(event.description).toLowerCase().includes(searchTerm) ||
         event.ticket_url?.toLowerCase().includes(searchTerm) ||
         event.source_url?.toLowerCase().includes(searchTerm) ||
         eventTags.some((tag) => tag.toLowerCase().includes(searchTerm)) ||
-        venue?.name?.toLowerCase().includes(searchTerm) ||
-        venue?.city_area?.toLowerCase().includes(searchTerm) ||
-        venue?.region?.toLowerCase().includes(searchTerm)
+        cleanText(venue?.name).toLowerCase().includes(searchTerm) ||
+        cleanText(venue?.city_area).toLowerCase().includes(searchTerm) ||
+        cleanText(venue?.region).toLowerCase().includes(searchTerm)
 
       const tagMatch =
         !selectedTag ||
@@ -478,7 +479,7 @@ export default async function EventsPage({
                       <FallbackImage
                         src={event.image_url}
                         fallbackSrc={PLACEHOLDER_IMAGE}
-                        alt={event.event_name}
+                        alt={cleanText(event.event_name)}
                         className="h-full w-full object-cover"
                       />
                     </div>
@@ -496,18 +497,18 @@ export default async function EventsPage({
                       </div>
 
                       <h2 className="line-clamp-2 break-words text-base font-semibold leading-snug sm:text-lg">
-                        {event.event_name}
+                        {cleanText(event.event_name)}
                       </h2>
 
                       {venue && (
                         <p className="mt-2 truncate text-sm font-medium text-blue-400">
-                          {venue.name}
+                          {cleanText(venue.name)}
                         </p>
                       )}
 
                       {venue && (
                         <p className="mt-1 truncate text-xs text-zinc-400 sm:text-sm">
-                          {venue.city_area} • {venue.region}
+                          {cleanText(venue.city_area)} • {cleanText(venue.region)}
                         </p>
                       )}
 
@@ -518,7 +519,7 @@ export default async function EventsPage({
 
                       {event.description && (
                         <p className="mt-2 line-clamp-2 break-words text-xs text-zinc-400 sm:text-sm">
-                          {event.description}
+                          {cleanText(event.description)}
                         </p>
                       )}
 
