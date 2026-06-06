@@ -3229,7 +3229,7 @@ function extractPandoraEvents(html: string, baseUrl: string) {
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|tr)>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|tr|section|article)>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')
 
   const lines = lineText
@@ -3238,72 +3238,113 @@ function extractPandoraEvents(html: string, baseUrl: string) {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
 
-  const dateLinePattern = /^(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(20\d{2}))?\s*$/i
+  const dateLinePattern = /^(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(20\d{2}))?\s*(.*)$/i
 
   const seen = new Set<string>()
   const pageImage = extractBestImage(html, baseUrl)
 
-  for (let index = 0; index < lines.length; index++) {
-    const dateMatch = lines[index].match(dateLinePattern)
-    if (!dateMatch) continue
+  const isUsefulPandoraTitleLine = (line: string) => {
+    const cleaned = cleanText(line)
+      .replace(/^\*+|\*+$/g, '')
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
 
-    const weekday = dateMatch[1]
-    const day = dateMatch[2].padStart(2, '0')
-    const month = monthNameToNumber(dateMatch[3])
-    if (!month) continue
+    const normalised = normalizeTitle(cleaned)
 
-    const year = futureSafeYear(month, day, dateMatch[4])
-    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
-    if (!eventDate) continue
+    if (!cleaned || cleaned.length < 4) return false
+    if (cleaned.length > 90) return false
+    if (isPandoraSkipLine(cleaned)) return false
+    if (isJunkTitle(cleaned)) return false
+    if (/^event\s*night$/i.test(cleaned)) return false
+    if (/^open\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i.test(cleaned)) return false
+    if (/^(am|pm|till|until|after|before)\b/i.test(cleaned)) return false
+    if (/^£/.test(cleaned)) return false
+    if (normalised.includes('all members welcome')) return false
+    if (normalised.includes('guest list')) return false
+    if (normalised.includes('click here')) return false
+    if (normalised.includes('pandora swingers')) return false
 
-    const block: string[] = [lines[index]]
-    for (let next = index + 1; next < lines.length; next++) {
-      if (lines[next].match(dateLinePattern)) break
-      if (normalizeTitle(lines[next]) === 'address') break
-      block.push(lines[next])
-    }
+    return true
+  }
 
+  const pickPandoraTitle = (block: string[], inlineTitle: string, weekday: string) => {
     const cleanedBlock = block
       .map((line) => line.replace(/^\*+|\*+$/g, '').trim())
       .filter(Boolean)
 
+    const inline = cleanPandoraTitle(inlineTitle, '')
+    if (inline && isUsefulPandoraTitleLine(inline)) return inline
+
     const eventNightIndex = cleanedBlock.findIndex((line) => normalizeTitle(line).includes('event night'))
-    let titleLine = ''
 
-    if (eventNightIndex >= 0) {
-      const afterEventNight = cleanedBlock.slice(eventNightIndex + 1)
-      const strongTitleLine = afterEventNight.find((line, lineIndex) => {
-        const lower = normalizeTitle(line)
-        if (isPandoraSkipLine(line) || isJunkTitle(line)) return false
-        if (lower.includes('hosting') || lower.includes('bringing')) return false
-        if (line.length < 4) return false
-        // Prefer the actual event title shortly after host/intro lines.
-        return lineIndex <= 5
-      })
-      titleLine = strongTitleLine || ''
-    }
+    const searchLines =
+      eventNightIndex >= 0
+        ? cleanedBlock.slice(eventNightIndex + 1, eventNightIndex + 8)
+        : cleanedBlock.slice(1, 9)
 
-    if (!titleLine) {
-      titleLine = cleanedBlock
-        .slice(1)
-        .find((line) => !isPandoraSkipLine(line) && !isJunkTitle(line) && line.length >= 4) || ''
+    const directTitle = searchLines.find((line) => isUsefulPandoraTitleLine(line))
+    if (directTitle) return cleanPandoraTitle(directTitle, directTitle)
+
+    const wholeBlock = cleanedBlock.join(' ')
+    const namedPatterns = [
+      /\b(?:event\s*night|event)\s+([A-Z][A-Za-z0-9 '&+.,:/!-]{3,70}?)(?=\s+(?:open|guest|before|after|£|single|couple|trans|dj|from|all members|members|doors|address)\b|$)/i,
+      /\b(?:hosting|bringing back|brings?|presents?)\s+(?:our\s+)?(?:regular\s+)?([A-Z][A-Za-z0-9 '&+.,:/!-]{3,70}?)(?=\s+(?:open|guest|before|after|£|single|couple|trans|dj|from|all members|members|doors|address)\b|$)/i,
+    ]
+
+    for (const pattern of namedPatterns) {
+      const match = wholeBlock.match(pattern)
+      const title = cleanPandoraTitle(match?.[1] || '', '')
+      if (title && isUsefulPandoraTitleLine(title)) return title
     }
 
     const isOpenNight = cleanedBlock.some((line) => normalizeTitle(line).includes('open to all members'))
-    const fallbackTitle = isOpenNight
+    return isOpenNight
       ? `${weekday.charAt(0).toUpperCase()}${weekday.slice(1).toLowerCase()} Members Night`
-      : 'Pandora Event'
+      : ''
+  }
 
-    let title = cleanPandoraTitle(titleLine, fallbackTitle)
-    if (!title || isJunkTitle(title)) continue
+  const addPandoraCandidate = (input: {
+    weekday: string
+    day: string
+    monthName: string
+    explicitYear?: string | null
+    inlineTitle?: string
+    block: string[]
+    method: string
+  }) => {
+    const month = monthNameToNumber(input.monthName)
+    if (!month) return
+
+    const day = input.day.padStart(2, '0')
+    const year = futureSafeYear(month, day, input.explicitYear || null)
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+    if (!eventDate) return
+
+    const raw = input.block
+      .map((line) => cleanText(line))
+      .filter(Boolean)
+      .join(' ')
+      .slice(0, 500)
+
+    let title = pickPandoraTitle(input.block, input.inlineTitle || '', input.weekday)
+
+    if (!title || isJunkTitle(title)) return
+
+    title = title
+      .replace(/\b(?:event night|upcoming events)\b/gi, '')
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isJunkTitle(title)) return
     if (title.length > 120) title = title.slice(0, 120).trim()
 
-    const raw = cleanedBlock.join(' ')
     const startTime = extractTime(raw)
-    const href = eventUrlWithAnchor(baseUrl, title)
+    const href = eventUrlWithAnchor('https://www.pandoraswingers.com', title)
     const key = `${normalizeTitle(title)}|${eventDate}`
 
-    if (seen.has(key)) continue
+    if (seen.has(key)) return
     seen.add(key)
 
     candidates.push({
@@ -3311,9 +3352,67 @@ function extractPandoraEvents(html: string, baseUrl: string) {
       text: title,
       event_date: eventDate,
       start_time: startTime,
-      raw: raw.slice(0, 500),
+      raw,
       image_url: pageImage,
+      method: input.method,
+    })
+  }
+
+  for (let index = 0; index < lines.length; index++) {
+    const dateMatch = lines[index].match(dateLinePattern)
+    if (!dateMatch) continue
+
+    const block: string[] = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (lines[next].match(dateLinePattern)) break
+      if (normalizeTitle(lines[next]) === 'address') break
+      block.push(lines[next])
+    }
+
+    addPandoraCandidate({
+      weekday: dateMatch[1],
+      day: dateMatch[2],
+      monthName: dateMatch[3],
+      explicitYear: dateMatch[4] || null,
+      inlineTitle: dateMatch[5] || '',
+      block,
       method: 'pandora-event-diary',
+    })
+  }
+
+  // Fallback for Pandora's very compressed Duda/mobile HTML where date + content
+  // can be flattened into one long text run rather than clean line blocks.
+  const compactText = cleanText(decodeEscapedText(html))
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const compactPattern =
+    /\b(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(20\d{2}))?\s+([\s\S]{8,900}?)(?=\b(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s+\d{1,2}(?:st|nd|rd|th)?\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b|Address\b|$)/gi
+
+  let compactMatch
+
+  while ((compactMatch = compactPattern.exec(compactText)) !== null) {
+    const blockText = compactMatch[5]
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const syntheticLines = [
+      `${compactMatch[1]} ${compactMatch[2]} ${compactMatch[3]} ${compactMatch[4] || ''}`.trim(),
+      ...blockText
+        .split(/\s{2,}|(?=\b(?:event night|open|guest list|before|after|£|single|couple|trans|dj)\b)/i)
+        .map((line) => cleanText(line))
+        .filter(Boolean),
+    ]
+
+    addPandoraCandidate({
+      weekday: compactMatch[1],
+      day: compactMatch[2],
+      monthName: compactMatch[3],
+      explicitYear: compactMatch[4] || null,
+      inlineTitle: blockText,
+      block: syntheticLines,
+      method: 'pandora-event-diary-compact',
     })
   }
 
