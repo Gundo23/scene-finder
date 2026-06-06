@@ -370,7 +370,6 @@ const TBC_VENUE_BLACKLIST = [
   'purple_mamba_club_nottingham_west_bridgford',
   'swindon_swingers_swindon',
   'torture_garden_london_uk_events',
-  'townhouse_wirral_near_liverpool',
 ]
 
 const TBC_EVENT_NAME_BLACKLIST = [
@@ -3090,6 +3089,136 @@ async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,
   }
 }
 
+
+
+function extractImageFromWpRenderedContent(content: string, baseUrl: string) {
+  const rawImage =
+    content.match(/<img[^>]+src=["']([^"']+)["'][^>]*>/i)?.[1] ||
+    content.match(/<img[^>]+data-src=["']([^"']+)["'][^>]*>/i)?.[1] ||
+    content.match(/srcset=["']([^"'\s,]+)[^"']*["']/i)?.[1]
+
+  return validImageUrl(absoluteUrl(baseUrl, rawImage))
+}
+
+function cleanWordPressRendered(value: any) {
+  return cleanText(
+    typeof value === 'string'
+      ? value
+      : typeof value?.rendered === 'string'
+        ? value.rendered
+        : ''
+  )
+}
+
+function isTownhouseEventOnJunkTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+
+  if (!cleaned) return true
+  if (isJunkTitle(cleaned)) return true
+
+  const junk = [
+    'closed for private party',
+    'private party',
+    'private event',
+    'details coming soon',
+    'coming soon',
+    'test event',
+    'draft',
+  ]
+
+  return junk.some((item) => cleaned === item || cleaned.includes(item))
+}
+
+async function fetchTownhouseEventOnApiEvents(sourceUrl: string) {
+  const apiUrls = [
+    'https://townhouseswingers.com/wp-json/wp/v2/ajde_events?per_page=100&_embed=1',
+    'https://townhouseswingers.com/wp-json/wp/v2/ajde_events?per_page=100',
+  ]
+
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+
+  for (const apiUrl of apiUrls) {
+    const jsonText = await fetchText(apiUrl, 'application/json,text/plain,*/*')
+    if (!jsonText) continue
+
+    let parsed: any
+
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch (err: any) {
+      console.log('TOWNHOUSE EVENTON API PARSE ERROR:', err?.message || 'Unknown parse error')
+      continue
+    }
+
+    const items = Array.isArray(parsed) ? parsed : []
+    if (items.length === 0) continue
+
+    for (const item of items) {
+      if (!item || item.status === 'trash' || item.status === 'draft') continue
+
+      const title = cleanEventName(cleanWordPressRendered(item.title))
+      if (!title || isTownhouseEventOnJunkTitle(title)) continue
+
+      const eventUrl =
+        absoluteUrl(sourceUrl, item.link) ||
+        absoluteUrl(sourceUrl, item.guid?.rendered) ||
+        eventUrlWithAnchor(sourceUrl, title)
+
+      if (!eventUrl || !eventUrl.includes('/events/')) continue
+
+      const contentHtml = typeof item.content?.rendered === 'string' ? item.content.rendered : ''
+      const excerptHtml = typeof item.excerpt?.rendered === 'string' ? item.excerpt.rendered : ''
+      const description = cleanDescription(`${contentHtml} ${excerptHtml}`) || title
+
+      const embeddedImage =
+        validImageUrl(item?._embedded?.['wp:featuredmedia']?.[0]?.source_url) ||
+        validImageUrl(item?._embedded?.['wp:featuredmedia']?.[0]?.media_details?.sizes?.large?.source_url) ||
+        validImageUrl(item?._embedded?.['wp:featuredmedia']?.[0]?.media_details?.sizes?.medium_large?.source_url) ||
+        null
+
+      const imageUrl =
+        embeddedImage ||
+        extractImageFromWpRenderedContent(contentHtml, eventUrl) ||
+        null
+
+      // The public WP REST payload exposes the EventON posts, titles, content and images.
+      // Some installs do not expose EventON's private start-date meta through REST, so only
+      // use an explicit date if it appears in the title/content/link. Otherwise save as TBC.
+      const dateSource = `${title} ${description} ${eventUrl}`
+      const eventDate = extractDate(dateSource)
+      const startTime = extractTime(dateSource)
+      const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(eventUrl)}`
+
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      candidates.push({
+        href: eventUrl,
+        text: title,
+        event_date: eventDate,
+        start_time: startTime,
+        raw: description || title,
+        image_url: imageUrl,
+        method: 'townhouse-eventon-api',
+      })
+    }
+
+    if (candidates.length > 0) break
+  }
+
+  return candidates
+}
+
 async function discoverTownhouseEventUrls(sourceUrl: string) {
   const discovered = new Set<string>()
 
@@ -4255,6 +4384,68 @@ export async function GET(request: Request) {
     }
 
     if (source.venue_id === 'townhouse_wirral_near_liverpool') {
+      const townhouseApiEvents = await fetchTownhouseEventOnApiEvents(source.source_url)
+
+      for (const townhouseApiEvent of townhouseApiEvents) {
+        candidatesFound++
+
+        const title = townhouseApiEvent.text
+        const description = townhouseApiEvent.raw || townhouseApiEvent.text
+        const ticketUrl = townhouseApiEvent.href || eventUrlWithAnchor(source.source_url, title)
+        const dedupeKey = eventDedupeKey(source.venue_id, title, townhouseApiEvent.event_date, ticketUrl)
+
+        if (runSeen.has(dedupeKey)) {
+          skipped++
+          continue
+        }
+
+        runSeen.add(dedupeKey)
+
+        const result = await upsertEvent({
+          venue_id: source.venue_id,
+          event_name: title,
+          event_date: townhouseApiEvent.event_date,
+          start_time: townhouseApiEvent.start_time,
+          description,
+          ticket_url: ticketUrl,
+          image_url: townhouseApiEvent.image_url,
+          source_url: source.source_url,
+        })
+
+        if (result.action === 'created') created++
+        else if (result.action === 'updated') updated++
+        else if (result.action === 'skipped') skipped++
+        else {
+          failed++
+
+          if (errors.length < 20) {
+            errors.push({
+              venue_id: source.venue_id,
+              event_name: title,
+              event_date: townhouseApiEvent.event_date,
+              error: result.error?.message || 'Unknown upsert error',
+            })
+          }
+        }
+
+        if (townhouseApiEvent.image_url) {
+          const venueImageResult = await updateVenueImageIfEmpty(source.venue_id, townhouseApiEvent.image_url)
+          if (venueImageResult.updated) venueImagesUpdated++
+        }
+
+        if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+          found.push({
+            venue_id: source.venue_id,
+            event_name: cleanEventName(title),
+            event_date: townhouseApiEvent.event_date,
+            event_url: ticketUrl,
+            image_url: townhouseApiEvent.image_url,
+            method: townhouseApiEvent.method,
+          })
+        }
+      }
+
+      // Keep the fast directory parser as a fallback/extra source, but do not deep-crawl.
       const townhouseUrls = [
         'https://townhouseswingers.com/event-directory/',
         source.source_url,
