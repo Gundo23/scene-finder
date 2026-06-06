@@ -2255,9 +2255,48 @@ async function discoverTownhouseEventUrls(sourceUrl: string) {
 }
 
 
+const CLUB_ALCHEMY_PUBLIC_HOST = 'www.clubalchemy.co.uk'
+const CLUB_ALCHEMY_HOSTS = [
+  'clubalchemy.co.uk',
+  'www.clubalchemy.co.uk',
+  'oid2yvxyy4-btej6sd4xq-uk.a.run.app',
+]
+
+function normaliseHost(value: string | null | undefined) {
+  try {
+    return new URL(String(value || '')).hostname.replace(/^www\./, '').toLowerCase()
+  } catch {
+    return String(value || '').replace(/^www\./, '').toLowerCase()
+  }
+}
+
+function isClubAlchemyHost(value: string | null | undefined) {
+  const host = normaliseHost(value)
+  return CLUB_ALCHEMY_HOSTS.map((item) => item.replace(/^www\./, '')).includes(host)
+}
+
 function isClubAlchemySource(value: string | null | undefined) {
-  const lower = String(value || '').toLowerCase()
-  return lower.includes('clubalchemy.co.uk')
+  return isClubAlchemyHost(value)
+}
+
+function publicClubAlchemyUrl(url: string | null | undefined) {
+  if (!url) return null
+
+  try {
+    const parsed = new URL(url)
+    if (!isClubAlchemyHost(parsed.hostname)) return url
+
+    parsed.protocol = 'https:'
+    parsed.hostname = CLUB_ALCHEMY_PUBLIC_HOST
+    return parsed.toString()
+  } catch {
+    return url
+  }
+}
+
+function sameDomainOrClubAlchemy(sourceUrl: string, pageUrl: string) {
+  if (sameDomain(sourceUrl, pageUrl)) return true
+  return isClubAlchemySource(sourceUrl) && isClubAlchemyEventPage(pageUrl)
 }
 
 function isClubAlchemyEventPage(url: string | null | undefined) {
@@ -2268,13 +2307,24 @@ function isClubAlchemyEventPage(url: string | null | undefined) {
     const path = parsed.pathname.toLowerCase().replace(/\/$/, '')
 
     return (
-      parsed.hostname.replace(/^www\./, '') === 'clubalchemy.co.uk' &&
+      isClubAlchemyHost(parsed.hostname) &&
       path.startsWith('/events/') &&
       path !== '/events'
     )
   } catch {
     return false
   }
+}
+
+function extractClubAlchemyCanonicalUrl(html: string, baseUrl: string) {
+  const raw =
+    html.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i)?.[1] ||
+    html.match(/<meta[^>]+property=["']og:url["'][^>]+content=["']([^"']+)["']/i)?.[1] ||
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:url["']/i)?.[1]
+
+  const url = absoluteUrl(baseUrl, raw)
+  return url && isClubAlchemyEventPage(url) ? url : baseUrl
 }
 
 function extractClubAlchemyDateFromUrl(url: string) {
@@ -2299,12 +2349,25 @@ function cleanClubAlchemyTitle(value: string, fallbackUrl: string) {
     .replace(/\s+/g, ' ')
     .trim()
 
-  if (!title || isJunkTitle(title)) {
+  const normalisedTitle = normalizeTitle(title)
+
+  if (!title || normalisedTitle === 'club alchemy' || isJunkTitle(title)) {
     try {
       const slug = new URL(fallbackUrl).pathname.split('/').filter(Boolean).pop() || ''
-      title = slug
+
+      const parts = slug
         .replace(/\b20\d{2}-\d{2}-\d{2}\b/g, '')
-        .replace(/[-_]+/g, ' ')
+        .split(/[-_]+/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+
+      // Manus/Club Alchemy event slugs often end with a random id, e.g. hvYh.
+      if (parts.length > 1 && /^[a-z0-9]{4,8}$/i.test(parts[parts.length - 1])) {
+        parts.pop()
+      }
+
+      title = parts
+        .join(' ')
         .replace(/\s+/g, ' ')
         .trim()
         .replace(/\b\w/g, (letter) => letter.toUpperCase())
@@ -2331,9 +2394,11 @@ async function discoverClubAlchemyEventUrls(sourceUrl: string) {
     absoluteUrl(sourceUrl, '/server-sitemap.xml'),
     absoluteUrl(sourceUrl, '/page-sitemap.xml'),
     absoluteUrl(sourceUrl, '/post-sitemap.xml'),
+    'https://www.clubalchemy.co.uk/sitemap.xml',
+    'https://oid2yvxyy4-btej6sd4xq-uk.a.run.app/sitemap.xml',
   ].filter(Boolean) as string[]
 
-  for (const sitemapUrl of sitemapUrls) {
+  for (const sitemapUrl of [...new Set(sitemapUrls)]) {
     const xml = await fetchText(sitemapUrl, 'application/xml,text/xml,text/plain')
     if (!xml) continue
 
@@ -2344,7 +2409,7 @@ async function discoverClubAlchemyEventUrls(sourceUrl: string) {
     for (const url of urls) discovered.add(url)
   }
 
-  return [...discovered].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
+  return [...discovered].filter((url) => !isJunkUrl(url))
 }
 
 function extractClubAlchemyEventLinks(html: string, baseUrl: string) {
@@ -2363,28 +2428,30 @@ function extractClubAlchemyEventLinks(html: string, baseUrl: string) {
     if (!isClubAlchemyEventPage(link.href)) continue
     if (isJunkUrl(link.href)) continue
 
+    const canonicalUrl = publicClubAlchemyUrl(link.href) || link.href
+
     const rawTitle =
       link.text ||
       cleanText(link.raw.match(/title=["']([^"']+)["']/i)?.[1]) ||
       cleanText(link.raw.match(/aria-label=["']([^"']+)["']/i)?.[1]) ||
-      link.href
+      canonicalUrl
 
-    const title = cleanClubAlchemyTitle(rawTitle, link.href)
+    const title = cleanClubAlchemyTitle(rawTitle, canonicalUrl)
     if (!title || isJunkTitle(title)) continue
 
     const eventDate =
-      extractClubAlchemyDateFromUrl(link.href) ||
+      extractClubAlchemyDateFromUrl(canonicalUrl) ||
       extractCalendarDateFromRaw(link.raw) ||
-      extractDate(`${link.raw} ${link.text} ${link.href}`)
+      extractDate(`${link.raw} ${link.text} ${canonicalUrl}`)
 
     const startTime = extractTime(`${link.raw} ${link.text}`)
-    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(link.href)}`
+    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(canonicalUrl)}`
 
     if (seen.has(key)) continue
     seen.add(key)
 
     candidates.push({
-      href: link.href,
+      href: canonicalUrl,
       text: title,
       event_date: eventDate,
       start_time: startTime,
@@ -2398,22 +2465,25 @@ function extractClubAlchemyEventLinks(html: string, baseUrl: string) {
 function extractClubAlchemySelfEvent(html: string, pageUrl: string) {
   if (!isClubAlchemyEventPage(pageUrl)) return null
 
+  const canonicalRaw = extractClubAlchemyCanonicalUrl(html, pageUrl)
+  const eventPageUrl = publicClubAlchemyUrl(canonicalRaw) || canonicalRaw
   const pageTitle = extractPageTitle(html)
-  const title = cleanClubAlchemyTitle(pageTitle, pageUrl)
+  const title = cleanClubAlchemyTitle(pageTitle, eventPageUrl)
   const description =
     extractMetaDescription(html) ||
     cleanDescription(cleanText(html).slice(0, 700)) ||
     title
 
   const eventDate =
+    extractClubAlchemyDateFromUrl(eventPageUrl) ||
     extractClubAlchemyDateFromUrl(pageUrl) ||
     extractDateFromHtml(html) ||
-    extractDate(`${pageTitle} ${description} ${pageUrl}`)
+    extractDate(`${pageTitle} ${description} ${eventPageUrl}`)
 
   if (!title || isJunkTitle(title)) return null
 
   return {
-    href: pageUrl,
+    href: eventPageUrl,
     text: title,
     event_date: eventDate,
     start_time: extractTime(cleanText(html).slice(0, 3000)),
@@ -2951,7 +3021,7 @@ export async function GET(request: Request) {
       const pageUrl = queue.shift()
 
       if (!pageUrl || seenPages.has(pageUrl)) continue
-      if (!sameDomain(source.source_url, pageUrl)) continue
+      if (!sameDomainOrClubAlchemy(source.source_url, pageUrl)) continue
       if (isJunkUrl(pageUrl)) continue
 
       seenPages.add(pageUrl)
@@ -3027,7 +3097,7 @@ export async function GET(request: Request) {
           let startTime = clubAlchemyEvent.start_time
           const ticketUrl = clubAlchemyEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (sameDomain(source.source_url, ticketUrl) && isClubAlchemyEventPage(ticketUrl)) {
+          if (sameDomainOrClubAlchemy(source.source_url, ticketUrl) && isClubAlchemyEventPage(ticketUrl)) {
             eventHtml = ticketUrl === pageUrl ? html : await fetchHtml(ticketUrl)
 
             if (eventHtml) {
@@ -3388,7 +3458,7 @@ export async function GET(request: Request) {
           const combined = `${link.href} ${link.text} ${link.raw}`
 
           if (
-            sameDomain(source.source_url, link.href) &&
+            sameDomainOrClubAlchemy(source.source_url, link.href) &&
             looksLikeUsefulPage(combined) &&
             !isJunkUrl(link.href) &&
             !seenPages.has(link.href) &&
@@ -3421,7 +3491,7 @@ export async function GET(request: Request) {
           let eventDate = extractDate(`${link.text} ${link.href}`)
           let startTime = extractTime(`${link.text} ${pageText}`)
 
-          if (sameDomain(source.source_url, link.href)) {
+          if (sameDomainOrClubAlchemy(source.source_url, link.href)) {
             eventHtml = await fetchHtml(link.href)
 
             if (eventHtml) {
