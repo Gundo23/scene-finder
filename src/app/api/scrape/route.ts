@@ -1100,6 +1100,66 @@ function extractTownhouseEvents(html: string, baseUrl: string) {
     })
   }
 
+  // Fast Townhouse directory parser. The event-directory page lists rows like:
+  // "JUNE, 2026 SAT 06 JUN LIVERPOOL & MERSEYSIDE PEER ROPE WORKSHOP"
+  // with no visible start time. This avoids opening every detail page, which times out on Vercel.
+  const directoryPattern = new RegExp(
+    `\\b${dayWord}\\s+` +
+      `(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+      `(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\\s+` +
+      `([^\\n]{6,150}?)(?=\\b${dayWord}\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)|$)`,
+    'gi'
+  )
+
+  while ((match = directoryPattern.exec(text)) !== null) {
+    const day = match[1].padStart(2, '0')
+    const month = monthMap[match[2].toLowerCase()]
+
+    const nearbyBefore = text.slice(Math.max(0, match.index - 80), match.index)
+    const year =
+      nearbyBefore.match(/\b(20\d{2})\b/)?.[1] ||
+      text.slice(Math.max(0, match.index - 500), match.index + 50).match(/\b(20\d{2})\b/)?.[1] ||
+      String(currentYear)
+
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+
+    let title = cleanEventName(match[3])
+      .replace(/^[-:|]+/g, '')
+      .replace(/\b(click on the event below|details and tickets|tickets only|open evening)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (title.length > 120) title = title.slice(0, 120).trim()
+    if (!eventDate || isJunkTitle(title)) continue
+
+    const matchingLink = links.find((link) => {
+      if (!link.href.includes('/events/') && !link.href.includes('/event-directory/')) return false
+      const linkTitle = normalizeTitle(link.text)
+      const patternTitle = normalizeTitle(title)
+      if (!linkTitle || !patternTitle) return false
+
+      return (
+        linkTitle.includes(patternTitle.slice(0, 22)) ||
+        patternTitle.includes(linkTitle.slice(0, 22)) ||
+        link.href.includes(patternTitle.split(' ').slice(0, 4).join('-'))
+      )
+    })
+
+    const href = matchingLink?.href || eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate}|${href}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: null,
+      raw: match[0],
+    })
+  }
+
   return candidates
 }
 
@@ -4132,9 +4192,119 @@ export async function GET(request: Request) {
       }
     }
 
+    if (source.venue_id === 'townhouse_wirral_near_liverpool') {
+      const townhouseUrls = [
+        'https://townhouseswingers.com/event-directory/',
+        source.source_url,
+      ]
+        .filter(Boolean)
+        .filter((url, index, array) => array.indexOf(url) === index)
+        .filter((url) => {
+          try {
+            const parsed = new URL(url)
+            return parsed.hostname.replace(/^www\./, '').toLowerCase() === 'townhouseswingers.com'
+          } catch {
+            return false
+          }
+        })
+        .slice(0, 2)
+
+      for (const pageUrl of townhouseUrls) {
+        checkedPages++
+
+        const html = await fetchHtml(pageUrl)
+
+        if (!html) {
+          failed++
+          timedOutOrEmpty++
+
+          if (failedPages.length < 30) {
+            failedPages.push({
+              venue_id: source.venue_id,
+              page_url: pageUrl,
+              reason: 'Townhouse fast fetch returned empty/null',
+            })
+          }
+
+          continue
+        }
+
+        const pageImage = extractBestImage(html, pageUrl)
+
+        if (pageImage) {
+          const venueImageResult = await updateVenueImageIfEmpty(source.venue_id, pageImage)
+          if (venueImageResult.updated) venueImagesUpdated++
+        }
+
+        const townhouseEvents = extractTownhouseEvents(html, pageUrl)
+
+        for (const townhouseEvent of townhouseEvents) {
+          candidatesFound++
+
+          const title = townhouseEvent.text
+          const description = townhouseEvent.raw || townhouseEvent.text
+          const ticketUrl = townhouseEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, townhouseEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: townhouseEvent.event_date,
+            start_time: townhouseEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: pageImage,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else {
+            failed++
+
+            if (errors.length < 20) {
+              errors.push({
+                venue_id: source.venue_id,
+                event_name: title,
+                event_date: townhouseEvent.event_date,
+                error: result.error?.message || 'Unknown upsert error',
+              })
+            }
+          }
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: townhouseEvent.event_date,
+              event_url: ticketUrl,
+              image_url: pageImage,
+              method: 'townhouse-directory-fast',
+            })
+          }
+        }
+      }
+
+      await supabaseAdmin
+        .from('event_sources')
+        .update({ last_checked: new Date().toISOString() })
+        .eq('source_id', source.source_id)
+
+      console.log('SOURCE DONE:', source.source_url)
+      continue
+    }
+
     const townhouseDiscoveredUrls =
       source.venue_id === 'townhouse_wirral_near_liverpool'
-        ? await discoverTownhouseEventUrls(source.source_url)
+        ? []
         : []
 
     const questDiscoveredUrls =
@@ -4172,7 +4342,7 @@ export async function GET(request: Request) {
 
     const maxPagesForSource =
       source.venue_id === 'townhouse_wirral_near_liverpool'
-        ? Math.max(MAX_PAGES_PER_SOURCE, 25)
+        ? 1
         : source.venue_id === 'xtasia_west_bromwich'
           ? Math.max(MAX_PAGES_PER_SOURCE, 12)
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
