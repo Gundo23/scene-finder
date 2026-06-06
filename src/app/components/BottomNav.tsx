@@ -1,10 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 
 export default function BottomNav() {
   const router = useRouter()
+  const pathname = usePathname()
+
+  // Hide on landing page
+  if (pathname === '/') {
+    return null
+  }
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-800 bg-zinc-950/95 backdrop-blur">
