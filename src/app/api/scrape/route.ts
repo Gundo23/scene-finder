@@ -2495,7 +2495,9 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('theold-hellfireclub.co.uk') ||
     combined.includes('tockify.com/hellfireclubuk') ||
     combined.includes('ecclesia_glasgow') ||
-    combined.includes('ecclesiaglasgow.com')
+    combined.includes('ecclesiaglasgow.com') ||
+    combined.includes('pandora') ||
+    combined.includes('pandoraswingers.com')
   )
 }
 
@@ -2508,6 +2510,12 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
   if (sameDomainOrClubAlchemy(source.source_url, pageUrl)) return true
 
   // Hellfire embeds/links its live calendar on Tockify, so allow this one external host.
+  if (isPandoraSource(source.venue_id, source.source_url)) {
+    for (const url of discoverPandoraEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   if (isHellfireSource(source.venue_id, source.source_url)) {
     try {
       const host = new URL(pageUrl).hostname.replace(/^www\./, '').toLowerCase()
@@ -2557,6 +2565,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isPandoraSource(source.venue_id, source.source_url)) {
+    for (const url of discoverPandoraEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   if (isHellfireSource(source.venue_id, source.source_url)) {
     for (const url of [
       'https://www.theold-hellfireclub.co.uk/Table_Matrix5_Icons.html',
@@ -2575,6 +2589,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
   if (venueId === 'ecclesia_glasgow') return extractEcclesiaEvents(html, pageUrl)
   if (venueId === 'club_f_birmingham') return extractGenericDatedBlockEvents(html, pageUrl, 'club-f-custom')
+  if (isPandoraSource(venueId, pageUrl)) return extractPandoraEvents(html, pageUrl)
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
 
   return [] as {
@@ -3108,6 +3123,191 @@ function cleanWordPressRendered(value: any) {
         ? value.rendered
         : ''
   )
+}
+
+
+function isPandoraSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+  return combined.includes('pandora') || combined.includes('pandoraswingers.com')
+}
+
+function discoverPandoraEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/event-diary'),
+    absoluteUrl(sourceUrl, '/event-diary/'),
+    sourceUrl,
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
+}
+
+function isPandoraSkipLine(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const fragments = [
+    'upcoming events',
+    'event diary',
+    'event night',
+    'open to all members',
+    'open to all',
+    'all members welcome',
+    'add onto the guest list',
+    'guest list',
+    'fabswingers forum',
+    'fab swingers forum',
+    'before 7pm',
+    'after 7pm',
+    'per couple',
+    'single male',
+    'single female',
+    'trans',
+    'couple',
+    'free shots',
+    'dj ',
+    'soulg',
+    'tone deaf',
+    'on the decks',
+    'address',
+    'opening hours',
+    'membership required',
+    'more information',
+    'members welcome to attend',
+    'pandora swingers club',
+    'adult lifestyle',
+  ]
+
+  if (/^£/.test(cleanText(value || '').trim())) return true
+  if (/^\d+\s*(am|pm)\s*(till|until|to)/i.test(cleanText(value || '').trim())) return true
+  if (/^open\s+\d/i.test(cleanText(value || '').trim())) return true
+  if (fragments.some((fragment) => cleaned.includes(fragment))) return true
+
+  return false
+}
+
+function cleanPandoraTitle(value: string, fallback: string) {
+  let title = cleanEventName(value || fallback)
+    .replace(/^\*+\s*/g, '')
+    .replace(/\s*\*+$/g, '')
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\b(?:is hosting|are hosting|hosting our regular|are bringing|bringing back|new to pandora|pandora's dedicated)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!title || isPandoraSkipLine(title) || isJunkTitle(title)) {
+    title = cleanEventName(fallback)
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  return title
+}
+
+function extractPandoraEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|tr)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const dateLinePattern = /^(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(20\d{2}))?\s*$/i
+
+  const seen = new Set<string>()
+  const pageImage = extractBestImage(html, baseUrl)
+
+  for (let index = 0; index < lines.length; index++) {
+    const dateMatch = lines[index].match(dateLinePattern)
+    if (!dateMatch) continue
+
+    const weekday = dateMatch[1]
+    const day = dateMatch[2].padStart(2, '0')
+    const month = monthNameToNumber(dateMatch[3])
+    if (!month) continue
+
+    const year = futureSafeYear(month, day, dateMatch[4])
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+    if (!eventDate) continue
+
+    const block: string[] = [lines[index]]
+    for (let next = index + 1; next < lines.length; next++) {
+      if (lines[next].match(dateLinePattern)) break
+      if (normalizeTitle(lines[next]) === 'address') break
+      block.push(lines[next])
+    }
+
+    const cleanedBlock = block
+      .map((line) => line.replace(/^\*+|\*+$/g, '').trim())
+      .filter(Boolean)
+
+    const eventNightIndex = cleanedBlock.findIndex((line) => normalizeTitle(line).includes('event night'))
+    let titleLine = ''
+
+    if (eventNightIndex >= 0) {
+      const afterEventNight = cleanedBlock.slice(eventNightIndex + 1)
+      const strongTitleLine = afterEventNight.find((line, lineIndex) => {
+        const lower = normalizeTitle(line)
+        if (isPandoraSkipLine(line) || isJunkTitle(line)) return false
+        if (lower.includes('hosting') || lower.includes('bringing')) return false
+        if (line.length < 4) return false
+        // Prefer the actual event title shortly after host/intro lines.
+        return lineIndex <= 5
+      })
+      titleLine = strongTitleLine || ''
+    }
+
+    if (!titleLine) {
+      titleLine = cleanedBlock
+        .slice(1)
+        .find((line) => !isPandoraSkipLine(line) && !isJunkTitle(line) && line.length >= 4) || ''
+    }
+
+    const isOpenNight = cleanedBlock.some((line) => normalizeTitle(line).includes('open to all members'))
+    const fallbackTitle = isOpenNight
+      ? `${weekday.charAt(0).toUpperCase()}${weekday.slice(1).toLowerCase()} Members Night`
+      : 'Pandora Event'
+
+    let title = cleanPandoraTitle(titleLine, fallbackTitle)
+    if (!title || isJunkTitle(title)) continue
+    if (title.length > 120) title = title.slice(0, 120).trim()
+
+    const raw = cleanedBlock.join(' ')
+    const startTime = extractTime(raw)
+    const href = eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: raw.slice(0, 500),
+      image_url: pageImage,
+      method: 'pandora-event-diary',
+    })
+  }
+
+  return candidates
 }
 
 function isTownhouseEventOnJunkTitle(value: string | null | undefined) {
@@ -4381,6 +4581,96 @@ export async function GET(request: Request) {
           method: clubAlchemyApiEvent.method,
         })
       }
+    }
+
+
+    if (isPandoraSource(source.venue_id, source.source_url)) {
+      const pandoraUrls = discoverPandoraEventPages(source.source_url).slice(0, 3)
+
+      for (const pageUrl of pandoraUrls) {
+        checkedPages++
+
+        const html = await fetchHtml(pageUrl)
+
+        if (!html) {
+          failed++
+          timedOutOrEmpty++
+
+          if (failedPages.length < 30) {
+            failedPages.push({
+              venue_id: source.venue_id,
+              page_url: pageUrl,
+              reason: 'Pandora fetch returned empty/null',
+            })
+          }
+
+          continue
+        }
+
+        const pandoraEvents = extractPandoraEvents(html, pageUrl)
+
+        for (const pandoraEvent of pandoraEvents) {
+          candidatesFound++
+
+          const title = pandoraEvent.text
+          const description = pandoraEvent.raw || pandoraEvent.text
+          const ticketUrl = pandoraEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, pandoraEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: pandoraEvent.event_date,
+            start_time: pandoraEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: pandoraEvent.image_url,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else {
+            failed++
+
+            if (errors.length < 20) {
+              errors.push({
+                venue_id: source.venue_id,
+                event_name: title,
+                event_date: pandoraEvent.event_date,
+                error: result.error?.message || 'Unknown upsert error',
+              })
+            }
+          }
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: pandoraEvent.event_date,
+              event_url: ticketUrl,
+              image_url: pandoraEvent.image_url,
+              method: pandoraEvent.method,
+            })
+          }
+        }
+      }
+
+      await supabaseAdmin
+        .from('event_sources')
+        .update({ last_checked: new Date().toISOString() })
+        .eq('source_id', source.source_id)
+
+      console.log('SOURCE DONE:', source.source_url)
+      continue
     }
 
     if (source.venue_id === 'townhouse_wirral_near_liverpool') {
