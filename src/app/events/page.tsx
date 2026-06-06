@@ -200,10 +200,13 @@ export default async function EventsPage({
   const distance = params.distance || ''
   const selectedDistance = distance ? Number(distance) : null
 
-  const { data: events } = await supabase
-    .from('events')
-    .select('*')
-    .limit(1000)
+ const today = new Date().toISOString().split('T')[0]
+
+const { data: events } = await supabase
+  .from('events')
+  .select('*')
+  .or(`event_date.gte.${today},event_date.is.null`)
+  .limit(1000)
 
   const { data: venues } = await supabase
     .from('venues')
