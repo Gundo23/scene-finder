@@ -235,17 +235,17 @@ export default async function Home({
             </select>
 
             <div className="col-span-2">
-              {hasFilters && (
-                <Link
-                  href="/"
-                  className="block rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white"
-                >
-                  Clear Filters
-                </Link>
-              )}
-            </div></div>
-          </div>
-        </form>
+  {hasFilters && (
+    <Link
+      href="/"
+      className="block rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+    >
+      Clear Filters
+    </Link>
+  )}
+</div>
+</div>
+</form>
 
         <div className="mt-6 flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">
