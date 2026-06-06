@@ -3126,13 +3126,29 @@ function isPandoraSource(venueId: string | null | undefined, sourceUrl: string |
 }
 
 function discoverPandoraEventPages(sourceUrl: string) {
+  // Pandora's server-side fetches are reliable on the www host.
+  // The non-www /event-diary paths can return empty/null on Vercel, so force
+  // the canonical www pages first while still allowing the supplied source URL.
+  const canonicalBase = 'https://www.pandoraswingers.com'
+
   const urls = [
+    `${canonicalBase}/event-diary`,
+    `${canonicalBase}/event-diary/`,
+    canonicalBase,
     absoluteUrl(sourceUrl, '/event-diary'),
     absoluteUrl(sourceUrl, '/event-diary/'),
     sourceUrl,
   ].filter(Boolean) as string[]
 
-  return [...new Set(urls)].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
+  return [...new Set(urls)]
+    .filter((url) => {
+      try {
+        const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+        return host === 'pandoraswingers.com' && !isJunkUrl(url)
+      } catch {
+        return false
+      }
+    })
 }
 
 function isPandoraSkipLine(value: string | null | undefined) {
