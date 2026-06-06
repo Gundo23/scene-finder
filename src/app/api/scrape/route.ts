@@ -8,7 +8,7 @@ const supabaseAdmin = createClient(
 const MAX_SOURCES = 80
 const MAX_PAGES_PER_SOURCE = 8
 const MAX_EVENTS_RETURNED = 150
-const FETCH_TIMEOUT_MS = 10000
+const FETCH_TIMEOUT_MS = 20000
 
 const EVENT_KEYWORDS = [
   'event',
@@ -1273,6 +1273,10 @@ function discoverXtasiaEventPages(sourceUrl: string) {
     'https://xtasia.co.uk/page/fetish-diary',
     'https://www.xtasia.co.uk/page/swingers-diary',
     'https://www.xtasia.co.uk/page/fetish-diary',
+    'https://xtasia.co.uk/en/page/swingers-diary',
+    'https://xtasia.co.uk/en/page/fetish-diary',
+    'https://www.xtasia.co.uk/en/page/swingers-diary',
+    'https://www.xtasia.co.uk/en/page/fetish-diary',
   ]
 
   return [...new Set(pages)]
@@ -1672,56 +1676,97 @@ async function fetchHtml(url: string) {
       signal: controller.signal,
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (compatible; SceneFinderBot/4.0; +https://scene-finder.local)',
-        Accept: 'text/html,application/xhtml+xml',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36 SceneFinderBot/5.0',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml,text/xml,text/calendar,text/plain,*/*',
+        'Accept-Language': 'en-GB,en;q=0.9',
       },
+      redirect: 'follow',
       cache: 'no-store',
     })
 
     clearTimeout(timeout)
 
     if (!response.ok) {
-      console.log('FAILED:', response.status, url)
+      console.log('FAILED:', response.status, response.statusText, url)
       return null
     }
 
     const contentType = response.headers.get('content-type') || ''
-    if (!contentType.includes('text/html')) {
-      console.log('SKIPPED NON-HTML:', url)
+    const body = await response.text()
+
+    if (!body || body.trim().length === 0) {
+      console.log('EMPTY BODY:', url)
       return null
     }
 
-    return await response.text()
+    if (
+      !contentType.includes('text/html') &&
+      !contentType.includes('application/xhtml') &&
+      !contentType.includes('text/plain') &&
+      !contentType.includes('application/xml') &&
+      !contentType.includes('text/xml') &&
+      !contentType.includes('text/calendar')
+    ) {
+      console.log('UNUSUAL CONTENT TYPE:', contentType, url)
+    }
+
+    return body
   } catch (err: any) {
     clearTimeout(timeout)
-    console.log('FETCH ERROR:', url, err?.name || err?.message || 'Unknown error')
+
+    console.log(
+      'FETCH ERROR:',
+      url,
+      err?.name || 'UnknownError',
+      err?.message || 'Unknown fetch error'
+    )
+
     return null
   }
 }
 
-
-async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,application/xml,text/xml,application/json') {
+async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,application/xml,text/xml,text/calendar,text/plain,application/json,*/*') {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
   try {
+    console.log('FETCH TEXT:', url)
+
     const response = await fetch(url, {
       signal: controller.signal,
       headers: {
         'User-Agent':
-          'Mozilla/5.0 (compatible; SceneFinderBot/4.0; +https://scene-finder.local)',
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36 SceneFinderBot/5.0',
         Accept: accept,
+        'Accept-Language': 'en-GB,en;q=0.9',
       },
+      redirect: 'follow',
       cache: 'no-store',
     })
 
     clearTimeout(timeout)
 
-    if (!response.ok) return null
+    if (!response.ok) {
+      console.log('FETCH TEXT FAILED:', response.status, response.statusText, url)
+      return null
+    }
 
-    return await response.text()
-  } catch {
+    const body = await response.text()
+    if (!body || body.trim().length === 0) {
+      console.log('FETCH TEXT EMPTY:', url)
+      return null
+    }
+
+    return body
+  } catch (err: any) {
     clearTimeout(timeout)
+    console.log(
+      'FETCH TEXT ERROR:',
+      url,
+      err?.name || 'UnknownError',
+      err?.message || 'Unknown fetch text error'
+    )
     return null
   }
 }
@@ -2223,6 +2268,7 @@ export async function GET(request: Request) {
 
   const found: any[] = []
   const errors: any[] = []
+  const failedPages: any[] = []
   const runSeen = new Set<string>()
 
   if (!targetVenueId) {
@@ -2287,6 +2333,15 @@ export async function GET(request: Request) {
       if (!html) {
         failed++
         timedOutOrEmpty++
+
+        if (failedPages.length < 30) {
+          failedPages.push({
+            venue_id: source.venue_id,
+            page_url: pageUrl,
+            reason: 'fetchHtml returned empty/null',
+          })
+        }
+
         continue
       }
 
@@ -2766,6 +2821,7 @@ export async function GET(request: Request) {
     skipped,
     failed,
     timedOutOrEmpty,
+    failed_pages: failedPages,
     found,
     errors,
   })
