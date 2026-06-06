@@ -217,6 +217,40 @@ function distanceInMiles(
   return radius * c;
 }
 
+type PostcodeCoordinates = {
+  latitude: number;
+  longitude: number;
+};
+
+async function getPostcodeCoordinates(
+  postcode: string,
+): Promise<PostcodeCoordinates | null> {
+  const cleanedPostcode = postcode.replace(/\s+/g, "").trim();
+
+  if (!cleanedPostcode) return null;
+
+  try {
+    const response = await fetch(
+      `https://api.postcodes.io/postcodes/${encodeURIComponent(cleanedPostcode)}`,
+      { next: { revalidate: 60 * 60 * 24 } },
+    );
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const latitude = Number(data?.result?.latitude);
+    const longitude = Number(data?.result?.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    return { latitude, longitude };
+  } catch {
+    return null;
+  }
+}
+
 export default async function EventsPage({
   searchParams,
 }: {
@@ -225,6 +259,7 @@ export default async function EventsPage({
     type?: string | string[];
     region?: string;
     city?: string;
+    postcode?: string;
     distance?: string;
     startDate?: string;
     endDate?: string;
@@ -238,10 +273,15 @@ export default async function EventsPage({
     : params.type || "";
   const region = params.region || "";
   const city = params.city || "";
+  const postcode = params.postcode || "";
   const distance = params.distance || "";
   const startDate = params.startDate || "";
   const endDate = params.endDate || "";
   const selectedDistance = distance ? Number(distance) : null;
+  const postcodeCoordinates = postcode
+    ? await getPostcodeCoordinates(postcode)
+    : null;
+  const postcodeSearchFailed = Boolean(postcode && selectedDistance && !postcodeCoordinates);
 
   const today = new Date().toISOString().split("T")[0];
   const queryStartDate = startDate || today;
@@ -269,31 +309,6 @@ export default async function EventsPage({
     ),
   ];
 
-  const selectedCityVenues =
-    city && venues
-      ? venues.filter(
-          (venue) =>
-            venue.city_area?.toLowerCase() === city.toLowerCase() &&
-            venue.latitude &&
-            venue.longitude,
-        )
-      : [];
-
-  const cityCentre =
-    selectedCityVenues.length > 0
-      ? {
-          latitude:
-            selectedCityVenues.reduce(
-              (sum, venue) => sum + Number(venue.latitude),
-              0,
-            ) / selectedCityVenues.length,
-          longitude:
-            selectedCityVenues.reduce(
-              (sum, venue) => sum + Number(venue.longitude),
-              0,
-            ) / selectedCityVenues.length,
-        }
-      : null;
 
   const filteredEvents = events
     ?.filter((event) => {
@@ -342,19 +357,18 @@ export default async function EventsPage({
 
       const cityMatch =
         !city ||
-        !selectedDistance ||
         cleanText(venue?.city_area || "").toLowerCase() ===
           cleanText(city).toLowerCase();
 
       const distanceMatch =
-        !city ||
         !selectedDistance ||
-        !cityCentre ||
-        (venue?.latitude &&
+        !postcode ||
+        (!!postcodeCoordinates &&
+          venue?.latitude &&
           venue?.longitude &&
           distanceInMiles(
-            cityCentre.latitude,
-            cityCentre.longitude,
+            postcodeCoordinates.latitude,
+            postcodeCoordinates.longitude,
             Number(venue.latitude),
             Number(venue.longitude),
           ) <= selectedDistance);
@@ -402,14 +416,14 @@ export default async function EventsPage({
           </h1>
 
           <p className="mt-3 max-w-2xl text-sm text-zinc-300 sm:text-lg">
-            Search all events by keyword, tags, town/city, distance, date range,
-            venue, or region.
+            Search all events by keyword, tags, town/city, postcode radius, date
+            range, venue, or region.
           </p>
         </div>
 
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-8">
-            <div className="min-w-0 sm:col-span-2 lg:col-span-1">
+          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
+            <div className="min-w-0 sm:col-span-2 lg:col-span-2">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Keyword
               </label>
@@ -481,6 +495,18 @@ export default async function EventsPage({
 
             <div className="min-w-0 lg:col-span-2">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
+                Postcode
+              </label>
+              <input
+                name="postcode"
+                defaultValue={postcode}
+                placeholder="M1 1AA"
+                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 uppercase text-white placeholder:normal-case placeholder:text-zinc-500"
+              />
+            </div>
+
+            <div className="min-w-0 lg:col-span-2">
+              <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Date range
               </label>
               <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950">
@@ -503,7 +529,7 @@ export default async function EventsPage({
 
             <div className="min-w-0">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
-                Distance
+                Distance from postcode
               </label>
               <select
                 name="distance"
@@ -529,6 +555,12 @@ export default async function EventsPage({
             </div>
           </div>
 
+          {postcodeSearchFailed && (
+            <p className="mt-4 rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm text-amber-200">
+              Postcode not recognised. Check it and search again.
+            </p>
+          )}
+
           {selectedTag && (
             <div className="mt-4 flex flex-wrap gap-2">
               <span className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-1 text-xs text-blue-200">
@@ -541,6 +573,7 @@ export default async function EventsPage({
             selectedTag ||
             region ||
             city ||
+            postcode ||
             distance ||
             startDate ||
             endDate) && (
