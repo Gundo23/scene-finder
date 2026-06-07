@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import FallbackImage from '@/app/components/FallbackImage'
+import VenueLikeButton from '@/app/components/VenueLikeButton'
 
 const REGIONS = [
   'North East',
@@ -98,7 +99,7 @@ export default async function Home({
 
   let query = supabase
     .from('venues')
-    .select('venue_id, name, city_area, region, website, category, status, image_url')
+    .select('venue_id, name, city_area, region, website, category, image_url, like_count')
     .order('name')
 
   if (search) {
@@ -268,11 +269,6 @@ export default async function Home({
                       </p>
                     )}
 
-                    {venue.status && (
-                      <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
-                        {venue.status}
-                      </p>
-                    )}
                   </div>
 
                   <Link href={`/venue/${venue.venue_id}`}>
@@ -284,6 +280,13 @@ export default async function Home({
                   <p className="mt-2 truncate text-xs text-zinc-400 sm:text-sm">
                     {venue.city_area} • {venue.region}
                   </p>
+
+                  <div className="mt-3">
+                    <VenueLikeButton
+                      venueId={venue.venue_id}
+                      initialLikeCount={venue.like_count || 0}
+                    />
+                  </div>
 
                   <div className="mt-3 flex flex-wrap gap-4">
                     <Link
