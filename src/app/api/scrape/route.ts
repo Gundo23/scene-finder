@@ -3646,6 +3646,12 @@ function discoverPenthouseEventPages(sourceUrl: string) {
     sourceUrl,
     absoluteUrl(sourceUrl, '/events'),
     absoluteUrl(sourceUrl, '/events/'),
+    // Penthouse is an Inertia/Laravel app. Event detail pages include
+    // structured props.event and props.upcomingEvents JSON.
+    absoluteUrl(sourceUrl, '/event/1958'),
+    absoluteUrl(sourceUrl, '/event/1895'),
+    absoluteUrl(sourceUrl, '/event/1890'),
+    absoluteUrl(sourceUrl, '/event/1892'),
   ].filter(Boolean) as string[]
 
   return [...new Set(urls)].filter((url) => {
@@ -3731,6 +3737,192 @@ function cleanPenthouseTitle(value: string) {
   }
 
   return title
+}
+
+
+function decodeHtmlJsonAttribute(value: string | null | undefined) {
+  if (!value) return ''
+
+  return String(value)
+    .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&#x22;/gi, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+}
+
+function parseJsonSafely(value: string | null | undefined) {
+  if (!value) return null
+
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function extractPenthouseInertiaPayloads(html: string) {
+  const payloads: any[] = []
+  const raw = String(html || '').trim()
+
+  const direct = parseJsonSafely(raw)
+  if (direct) payloads.push(direct)
+
+  const dataPageMatches = [
+    ...String(html || '').matchAll(/data-page=["']([\s\S]*?)["']\s*>/gi),
+  ]
+
+  for (const match of dataPageMatches) {
+    const decoded = decodeHtmlJsonAttribute(match[1])
+    const parsed = parseJsonSafely(decoded)
+    if (parsed) payloads.push(parsed)
+  }
+
+  const scriptJsonMatches = [
+    ...String(html || '').matchAll(/<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi),
+  ]
+
+  for (const match of scriptJsonMatches) {
+    const decoded = decodeHtmlJsonAttribute(match[1])
+    const parsed = parseJsonSafely(decoded)
+    if (parsed) payloads.push(parsed)
+  }
+
+  return payloads
+}
+
+function parsePenthouseIsoDateParts(value: string | null | undefined) {
+  if (!value) return { event_date: null as string | null, start_time: null as string | null }
+
+  const raw = String(value)
+  const dateMatch = raw.match(/^(20\d{2})-(\d{2})-(\d{2})/)
+  const timeMatch = raw.match(/T(\d{2}):(\d{2})/)
+
+  return {
+    event_date: dateMatch ? validDateOrNull(`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`) : null,
+    start_time: timeMatch ? validTimeOrNull(`${timeMatch[1]}:${timeMatch[2]}`) : null,
+  }
+}
+
+function penthouseEventUrlFromObject(event: any, baseUrl: string, title: string) {
+  const raw =
+    cleanText(event?.ticket_url) ||
+    cleanText(event?.external_ticket_url) ||
+    cleanText(event?.url) ||
+    cleanText(event?.link) ||
+    (event?.id ? `/event/${event.id}` : '')
+
+  const href = absoluteUrl(baseUrl, raw)
+  if (href && !isJunkUrl(href)) return href
+
+  return eventUrlWithAnchor(baseUrl, title)
+}
+
+function extractPenthouseInertiaEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const payloads = extractPenthouseInertiaPayloads(html)
+
+  const pushEvent = (event: any, sourceLabel: string) => {
+    if (!event || typeof event !== 'object') return
+    if (event.is_hidden === true) return
+
+    let title = cleanPenthouseTitle(event.title || event.name || event.event_name || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isPenthouseJunkTitle(title)) return
+    if (title.length > 140) title = title.slice(0, 140).trim()
+
+    const startsAt =
+      event.starts_at ||
+      event.start_date ||
+      event.startDate ||
+      event.event_date ||
+      event.date ||
+      event.starts_pretty_date ||
+      ''
+
+    let { event_date, start_time } = parsePenthouseIsoDateParts(startsAt)
+
+    if (!event_date) {
+      event_date = extractDate(`${startsAt} ${event.starts_pretty_date || ''} ${event.description || ''}`)
+    }
+
+    if (!start_time) {
+      start_time = extractTime(`${startsAt} ${event.starts_pretty_date || ''} ${event.description || ''}`)
+    }
+
+    const href = penthouseEventUrlFromObject(event, baseUrl, title)
+    const imageUrl =
+      validImageUrl(absoluteUrl(baseUrl, cleanText(event.image_url || event.imageUrl || event.image || ''))) ||
+      null
+    const description = cleanDescription(event.description || event.ai_generated_description || title) || title
+
+    if (!event_date && !looksLikeStrongUndatedEvent(`${title} ${description}`)) return
+
+    const key = `${normalizeTitle(title)}|${event_date || 'no-date'}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date,
+      start_time,
+      raw: description,
+      image_url: imageUrl,
+      method: sourceLabel,
+    })
+  }
+
+  const walkPayload = (value: any, depth = 0) => {
+    if (!value || depth > 5) return
+
+    if (Array.isArray(value)) {
+      for (const item of value) walkPayload(item, depth + 1)
+      return
+    }
+
+    if (typeof value !== 'object') return
+
+    if (
+      (value.title || value.name || value.event_name) &&
+      (value.starts_at || value.start_date || value.startDate || value.event_date || value.starts_pretty_date || value.ticket_url || value.image_url)
+    ) {
+      pushEvent(value, 'penthouse-inertia-json')
+    }
+
+    const props = value.props || value.page?.props || null
+    if (props?.event) pushEvent(props.event, 'penthouse-inertia-event')
+    if (Array.isArray(props?.upcomingEvents)) {
+      for (const event of props.upcomingEvents) pushEvent(event, 'penthouse-inertia-upcoming')
+    }
+    if (Array.isArray(props?.events)) {
+      for (const event of props.events) pushEvent(event, 'penthouse-inertia-events')
+    }
+
+    for (const key of ['event', 'events', 'upcomingEvents', 'data']) {
+      if (value[key]) walkPayload(value[key], depth + 1)
+    }
+  }
+
+  for (const payload of payloads) walkPayload(payload)
+
+  return candidates
 }
 
 function extractPenthouseImageFromBlock(block: string, baseUrl: string) {
@@ -3894,7 +4086,19 @@ function extractPenthouseEventsFromText(value: string, baseUrl: string, method: 
 }
 
 function extractPenthouseEvents(html: string, baseUrl: string) {
-  return extractPenthouseEventsFromText(html, baseUrl, 'penthouse-rendered-or-state')
+  const inertiaEvents = extractPenthouseInertiaEvents(html, baseUrl)
+  const renderedEvents = extractPenthouseEventsFromText(html, baseUrl, 'penthouse-rendered-or-state')
+  const seen = new Set<string>()
+  const merged: typeof renderedEvents = []
+
+  for (const event of [...inertiaEvents, ...renderedEvents]) {
+    const key = `${normalizeTitle(event.text)}|${event.event_date || 'no-date'}|${normalizeTicketUrl(event.href)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push(event)
+  }
+
+  return merged
 }
 
 async function fetchPenthouseBundleEvents(html: string, baseUrl: string) {
