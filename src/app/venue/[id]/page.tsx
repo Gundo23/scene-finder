@@ -44,6 +44,31 @@ function getEventCategory(event: any) {
   return 'General'
 }
 
+function cleanVenueNotes(notes: string | null | undefined) {
+  if (!notes) return ''
+
+  return cleanText(notes)
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => {
+      const lower = part.toLowerCase()
+
+      if (lower.includes('confidence:')) return false
+      if (lower.startsWith('confidence')) return false
+      if (lower.includes('waze listing')) return false
+      if (lower.includes('companies house result')) return false
+      if (lower.includes('source:')) return false
+      if (lower.includes('lead source')) return false
+      if (lower.includes('scrape')) return false
+
+      return true
+    })
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export default async function VenuePage({
   params,
 }: {
@@ -91,7 +116,7 @@ export default async function VenuePage({
   const venueCity = cleanText(venue.city_area || '')
   const venueRegion = cleanText(venue.region || '')
   const venuePostcode = cleanText(venue.postcode || '')
-  const venueNotes = venue.notes ? cleanText(venue.notes) : ''
+  const venueNotes = cleanVenueNotes(venue.notes)
   const hasWebsite = Boolean(venue.website)
   const hasLocation = Boolean(venueCity || venueRegion || venuePostcode)
   const hasEvents = sortedEvents.length > 0
