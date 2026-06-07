@@ -3391,6 +3391,244 @@ function extractAcquaEvents(html: string, baseUrl: string) {
 
 
 
+
+
+function isAtticExperienceSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('the_attic_experience_derby') ||
+    combined.includes('theatticexperience.com')
+  )
+}
+
+function discoverAtticExperienceEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/events-prices-2/'),
+    absoluteUrl(sourceUrl, '/events-prices-2'),
+    absoluteUrl(sourceUrl, '/events/'),
+    absoluteUrl(sourceUrl, '/events'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'theatticexperience.com' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isAtticJunkTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exact = new Set([
+    'events',
+    'event',
+    'prices',
+    'events prices',
+    'home',
+    'contact',
+    'gallery',
+    'membership',
+    'location',
+    'opening times',
+    'club rules',
+    'rules',
+    'dress code',
+    'the attic experience',
+  ])
+
+  if (exact.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  const fragments = [
+    'membership',
+    'entry',
+    'prices',
+    'opening',
+    'contact',
+    'address',
+    'privacy',
+    'cookie',
+    'terms',
+    'facebook',
+    'instagram',
+  ]
+
+  return fragments.some((fragment) => cleaned.includes(fragment))
+}
+
+function cleanAtticTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\b(?:event|events|prices)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractAtticExperienceEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const image = extractBestImage(html, baseUrl)
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|section|article|tr)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const fullText = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
+  const monthWords =
+    'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
+  const weekdayWords =
+    'mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday'
+
+  const addCandidate = (input: {
+    title: string
+    day: string
+    monthName: string
+    explicitYear?: string | null
+    raw: string
+    method: string
+  }) => {
+    const month = monthNameToNumber(input.monthName)
+    if (!month) return
+
+    const day = input.day.padStart(2, '0')
+    const year = futureSafeYear(month, day, input.explicitYear || null)
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+    if (!eventDate) return
+
+    let title = cleanAtticTitle(input.title)
+    if (!title || isAtticJunkTitle(title)) return
+    if (title.length > 120) title = title.slice(0, 120).trim()
+
+    const href = eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: extractTime(input.raw),
+      raw: cleanText(input.raw).slice(0, 500),
+      image_url: image,
+      method: input.method,
+    })
+  }
+
+  let activeYear: string | null =
+    fullText.match(/\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+(20\d{2})\b/i)?.[1] ||
+    null
+
+  const monthHeadingPattern = new RegExp(`^(${monthWords})\\s+(20\\d{2})$`, 'i')
+  const linePattern = new RegExp(
+    `^(?:${weekdayWords})\\s+` +
+      `(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+      `(${monthWords})\\s*[:\\-–—]\\s*` +
+      `(.{3,120})$`,
+    'i'
+  )
+
+  for (const line of lines) {
+    const heading = line.match(monthHeadingPattern)
+    if (heading) {
+      activeYear = heading[2]
+      continue
+    }
+
+    const match = line.match(linePattern)
+    if (!match) continue
+
+    addCandidate({
+      day: match[1],
+      monthName: match[2],
+      explicitYear: activeYear,
+      title: match[3],
+      raw: line,
+      method: 'attic-events-prices-line',
+    })
+  }
+
+  // Brizy can render these as a single flat text run. This fallback handles:
+  // "November 2026 Mon 2nd November : TV & Admirers Extended Wed 4th November : ..."
+  const sectionPattern = new RegExp(
+    `\\b(${monthWords})\\s+(20\\d{2})([\\s\\S]{0,12000}?)(?=\\b(?:${monthWords})\\s+20\\d{2}\\b|$)`,
+    'gi'
+  )
+
+  let sectionMatch
+  while ((sectionMatch = sectionPattern.exec(fullText)) !== null) {
+    const sectionYear = sectionMatch[2]
+    const section = sectionMatch[3]
+    const eventPattern = new RegExp(
+      `\\b(?:${weekdayWords})\\s+` +
+        `(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+        `(${monthWords})\\s*[:\\-–—]\\s*` +
+        `(.{3,120}?)(?=\\s+\\b(?:${weekdayWords})\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${monthWords})\\s*[:\\-–—]|$)`,
+      'gi'
+    )
+
+    let eventMatch
+    while ((eventMatch = eventPattern.exec(section)) !== null) {
+      addCandidate({
+        day: eventMatch[1],
+        monthName: eventMatch[2],
+        explicitYear: sectionYear,
+        title: eventMatch[3],
+        raw: eventMatch[0],
+        method: 'attic-events-prices-compact',
+      })
+    }
+  }
+
+  // Final fallback if the year heading is not captured.
+  const loosePattern = new RegExp(
+    `\\b(?:${weekdayWords})\\s+` +
+      `(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+      `(${monthWords})\\s*[:\\-–—]\\s*` +
+      `(.{3,120}?)(?=\\s+\\b(?:${weekdayWords})\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${monthWords})\\s*[:\\-–—]|$)`,
+    'gi'
+  )
+
+  let looseMatch
+  while ((looseMatch = loosePattern.exec(fullText)) !== null) {
+    addCandidate({
+      day: looseMatch[1],
+      monthName: looseMatch[2],
+      explicitYear: null,
+      title: looseMatch[3],
+      raw: looseMatch[0],
+      method: 'attic-events-prices-loose',
+    })
+  }
+
+  return candidates
+}
+
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -3407,7 +3645,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('ecclesia_glasgow') ||
     combined.includes('ecclesiaglasgow.com') ||
     combined.includes('pandora') ||
-    combined.includes('pandoraswingers.com')
+    combined.includes('pandoraswingers.com') ||
+    isAtticExperienceSource(venueId, sourceUrl)
   )
 }
 
@@ -3485,6 +3724,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isAtticExperienceSource(source.venue_id, source.source_url)) {
+    for (const url of discoverAtticExperienceEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   return [...urls].filter((url) => !isJunkUrl(url))
 }
 
@@ -3495,6 +3740,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'club_f_birmingham') return extractGenericDatedBlockEvents(html, pageUrl, 'club-f-custom')
   if (isPandoraSource(venueId, pageUrl)) return extractPandoraEvents(html, pageUrl)
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
+  if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
 
   return [] as {
     href: string
