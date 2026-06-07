@@ -65,6 +65,71 @@ function formatTime(time: string | null) {
   return time.slice(0, 5);
 }
 
+function formatEventTimeRange(startTime: string | null, endTime: string | null) {
+  const start = formatTime(startTime);
+  const end = formatTime(endTime);
+
+  if (start && end) return `${start}–${end}`;
+  if (start) return start;
+  if (end) return `Until ${end}`;
+
+  return "Time TBC";
+}
+
+function getEventTimingLabel(date: string | null) {
+  if (!date) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const eventDate = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(eventDate.getTime())) return null;
+
+  const daysAway = Math.round(
+    (eventDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (daysAway === 0) return "Tonight";
+  if (daysAway === 1) return "Tomorrow";
+  if (daysAway >= 2 && daysAway <= 7) return "This Week";
+
+  return null;
+}
+
+function extractEventPrice(event: any) {
+  const directPrice = cleanText(
+    `${event.price || event.ticket_price || event.cost || event.admission || ""}`,
+  );
+
+  if (directPrice) {
+    return directPrice.startsWith("£") ? directPrice : directPrice;
+  }
+
+  const text = cleanText(
+    `${event.event_name || ""} ${event.description || ""} ${event.event_type || ""}`,
+  );
+
+  const priceMatch = text.match(/£\s?\d+(?:\.\d{1,2})?(?:\s?(?:pp|per person|per couple|couple|each|entry))?/i);
+
+  return priceMatch ? priceMatch[0].replace(/\s+/g, " ").trim() : null;
+}
+
+function extractEventTheme(event: any) {
+  const text = cleanText(
+    `${event.event_name || ""}. ${event.description || ""}. ${event.event_type || ""}`,
+  );
+
+  const themeMatch = text.match(
+    /(?:theme|themed night|dress code|dresscode)\s*[:\-–]?\s*([^.!?]{3,70})/i,
+  );
+
+  if (!themeMatch?.[1]) return null;
+
+  return cleanText(themeMatch[1])
+    .replace(/^(is|for|of)\s+/i, "")
+    .slice(0, 70);
+}
+
 function inferEventTags(event: any) {
   const savedTags = Array.isArray(event.tags)
     ? event.tags.map((tag: string) => cleanText(tag)).filter(Boolean)
@@ -594,8 +659,13 @@ export default async function EventsPage({
           {filteredEvents && filteredEvents.length > 0 ? (
             filteredEvents.map((event) => {
               const venue = venueMap.get(event.venue_id);
-              const startTime = formatTime(event.start_time);
+              const timeRange = formatEventTimeRange(event.start_time, event.end_time);
+              const timingLabel = getEventTimingLabel(event.event_date);
               const tags = inferEventTags(event);
+              const theme = extractEventTheme(event);
+              const price = extractEventPrice(event);
+              const town = cleanText(venue?.city_area || "");
+              const regionName = cleanText(venue?.region || "");
 
               return (
                 <Link
@@ -614,38 +684,65 @@ export default async function EventsPage({
                     </div>
 
                     <div className="min-w-0 p-3 sm:p-4">
-                      <div className="mb-2 flex min-w-0 flex-wrap gap-2">
-                        {tags.slice(0, 4).map((tag) => (
+                      <div className="mb-3 flex min-w-0 flex-wrap gap-2">
+                        {timingLabel && (
+                          <p className="max-w-full truncate rounded-full border border-blue-500 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200">
+                            {timingLabel}
+                          </p>
+                        )}
+
+                        {tags.slice(0, 6).map((tag) => (
                           <p
                             key={tag}
-                            className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300"
+                            className="max-w-full truncate rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-1 text-[11px] text-zinc-300"
                           >
                             {tag}
                           </p>
                         ))}
                       </div>
 
-                      <h2 className="line-clamp-2 break-words text-base font-semibold leading-snug sm:text-lg">
+                      <h2 className="line-clamp-2 break-words text-base font-semibold leading-snug text-white sm:text-lg">
                         {cleanText(event.event_name || "Untitled event")}
                       </h2>
 
+                      <div className="mt-3 space-y-1.5 text-sm text-zinc-300">
+                        <p className="flex min-w-0 items-center gap-2">
+                          <span aria-hidden="true">📍</span>
+                          <span className="truncate">
+                            {town || regionName || "Location TBC"}
+                          </span>
+                        </p>
+
+                        <p className="flex min-w-0 items-center gap-2">
+                          <span aria-hidden="true">📅</span>
+                          <span className="truncate">{formatDate(event.event_date)}</span>
+                        </p>
+
+                        <p className="flex min-w-0 items-center gap-2">
+                          <span aria-hidden="true">🕘</span>
+                          <span className="truncate">{timeRange}</span>
+                        </p>
+
+                        {theme && (
+                          <p className="flex min-w-0 items-center gap-2">
+                            <span aria-hidden="true">🎭</span>
+                            <span className="truncate">{theme}</span>
+                          </p>
+                        )}
+
+                        {price && (
+                          <p className="flex min-w-0 items-center gap-2">
+                            <span aria-hidden="true">💷</span>
+                            <span className="truncate">{price}</span>
+                          </p>
+                        )}
+                      </div>
+
                       {venue && (
-                        <p className="mt-2 truncate text-sm font-medium text-blue-400">
+                        <p className="mt-3 truncate text-sm font-medium text-blue-400">
                           {cleanText(venue.name || "")}
                         </p>
                       )}
-
-                      {venue && (
-                        <p className="mt-1 truncate text-xs text-zinc-400 sm:text-sm">
-                          {cleanText(venue.city_area || "")} •{" "}
-                          {cleanText(venue.region || "")}
-                        </p>
-                      )}
-
-                      <p className="mt-2 break-words text-xs font-medium text-zinc-300 sm:text-sm">
-                        {formatDate(event.event_date)}
-                        {startTime ? ` • ${startTime}` : ""}
-                      </p>
 
                       {event.description && (
                         <p className="mt-2 line-clamp-2 break-words text-xs text-zinc-400 sm:text-sm">
@@ -653,9 +750,9 @@ export default async function EventsPage({
                         </p>
                       )}
 
-                      <div className="mt-4">
+                      <div className="mt-4 flex items-center justify-between gap-3">
                         <span className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-300 transition group-hover:bg-blue-500 group-hover:text-white">
-                          View Event →
+                          View Event Details →
                         </span>
                       </div>
                     </div>
