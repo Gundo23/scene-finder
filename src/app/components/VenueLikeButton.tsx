@@ -41,6 +41,7 @@ export default function VenueLikeButton({
   return (
     <button
       type="button"
+      style={{ pointerEvents: 'auto' }}
       onClick={(event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -48,7 +49,7 @@ export default function VenueLikeButton({
       }}
       disabled={loading || liked}
       aria-label={liked ? 'Venue liked' : 'Like venue'}
-      className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-pink-500 hover:text-pink-300 disabled:cursor-default disabled:opacity-90"
+      className="relative z-50 inline-flex cursor-pointer items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-pink-500 hover:text-pink-300 disabled:cursor-default disabled:opacity-90"
     >
       <span className={liked ? 'text-pink-400' : 'text-zinc-400'}>
         {liked ? '♥' : '♡'}
