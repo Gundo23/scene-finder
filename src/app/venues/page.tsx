@@ -87,7 +87,7 @@ const CITIES = [
   'Wrexham',
 ]
 
-export default async function Home({
+export default async function VenuesPage({
   searchParams,
 }: {
   searchParams: Promise<{ search?: string; city?: string; region?: string }>
@@ -99,7 +99,9 @@ export default async function Home({
 
   let query = supabase
     .from('venues')
-    .select('venue_id, name, city_area, region, website, category, image_url, like_count')
+    .select(
+      'venue_id, name, city_area, region, website, category, image_url, like_count'
+    )
     .order('name')
 
   if (search) {
@@ -127,7 +129,11 @@ export default async function Home({
   ])
 
   if (error) {
-    return <main className="p-8">Error loading venues: {error.message}</main>
+    return (
+      <main className="min-h-screen bg-zinc-950 p-8 text-white">
+        Error loading venues: {error.message}
+      </main>
+    )
   }
 
   const hasFilters = Boolean(search || city || region)
@@ -222,18 +228,18 @@ export default async function Home({
               ))}
             </select>
 
-            <div className="col-span-2">
-  {hasFilters && (
-    <Link
-      href="/"
-      className="block rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white"
-    >
-      Clear Filters
-    </Link>
-  )}
-</div>
-</div>
-</form>
+            {hasFilters && (
+              <div className="col-span-2">
+                <Link
+                  href="/venues"
+                  className="block rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+                >
+                  Clear Filters
+                </Link>
+              </div>
+            )}
+          </div>
+        </form>
 
         <div className="mt-6 flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">
@@ -256,20 +262,19 @@ export default async function Home({
                   <FallbackImage
                     src={venue.image_url}
                     fallbackSrc="/images/venue-placeholder.jpg"
-                    alt={venue.name}
+                    alt={venue.name || 'Venue'}
                     className="h-full w-full object-cover"
                   />
                 </div>
 
                 <div className="min-w-0 p-3 sm:p-4">
-                  <div className="mb-2 flex min-w-0 flex-wrap gap-2">
-                    {venue.category && (
+                  {venue.category && (
+                    <div className="mb-2 flex min-w-0 flex-wrap gap-2">
                       <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
                         {venue.category}
                       </p>
-                    )}
-
-                  </div>
+                    </div>
+                  )}
 
                   <Link href={`/venue/${venue.venue_id}`}>
                     <h3 className="line-clamp-2 break-words text-base font-semibold leading-snug hover:text-blue-400 sm:text-lg">
@@ -281,7 +286,7 @@ export default async function Home({
                     {venue.city_area} • {venue.region}
                   </p>
 
-                  <div className="mt-3">
+                  <div className="relative z-50 mt-3 flex w-fit items-center">
                     <VenueLikeButton
                       venueId={venue.venue_id}
                       initialLikeCount={venue.like_count || 0}
@@ -317,4 +322,4 @@ export default async function Home({
       </section>
     </main>
   )
-  }
+}
