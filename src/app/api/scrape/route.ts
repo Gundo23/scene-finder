@@ -77,6 +77,8 @@ const PAGE_HINTS = [
   '/parties',
   '/party',
   '/event-type',
+  '/dates',
+  '/date',
 ]
 
 const JUNK_URL_PARTS = [
@@ -2479,6 +2481,199 @@ function isLeBoudoirJunkExistingEvent(event: {
   return false
 }
 
+
+
+function isKlubVerbotenSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('klub_verboten_london') ||
+    combined.includes('klubverboten.com')
+  )
+}
+
+function discoverKlubVerbotenEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/dates'),
+    absoluteUrl(sourceUrl, '/dates/'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'klubverboten.com' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function cleanKlubVerbotenTitle(value: string, location: string | null) {
+  let title = cleanEventName(value)
+    .replace(/^[╳×xX]+\s*/g, '')
+    .replace(/\s*[╳×]\s*/g, ' × ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const normalised = normalizeTitle(title)
+  const cleanedLocation = cleanText(location || '')
+    .replace(/\bLDN\b/i, 'London')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (
+    cleanedLocation &&
+    (normalised === 'klub verboten' || normalised === 'kv' || normalised === 'verboten')
+  ) {
+    title = `${title} ${cleanedLocation}`
+  }
+
+  if (cleanedLocation && /^berlin$/i.test(cleanedLocation) && normalised.includes('klub verboten') && !normalised.includes('berlin')) {
+    title = `${title} Berlin`
+  }
+
+  return title
+    .replace(/\bLDN\b/gi, 'London')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractKlubVerbotenEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const pageImage = extractBestImage(html, baseUrl)
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(h1|h2|h3|h4|h5|h6|p|div|li|section|article)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const dateLinePattern =
+    /^(?:(SOFT|HARD)\s+)?(MON|TUE|TUES|WED|THU|THUR|THURS|FRI|SAT|SUN)(?:DAY|SDAY|NESDAY|RSDAY|URDAY)?\s+(\d{1,2})\/(\d{1,2})(?:\s+(.+?))?$/i
+
+  const isDateLine = (line: string) => dateLinePattern.test(line)
+
+  const isKlubSkipLine = (line: string) => {
+    const cleaned = normalizeTitle(line)
+
+    if (!cleaned) return true
+    if (cleaned === 'tickets') return true
+    if (cleaned === 'line up') return true
+    if (cleaned === 'javascript is turned off') return true
+    if (cleaned.includes('please enable javascript')) return true
+    if (cleaned.includes('before buying a ticket')) return true
+    if (cleaned.includes('read our help section')) return true
+    if (cleaned.includes('becoming a member')) return true
+    if (cleaned.includes('klub rules')) return true
+    if (/^\d{1,2}:\d{2}\s+/.test(cleanText(line))) return true
+    if (cleaned === 'tbc') return true
+    if (isJunkTitle(line)) return true
+
+    return false
+  }
+
+  const ticketLinks = extractLinks(html, baseUrl)
+    .filter((link) => {
+      const combined = `${link.href} ${link.text}`.toLowerCase()
+      return combined.includes('ticket') || combined.includes('weeztix') || combined.includes('tickets')
+    })
+    .filter((link) => !isJunkUrl(link.href))
+
+  for (let index = 0; index < lines.length; index++) {
+    const dateMatch = lines[index].match(dateLinePattern)
+    if (!dateMatch) continue
+
+    const label = cleanText(dateMatch[1] || '')
+    const day = dateMatch[3].padStart(2, '0')
+    const month = dateMatch[4].padStart(2, '0')
+    const location = cleanText(dateMatch[5] || '')
+
+    const year = futureSafeYear(month, day)
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+    if (!eventDate) continue
+
+    const block: string[] = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (isDateLine(lines[next])) break
+      if (normalizeTitle(lines[next]).includes('javascript is turned off')) break
+      block.push(lines[next])
+    }
+
+    const titleLine =
+      block
+        .slice(1, 8)
+        .find((line) => {
+          const cleaned = cleanText(line)
+          return (
+            cleaned.startsWith('╳') ||
+            cleaned.startsWith('×') ||
+            /^x\s+/i.test(cleaned) ||
+            (!isKlubSkipLine(cleaned) && cleaned.length <= 90)
+          )
+        }) || ''
+
+    let title = cleanKlubVerbotenTitle(titleLine, location)
+
+    if (!title && location) {
+      title = cleanKlubVerbotenTitle(`Klub Verboten ${location}`, location)
+    }
+
+    if (label && /^soft|hard$/i.test(label)) {
+      title = `${label.charAt(0).toUpperCase()}${label.slice(1).toLowerCase()} ${title}`
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+
+    if (!title || isJunkTitle(title)) continue
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const description = block
+      .slice(1)
+      .filter((line) => normalizeTitle(line) !== normalizeTitle(titleLine))
+      .filter((line) => !isKlubSkipLine(line))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const ticketUrl = ticketLinks[0]?.href || eventUrlWithAnchor(baseUrl, title)
+    const startTime = extractTime(block.join(' '))
+    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(ticketUrl)}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: ticketUrl,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: description || block.join(' ').slice(0, 500),
+      image_url: pageImage,
+      method: 'klub-verboten-dates',
+    })
+  }
+
+  return candidates
+}
 
 
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
@@ -4989,7 +5184,12 @@ export async function GET(request: Request) {
         ? discoverTargetVenueEventPages(source)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls]
+    const klubVerbotenDiscoveredUrls =
+      isKlubVerbotenSource(source.venue_id, source.source_url)
+        ? discoverKlubVerbotenEventPages(source.source_url)
+        : []
+
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -5003,6 +5203,8 @@ export async function GET(request: Request) {
               ? Math.max(MAX_PAGES_PER_SOURCE, 10)
             : isTargetVenueSource(source.venue_id, source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 18)
+            : isKlubVerbotenSource(source.venue_id, source.source_url)
+              ? Math.max(MAX_PAGES_PER_SOURCE, 6)
             : isWixLikeSource(source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 12)
               : MAX_PAGES_PER_SOURCE
@@ -5072,6 +5274,10 @@ export async function GET(request: Request) {
         const targetVenueEvents =
           isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
+            : []
+        const klubVerbotenEvents =
+          isKlubVerbotenSource(source.venue_id, `${source.source_url} ${pageUrl}`)
+            ? extractKlubVerbotenEvents(html, pageUrl)
             : []
         let clubAlchemyBundleEvents: {
           href: string
@@ -5175,6 +5381,60 @@ export async function GET(request: Request) {
           }
         }
 
+
+        for (const klubVerbotenEvent of klubVerbotenEvents) {
+          candidatesFound++
+
+          const title = klubVerbotenEvent.text
+          const description = klubVerbotenEvent.raw || klubVerbotenEvent.text
+          const ticketUrl = klubVerbotenEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, klubVerbotenEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: klubVerbotenEvent.event_date,
+            start_time: klubVerbotenEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: klubVerbotenEvent.image_url,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else {
+            failed++
+
+            if (errors.length < 20) {
+              errors.push({
+                venue_id: source.venue_id,
+                event_name: title,
+                event_date: klubVerbotenEvent.event_date,
+                error: result.error?.message || 'Unknown upsert error',
+              })
+            }
+          }
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: klubVerbotenEvent.event_date,
+              event_url: ticketUrl,
+              image_url: klubVerbotenEvent.image_url,
+              method: klubVerbotenEvent.method,
+            })
+          }
+        }
 
         for (const targetVenueEvent of targetVenueEvents) {
           candidatesFound++
