@@ -4277,57 +4277,210 @@ function cleanSf10RecoveryTitle(value: string) {
 }
 
 
-function isIgniteRecoveryVenue(venueId: string | null | undefined) {
-  return String(venueId || '') === 'ignite_west_drayton_heathrow'
+function isIgniteSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('ignite_west_drayton_heathrow') ||
+    combined.includes('club-ignite.co.uk') ||
+    combined.includes('club ignite')
+  )
 }
 
-function cleanIgniteRecoveryTitle(value: string) {
-  return cleanSf10RecoveryTitle(value)
-    .replace(/\bFeatured\s+Featured\b/gi, 'Featured')
+function cleanIgniteTitle(value: string | null | undefined) {
+  let title = cleanEventName(value || '')
+    .replace(/\bFeatured\b/gi, '')
+    .replace(/\bOngoing\b/gi, '')
+    .replace(/\bevent\s+event,?\s*[-–—]*\s*/gi, '')
+    .replace(/\bselect date\b/gi, '')
+    .replace(/\bviews navigation\b/gi, '')
+    .replace(/\bnext day\b/gi, '')
+    .replace(/\bprevious day\b/gi, '')
+    .replace(/\btoday\b/gi, '')
+    .replace(/\bday list month day\b/gi, '')
+    .replace(/\s*[-–—,|]+\s*/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+
+  title = title
+    .replace(/^at\d{1,2}:?\s*(am|pm)\s*/i, '')
+    .replace(/^(am|pm)\s*[-–—:]?\s*/i, '')
+    .replace(/^\d{1,2}:?\d{0,2}\s*(am|pm)?\s*[-–—:]?\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const normalised = normalizeTitle(title)
+
+  if (normalised.includes('silks skins spa day')) return 'Silks & Skins Spa Day'
+  if (normalised.includes('half off friday')) return 'Half Off Friday'
+  if (normalised.includes('social at ignite')) return 'Social at Ignite'
+  if (normalised.includes('couples ladies only saturday party')) return 'Couples & Ladies ONLY Saturday Party'
+  if (normalised.includes('couples and ladies only saturday party')) return 'Couples & Ladies ONLY Saturday Party'
+  if (normalised.includes('saturday couples singles social after party')) return 'Saturday Couples & Singles Social after Party'
+  if (normalised.includes('couples singles social after party')) return 'Couples & Singles Social after Party'
+  if (normalised.includes('couples and singles social after party')) return 'Couples & Singles Social after Party'
+
+  return title
 }
 
-function isIgniteRecoveryJunkTitle(title: string | null | undefined, raw?: string | null) {
-  const cleaned = cleanText(title || '')
-  const normalised = normalizeTitle(cleaned)
-  const combined = normalizeTitle(`${cleaned} ${raw || ''}`)
+function isIgniteJunkTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
 
-  if (!normalised) return true
-  if (normalised.length < 5) return true
+  if (!cleaned) return true
 
-  // Ignite's page can leak broken time fragments as titles, for example:
-  // "at2: am Couples & Singles", "Featured at9: pm - at2: am", "e at : pm -".
-  // Keep this guard Ignite-only so the wider scraper behaviour is untouched.
-  if (/^(?:featured\s+)?at\s*\d{0,2}\s*:?\s*(?:am|pm)?\b/i.test(cleaned)) return true
-  if (/\bat\d{1,2}:\s*(?:am|pm)\b/i.test(cleaned)) return true
-  if (/\bat\s*:?\s*(?:am|pm)\b/i.test(cleaned)) return true
-  if (/^\s*[a-z]\s+at\s*:?\s*(?:am|pm)?\b/i.test(cleaned)) return true
-  if (/^\s*(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s*\d{1,2}\s*$/i.test(cleaned)) return true
-  if (/^\s*\d{1,2}\s*(?:am|pm)\s*[-–—]\s*\d{1,2}\s*(?:am|pm)\s*$/i.test(cleaned)) return true
-  if (/^\s*[-–—:]+\s*$/.test(cleaned)) return true
+  const exactJunk = new Set([
+    'featured',
+    'next day',
+    'previous day',
+    'today',
+    'day',
+    'month',
+    'list',
+    'select date',
+    'event',
+    'events',
+    'event views navigation',
+    'views navigation',
+    'views navigation event views navigation day list month day today',
+    'views navigation event views navigation day list month day today am',
+  ])
 
-  const featuredCount = (cleaned.match(/\bfeatured\b/gi) || []).length
-  if (featuredCount > 2) return true
+  if (exactJunk.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
 
-  const hardJunkFragments = [
-    'full event description',
-    'event details',
-    'click here',
-    'open event link',
-    'book tickets',
-    'buy tickets',
-    'privacy policy',
-    'terms and conditions',
-    'cookie policy',
+  const junkFragments = [
+    'views navigation',
+    'select date',
+    'previous day',
+    'next day',
+    'event views navigation',
+    'day list month day',
     'club ignite events',
-    'ignite events new',
+    'show events search',
   ]
 
-  if (hardJunkFragments.some((fragment) => combined.includes(normalizeTitle(fragment)))) return true
+  if (junkFragments.some((fragment) => cleaned.includes(fragment))) return true
+  if (/^(at\s*)?\d{1,2}:?\s*(am|pm)?$/.test(cleaned)) return true
+  if (/^(am|pm)\s*-?\s*(am|pm)?$/.test(cleaned)) return true
+  if (/^(mon|tue|wed|thu|fri|sat|sun)\s+\d{1,2}$/.test(cleaned)) return true
+  if (cleaned.length < 8) return true
 
   return false
 }
+
+function isIgniteAllowedTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(cleanIgniteTitle(value || ''))
+
+  return (
+    cleaned === 'silks skins spa day' ||
+    cleaned === 'half off friday' ||
+    cleaned === 'social at ignite' ||
+    cleaned === 'couples ladies only saturday party' ||
+    cleaned === 'couples singles social after party' ||
+    cleaned === 'saturday couples singles social after party'
+  )
+}
+
+function extractIgniteEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const image = extractBestImage(html, baseUrl)
+
+  const addIgniteCandidate = (input: {
+    title: string
+    event_date: string | null
+    start_time?: string | null
+    raw: string
+    href?: string | null
+    method: string
+  }) => {
+    const title = cleanIgniteTitle(input.title)
+
+    if (!title || isIgniteJunkTitle(title)) return
+    if (!isIgniteAllowedTitle(title)) return
+    if (!input.event_date) return
+
+    const href = input.href || eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${input.event_date}`
+
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: input.event_date,
+      start_time: input.start_time || extractTime(input.raw),
+      raw: cleanText(input.raw || title).slice(0, 500),
+      image_url: image,
+      method: input.method,
+    })
+  }
+
+  // Prefer structured Event data if Ignite exposes it.
+  for (const event of extractJsonLdEvents(html, baseUrl)) {
+    addIgniteCandidate({
+      title: event.name,
+      event_date: event.date,
+      start_time: event.start_time,
+      raw: event.description || event.name,
+      href: event.url || baseUrl,
+      method: 'ignite-jsonld',
+    })
+  }
+
+  // Then use calendar/event links, but only if they resolve to known Ignite event names.
+  for (const link of extractCalendarEventLinks(html, baseUrl)) {
+    addIgniteCandidate({
+      title: link.text,
+      event_date: link.event_date || extractDate(`${link.raw} ${link.text}`),
+      start_time: extractTime(link.raw),
+      raw: link.raw || link.text,
+      href: link.href,
+      method: 'ignite-calendar-link',
+    })
+  }
+
+  const decoded = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
+  const titlePatterns = [
+    /silks\s*&?\s*skins\s+spa\s+day/gi,
+    /half\s+off\s+friday/gi,
+    /social\s+at\s+ignite/gi,
+    /(?:saturday\s+)?couples\s*&?\s*(?:and\s*)?singles\s+social\s+after\s+party/gi,
+    /couples\s*&?\s*(?:and\s*)?ladies\s+only\s+saturday\s+party/gi,
+  ]
+
+  for (const pattern of titlePatterns) {
+    let match
+
+    while ((match = pattern.exec(decoded)) !== null) {
+      const start = Math.max(0, (match.index || 0) - 450)
+      const end = Math.min(decoded.length, (match.index || 0) + 450)
+      const windowText = decoded.slice(start, end)
+      const eventDate = extractDate(windowText)
+
+      addIgniteCandidate({
+        title: match[0],
+        event_date: eventDate,
+        start_time: extractTime(windowText),
+        raw: windowText,
+        method: 'ignite-strict-text',
+      })
+    }
+  }
+
+  return candidates
+}
+
 
 function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: string) {
   const candidates: {
@@ -4354,13 +4507,8 @@ function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: strin
     href?: string | null
     method: string
   }) => {
-    const isIgniteVenue = isIgniteRecoveryVenue(venueId)
-    let title = isIgniteVenue
-      ? cleanIgniteRecoveryTitle(input.title)
-      : cleanSf10RecoveryTitle(input.title)
-
+    let title = cleanSf10RecoveryTitle(input.title)
     if (!title || isSf10RecoverySkipLine(title)) return
-    if (isIgniteVenue && isIgniteRecoveryJunkTitle(title, input.raw)) return
     if (title.length < 5) return
     if (title.length > 130) title = title.slice(0, 130).trim()
 
@@ -4383,34 +4531,6 @@ function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: strin
 
     const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(href)}`
     if (seen.has(key)) return
-
-    if (isIgniteVenue) {
-      const titleKey = normalizeTitle(title)
-      const existingIndex = candidates.findIndex((candidate) => {
-        if (candidate.event_date !== eventDate) return false
-        const existingTitleKey = normalizeTitle(candidate.text)
-        if (!existingTitleKey || !titleKey) return false
-        return existingTitleKey.includes(titleKey) || titleKey.includes(existingTitleKey)
-      })
-
-      if (existingIndex >= 0) {
-        if (title.length > candidates[existingIndex].text.length) {
-          candidates[existingIndex] = {
-            href,
-            text: title,
-            event_date: eventDate,
-            start_time: input.start_time || extractTime(input.raw),
-            raw: cleanText(input.raw || title).slice(0, 600),
-            image_url: image,
-            method: input.method,
-          }
-        }
-
-        seen.add(key)
-        return
-      }
-    }
-
     seen.add(key)
 
     candidates.push({
@@ -4709,6 +4829,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
+  if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
 
   return [] as {
