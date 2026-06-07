@@ -4276,6 +4276,59 @@ function cleanSf10RecoveryTitle(value: string) {
   return title
 }
 
+
+function isIgniteRecoveryVenue(venueId: string | null | undefined) {
+  return String(venueId || '') === 'ignite_west_drayton_heathrow'
+}
+
+function cleanIgniteRecoveryTitle(value: string) {
+  return cleanSf10RecoveryTitle(value)
+    .replace(/\bFeatured\s+Featured\b/gi, 'Featured')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isIgniteRecoveryJunkTitle(title: string | null | undefined, raw?: string | null) {
+  const cleaned = cleanText(title || '')
+  const normalised = normalizeTitle(cleaned)
+  const combined = normalizeTitle(`${cleaned} ${raw || ''}`)
+
+  if (!normalised) return true
+  if (normalised.length < 5) return true
+
+  // Ignite's page can leak broken time fragments as titles, for example:
+  // "at2: am Couples & Singles", "Featured at9: pm - at2: am", "e at : pm -".
+  // Keep this guard Ignite-only so the wider scraper behaviour is untouched.
+  if (/^(?:featured\s+)?at\s*\d{0,2}\s*:?\s*(?:am|pm)?\b/i.test(cleaned)) return true
+  if (/\bat\d{1,2}:\s*(?:am|pm)\b/i.test(cleaned)) return true
+  if (/\bat\s*:?\s*(?:am|pm)\b/i.test(cleaned)) return true
+  if (/^\s*[a-z]\s+at\s*:?\s*(?:am|pm)?\b/i.test(cleaned)) return true
+  if (/^\s*(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)\s*\d{1,2}\s*$/i.test(cleaned)) return true
+  if (/^\s*\d{1,2}\s*(?:am|pm)\s*[-–—]\s*\d{1,2}\s*(?:am|pm)\s*$/i.test(cleaned)) return true
+  if (/^\s*[-–—:]+\s*$/.test(cleaned)) return true
+
+  const featuredCount = (cleaned.match(/\bfeatured\b/gi) || []).length
+  if (featuredCount > 2) return true
+
+  const hardJunkFragments = [
+    'full event description',
+    'event details',
+    'click here',
+    'open event link',
+    'book tickets',
+    'buy tickets',
+    'privacy policy',
+    'terms and conditions',
+    'cookie policy',
+    'club ignite events',
+    'ignite events new',
+  ]
+
+  if (hardJunkFragments.some((fragment) => combined.includes(normalizeTitle(fragment)))) return true
+
+  return false
+}
+
 function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: string) {
   const candidates: {
     href: string
@@ -4301,8 +4354,13 @@ function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: strin
     href?: string | null
     method: string
   }) => {
-    let title = cleanSf10RecoveryTitle(input.title)
+    const isIgniteVenue = isIgniteRecoveryVenue(venueId)
+    let title = isIgniteVenue
+      ? cleanIgniteRecoveryTitle(input.title)
+      : cleanSf10RecoveryTitle(input.title)
+
     if (!title || isSf10RecoverySkipLine(title)) return
+    if (isIgniteVenue && isIgniteRecoveryJunkTitle(title, input.raw)) return
     if (title.length < 5) return
     if (title.length > 130) title = title.slice(0, 130).trim()
 
@@ -4325,6 +4383,34 @@ function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: strin
 
     const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(href)}`
     if (seen.has(key)) return
+
+    if (isIgniteVenue) {
+      const titleKey = normalizeTitle(title)
+      const existingIndex = candidates.findIndex((candidate) => {
+        if (candidate.event_date !== eventDate) return false
+        const existingTitleKey = normalizeTitle(candidate.text)
+        if (!existingTitleKey || !titleKey) return false
+        return existingTitleKey.includes(titleKey) || titleKey.includes(existingTitleKey)
+      })
+
+      if (existingIndex >= 0) {
+        if (title.length > candidates[existingIndex].text.length) {
+          candidates[existingIndex] = {
+            href,
+            text: title,
+            event_date: eventDate,
+            start_time: input.start_time || extractTime(input.raw),
+            raw: cleanText(input.raw || title).slice(0, 600),
+            image_url: image,
+            method: input.method,
+          }
+        }
+
+        seen.add(key)
+        return
+      }
+    }
+
     seen.add(key)
 
     candidates.push({
