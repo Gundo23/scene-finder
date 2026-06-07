@@ -232,9 +232,9 @@ export default async function VenuesPage({
               <div className="col-span-2">
                 <Link
                   href="/venues"
-                  className="block rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:text-white"
+                  className="block rounded-full border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
                 >
-                  Clear Filters
+                  Clear filters
                 </Link>
               </div>
             )}
@@ -296,9 +296,9 @@ export default async function VenuesPage({
                   <div className="mt-3 flex flex-wrap gap-4">
                     <Link
                       href={`/venue/${venue.venue_id}`}
-                      className="text-sm font-medium text-blue-400"
+                      className="inline-flex items-center justify-center rounded-full border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-200 transition hover:border-blue-400 hover:bg-blue-500/20 hover:text-white"
                     >
-                      View details →
+                      View details
                     </Link>
 
                     {venue.website && (
@@ -306,9 +306,9 @@ export default async function VenuesPage({
                         href={venue.website}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-sm font-medium text-zinc-400 hover:text-white"
+                        className="inline-flex items-center justify-center rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
                       >
-                        Website ↗
+                        Website
                       </a>
                     )}
                   </div>

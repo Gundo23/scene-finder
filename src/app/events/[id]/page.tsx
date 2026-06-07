@@ -48,10 +48,16 @@ export default async function EventDetailPage({
     return (
       <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
         <section className="mx-auto max-w-4xl">
-          <p>Event not found.</p>
-          <Link href="/events" className="mt-4 inline-block text-blue-400">
-            ← Back to events
-          </Link>
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
+            <p className="text-zinc-300">Event not found.</p>
+
+            <Link
+              href="/events"
+              className="mt-5 inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
+            >
+              ← Back to Events
+            </Link>
+          </div>
         </section>
       </main>
     )
@@ -76,14 +82,20 @@ export default async function EventDetailPage({
   return (
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
       <section className="mx-auto max-w-4xl">
-        <div className="flex flex-wrap gap-4">
-          <Link href="/events" className="text-sm text-blue-400">
-            ← Back to events
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/events"
+            className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
+          >
+            ← Back to Events
           </Link>
 
           {venue && (
-            <Link href={`/venue/${venue.venue_id}`} className="text-sm text-blue-400">
-              ← Back to venue
+            <Link
+              href={`/venue/${venue.venue_id}`}
+              className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
+            >
+              View Venue
             </Link>
           )}
         </div>
@@ -98,11 +110,11 @@ export default async function EventDetailPage({
           )}
 
           <div className="p-6">
-            <p className="text-sm font-medium text-blue-400">
+            <p className="inline-flex rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-200">
               {eventType}
             </p>
 
-            <h1 className="mt-2 text-4xl font-bold">{eventName}</h1>
+            <h1 className="mt-3 text-4xl font-bold">{eventName}</h1>
 
             <div className="mt-6 grid gap-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-5 sm:grid-cols-2">
               <div>
@@ -127,7 +139,7 @@ export default async function EventDetailPage({
                     <p className="text-sm text-zinc-500">Venue</p>
                     <Link
                       href={`/venue/${venue.venue_id}`}
-                      className="mt-1 inline-block font-medium text-blue-400"
+                      className="mt-2 inline-flex items-center rounded-xl border border-blue-500/50 bg-blue-500/10 px-3 py-2 text-sm font-semibold text-blue-200 transition hover:border-blue-400 hover:bg-blue-500/20 hover:text-white"
                     >
                       {venueName}
                     </Link>
@@ -143,10 +155,6 @@ export default async function EventDetailPage({
               )}
             </div>
 
-            <p className="mt-4 text-sm text-zinc-500">
-              Status: {cleanText(event.status || 'unknown')}
-            </p>
-
             {eventDescription && (
               <p className="mt-6 whitespace-pre-line text-zinc-300">
                 {eventDescription}
@@ -159,9 +167,9 @@ export default async function EventDetailPage({
                   href={event.ticket_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg bg-blue-500 px-4 py-2 font-medium text-white"
+                  className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-400"
                 >
-                  Open event link
+                  Open Event Link ↗
                 </a>
               )}
 
@@ -170,9 +178,9 @@ export default async function EventDetailPage({
                   href={venue.website}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:text-white"
+                  className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
                 >
-                  Venue website
+                  Venue Website ↗
                 </a>
               )}
 
@@ -181,9 +189,9 @@ export default async function EventDetailPage({
                   href={event.source_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:text-white"
+                  className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
                 >
-                  Source
+                  Original Source ↗
                 </a>
               )}
             </div>

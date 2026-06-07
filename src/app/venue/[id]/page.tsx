@@ -62,8 +62,11 @@ export default async function VenuePage({
       <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
         <section className="mx-auto max-w-5xl">
           <p>Venue not found.</p>
-          <Link href="/" className="mt-4 inline-block text-blue-400">
-            ← Back to venues
+          <Link
+            href="/venues"
+            className="mt-4 inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
+          >
+            ← Back to Clubs
           </Link>
         </section>
       </main>
@@ -90,12 +93,18 @@ export default async function VenuePage({
     <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
       <section className="mx-auto max-w-5xl">
         <div className="flex flex-wrap gap-4">
-          <Link href="/" className="text-sm text-blue-400">
-            ← Back to venues
+          <Link
+            href="/venues"
+            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
+          >
+            ← Back to Clubs
           </Link>
 
-          <Link href="/events" className="text-sm text-blue-400">
-            Browse all events
+          <Link
+            href="/events"
+            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
+          >
+            Browse Events
           </Link>
         </div>
 
@@ -114,23 +123,23 @@ export default async function VenuePage({
             </p>
           )}
 
-          <div className="mt-5 flex flex-wrap gap-3">
+          <div className="mt-6 flex flex-wrap gap-3">
             {venue.website && (
               <a
                 href={venue.website}
                 target="_blank"
                 rel="noreferrer"
-                className="rounded-lg bg-blue-500 px-4 py-2 font-medium text-white"
+                className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-400"
               >
-                Visit website
+                Visit Website ↗
               </a>
             )}
 
             <Link
               href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
-              className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:text-white"
+              className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:text-white"
             >
-              More events in {venueCity}
+              Browse Events in {venueCity || 'this area'}
             </Link>
           </div>
 
@@ -153,14 +162,13 @@ export default async function VenuePage({
               const category = getEventCategory(event)
               const eventName = cleanText(event.event_name)
               const eventType = event.event_type ? cleanText(event.event_type) : 'Event'
-              const eventStatus = event.status ? cleanText(event.status) : 'unknown'
               const eventDescription = event.description
                 ? cleanText(event.description)
                 : ''
 
               return (
-                <Link key={event.event_id} href={`/events/${event.event_id}`}>
-                  <article className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 hover:border-blue-500">
+                <Link key={event.event_id} href={`/events/${event.event_id}`} className="group block">
+                  <article className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 transition hover:border-blue-500">
                     {event.image_url && (
                       <img
                         src={event.image_url}
@@ -184,7 +192,7 @@ export default async function VenuePage({
                       </p>
 
                       <p className="mt-2 text-sm text-zinc-500">
-                        {eventType} • {eventStatus}
+                        {eventType}
                       </p>
 
                       {eventDescription && (
@@ -193,9 +201,11 @@ export default async function VenuePage({
                         </p>
                       )}
 
-                      <p className="mt-4 text-sm font-medium text-blue-400">
-                        View event →
-                      </p>
+                      <div className="mt-5">
+                        <span className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-300 transition group-hover:bg-blue-500/20">
+                          View Event →
+                        </span>
+                      </div>
                     </div>
                   </article>
                 </Link>

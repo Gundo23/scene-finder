@@ -431,7 +431,7 @@ export default async function EventsPage({
                 name="search"
                 defaultValue={search}
                 placeholder="Curvy, couples, Leeds..."
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500"
+                className="w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500"
               />
             </div>
 
@@ -442,7 +442,7 @@ export default async function EventsPage({
               <select
                 name="type"
                 defaultValue={selectedTag}
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                className="w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
               >
                 <option value="">All Event Types</option>
                 {EVENT_TAG_OPTIONS.map((tag) => (
@@ -460,7 +460,7 @@ export default async function EventsPage({
               <select
                 name="region"
                 defaultValue={region}
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                className="w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
               >
                 <option value="">All Regions</option>
                 <option value="North West">North West</option>
@@ -482,7 +482,7 @@ export default async function EventsPage({
               <select
                 name="city"
                 defaultValue={city}
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                className="w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
               >
                 <option value="">All Towns</option>
                 {cities.map((cityName) => (
@@ -501,7 +501,7 @@ export default async function EventsPage({
                 name="postcode"
                 defaultValue={postcode}
                 placeholder="M1 1AA"
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 uppercase text-white placeholder:normal-case placeholder:text-zinc-500"
+                className="w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 uppercase text-white placeholder:normal-case placeholder:text-zinc-500"
               />
             </div>
 
@@ -512,7 +512,7 @@ export default async function EventsPage({
               <select
                 name="distance"
                 defaultValue={distance}
-                className="w-full min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
+                className="w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-3 text-white"
               >
                 <option value="">Any distance</option>
                 <option value="5">Within 5 miles</option>
@@ -527,7 +527,7 @@ export default async function EventsPage({
               <label className="mb-2 block text-sm font-medium text-zinc-300">
                 Date range
               </label>
-              <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950">
+              <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950">
                 <input
                   type="date"
                   name="startDate"
@@ -548,7 +548,7 @@ export default async function EventsPage({
             <div className="flex min-w-0 items-end">
               <button
                 type="submit"
-                className="w-full rounded-lg bg-blue-500 px-4 py-3 font-medium text-white hover:bg-blue-400"
+                className="w-full rounded-xl border border-blue-500 bg-blue-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-950/20 transition hover:bg-blue-400"
               >
                 Search
               </button>
@@ -579,9 +579,9 @@ export default async function EventsPage({
             endDate) && (
             <Link
               href="/events"
-              className="mt-4 inline-block text-sm text-blue-400"
+              className="mt-4 inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
             >
-              Clear filters
+              Clear Filters
             </Link>
           )}
         </form>
@@ -601,7 +601,7 @@ export default async function EventsPage({
                 <Link
                   key={event.event_id}
                   href={`/events/${event.event_id}`}
-                  className="block min-w-0"
+                  className="group block min-w-0"
                 >
                   <article className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-blue-500">
                     <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
@@ -653,9 +653,11 @@ export default async function EventsPage({
                         </p>
                       )}
 
-                      <p className="mt-3 text-sm font-medium text-blue-400">
-                        View event →
-                      </p>
+                      <div className="mt-4">
+                        <span className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-300 transition group-hover:bg-blue-500 group-hover:text-white">
+                          View Event →
+                        </span>
+                      </div>
                     </div>
                   </article>
                 </Link>
