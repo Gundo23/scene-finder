@@ -6313,6 +6313,137 @@ function hasBadEventPattern(value: string | null | undefined) {
   return BAD_EVENT_PATTERNS.some((pattern) => cleaned.includes(pattern))
 }
 
+
+// SF 10.1 safe rescue layer.
+// This does NOT lower the global junk filter. It only rescues dated candidates
+// where the title/raw text strongly looks like a real event and is not hard UI junk.
+const SF10_SAFE_RESCUE_KEYWORDS = [
+  'party',
+  'social',
+  'bbq',
+  'barbecue',
+  'couples',
+  'singles',
+  'ladies',
+  'flirt',
+  'fling',
+  'kink',
+  'fetish',
+  'bdsm',
+  'bi night',
+  'greedy girls',
+  'club night',
+  'sauna night',
+  'darkside',
+  'munch',
+  'takeover',
+  'workshop',
+  'meet',
+  'meetup',
+  'event',
+]
+
+const SF10_HARD_JUNK_RESCUE_TITLES = [
+  'download pdf',
+  'download',
+  'pdf',
+  'read more',
+  'click here',
+  'view details',
+  'details',
+  'event details',
+  'book now',
+  'book tickets',
+  'buy tickets',
+  'tickets',
+  'ticket',
+  'contact',
+  'contact us',
+  'membership',
+  'memberships',
+  'prices',
+  'price list',
+  'gallery',
+  'home',
+  'about',
+  'privacy',
+  'privacy policy',
+  'terms',
+  'terms and conditions',
+  'calendar',
+  'events calendar',
+  'upcoming events',
+]
+
+function cleanSf10RescueCandidateTitle(title: string | null | undefined, context?: string | null) {
+  let cleaned = cleanEventName(title || '')
+    // Some calendar/card parsers leak one leading layout character, e.g.
+    // "y Flirt and Fling EVENT" or "e Early Summer BBQ EVENT".
+    .replace(/^[a-z]\s+(?=[A-Z0-9])/g, '')
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\bEVENT\s+DETAILS\b/gi, '')
+    .replace(/\bDETAILS\b$/gi, '')
+    .replace(/\bEVENT\b$/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (!cleaned && context) {
+    cleaned = cleanEventName(context)
+      .replace(/^[a-z]\s+(?=[A-Z0-9])/g, '')
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\bEVENT\s+DETAILS\b/gi, '')
+      .replace(/\bEVENT\b$/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  return cleaned
+}
+
+function isSf10HardJunkRescueTitle(title: string | null | undefined) {
+  const cleaned = normalizeTitle(title || '')
+  if (!cleaned) return true
+
+  return SF10_HARD_JUNK_RESCUE_TITLES.some((junk) => cleaned === junk)
+}
+
+function isSf10SafeRescueCandidate(input: {
+  venue_id?: string | null
+  event_name: string | null | undefined
+  event_date: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!input.event_date) return false
+
+  const title = cleanSf10RescueCandidateTitle(input.event_name, input.description)
+  const titleNorm = normalizeTitle(title)
+  const combinedNorm = normalizeTitle(`${title} ${input.description || ''}`)
+  const url = String(input.ticket_url || '').toLowerCase()
+
+  if (!titleNorm || titleNorm.length < 5) return false
+  if (isSf10HardJunkRescueTitle(title)) return false
+  if (url.includes('google.com/calendar') || url.includes('ical=1') || url.includes('action=template')) return false
+  if (url.includes('/contact') || url.includes('/privacy') || url.includes('/terms') || url.includes('/membership')) return false
+
+  // Keep these as hard blocks even for rescue.
+  const hardCombinedBlocks = [
+    'download pdf',
+    'privacy policy',
+    'terms and conditions',
+    'cookie policy',
+    'add to calendar',
+    'google calendar',
+    'contact us',
+  ]
+
+  if (hardCombinedBlocks.some((junk) => combinedNorm.includes(junk))) return false
+
+  return SF10_SAFE_RESCUE_KEYWORDS.some((keyword) =>
+    combinedNorm.includes(normalizeTitle(keyword))
+  )
+}
+
 async function saveEventCandidate(input: {
   venue_id: string
   source_id?: string | null
@@ -6322,7 +6453,7 @@ async function saveEventCandidate(input: {
   matched_text?: string | null
   status: string
 }) {
-  const title = cleanEventName(input.candidate_title || '')
+  const title = cleanSf10RescueCandidateTitle(input.candidate_title || '', input.matched_text)
   const candidateUrl = input.candidate_url || input.source_url
 
   if (!input.venue_id || !title) return
@@ -6349,17 +6480,21 @@ function candidateRejectionReason(input: {
   ticket_url: string
   description: string | null
 }) {
-  const eventName = cleanEventName(input.event_name)
+  const eventName = cleanSf10RescueCandidateTitle(input.event_name, input.description)
+  const safeRescueCandidate = isSf10SafeRescueCandidate({
+    ...input,
+    event_name: eventName,
+  })
 
   if (isLeBoudoirSource(input.venue_id)) {
-    if (isLeBoudoirJunkEventTitle(eventName)) return 'rejected_junk_title'
+    if (isLeBoudoirJunkEventTitle(eventName) && !safeRescueCandidate) return 'rejected_junk_title'
     if (!input.event_date) return 'rejected_missing_date'
   }
 
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return 'rejected_blacklisted_tbc'
-  if (isJunkTitle(eventName)) return 'rejected_junk_title'
+  if (isJunkTitle(eventName) && !safeRescueCandidate) return 'rejected_junk_title'
   if (isJunkUrl(input.ticket_url)) return 'rejected_junk_url'
 
   const lowerUrl = input.ticket_url.toLowerCase()
@@ -6372,7 +6507,7 @@ function candidateRejectionReason(input: {
 
   const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
 
-  if (hasBadEventPattern(combined)) return 'rejected_bad_pattern'
+  if (hasBadEventPattern(combined) && !safeRescueCandidate) return 'rejected_bad_pattern'
 
   if (!input.event_date && !looksLikeStrongUndatedEvent(`${eventName} ${input.description || ''}`)) {
     return 'rejected_missing_date'
@@ -6474,9 +6609,9 @@ async function upsertEvent(input: {
   image_url: string | null
   source_url: string
 }) {
-  const eventName = cleanEventName(input.event_name)
-  const normalised = normalizeTitle(eventName)
   const safeDescription = cleanDescription(input.description)
+  const eventName = cleanSf10RescueCandidateTitle(input.event_name, safeDescription || input.description)
+  const normalised = normalizeTitle(eventName)
   const safeImageUrl = validImageUrl(input.image_url)
   const safeTicketUrl = normalizeTicketUrl(input.ticket_url)
   const tags = inferEventTags(`${eventName} ${safeDescription || ''} ${safeTicketUrl}`)
