@@ -2961,6 +2961,407 @@ function extractElectrowerkzEvents(html: string, baseUrl: string) {
 }
 
 
+function isAcquaSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('acqua_sauna_blackpool') ||
+    combined.includes('acquasaunas.com') ||
+    combined.includes('acqua saunas') ||
+    combined.includes('acqua sauna')
+  )
+}
+
+function discoverAcquaEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/events/'),
+    absoluteUrl(sourceUrl, '/events'),
+    absoluteUrl(sourceUrl, '/whats-on/'),
+    absoluteUrl(sourceUrl, '/whats-on'),
+    absoluteUrl(sourceUrl, '/event/'),
+    absoluteUrl(sourceUrl, '/event'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'acquasaunas.com' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isAcquaJunkTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exact = new Set([
+    'events',
+    'event',
+    'upcoming events',
+    'whats on',
+    'what s on',
+    'opening times',
+    'prices',
+    'membership',
+    'memberships',
+    'sauna',
+    'blackpool',
+    'acqua sauna',
+    'acqua saunas',
+    'acqua sauna blackpool',
+    'book now',
+    'contact us',
+    'contact',
+    'read more',
+    'more info',
+    'find out more',
+    'learn more',
+    'view event',
+    'view events',
+    'club rules',
+    'dress code',
+    'privacy policy',
+    'cookie policy',
+    'terms and conditions',
+  ])
+
+  if (exact.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  const fragments = [
+    'open until',
+    'opening hours',
+    'membership required',
+    'non members pay',
+    'members pay',
+    'free pass outs',
+    'full facility access',
+    'entry price',
+    'bar price',
+    'contact form',
+    'google maps',
+    'subscribe',
+    'newsletter',
+    'follow us',
+    'facebook',
+    'instagram',
+  ]
+
+  if (fragments.some((fragment) => cleaned.includes(fragment))) return true
+
+  return false
+}
+
+function cleanAcquaTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\b(?:event night|event|events|upcoming events)\b/gi, '')
+    .replace(/\b(?:book now|more info|find out more|read more|tickets?)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractAcquaEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const pageImage = extractBestImage(html, baseUrl)
+  const links = extractLinks(html, baseUrl)
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(h1|h2|h3|h4|h5|h6|p|div|li|section|article|tr)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const currentYear = new Date().getFullYear()
+  const monthMap: Record<string, string> = {
+    jan: '01',
+    january: '01',
+    feb: '02',
+    february: '02',
+    mar: '03',
+    march: '03',
+    apr: '04',
+    april: '04',
+    may: '05',
+    jun: '06',
+    june: '06',
+    jul: '07',
+    july: '07',
+    aug: '08',
+    august: '08',
+    sep: '09',
+    sept: '09',
+    september: '09',
+    oct: '10',
+    october: '10',
+    nov: '11',
+    november: '11',
+    dec: '12',
+    december: '12',
+  }
+
+  const monthNames =
+    'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
+  const weekdayNames =
+    'mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday'
+
+  const dateLinePatterns = [
+    new RegExp(`^(?:${weekdayNames})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthNames})(?:\\s+(20\\d{2}))?\\s*(.*)$`, 'i'),
+    new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthNames})(?:\\s+(20\\d{2}))?\\s*(.*)$`, 'i'),
+    new RegExp(`^(${monthNames})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+(20\\d{2}))?\\s*(.*)$`, 'i'),
+    /^(\d{1,2})\/(\d{1,2})(?:\/(20\d{2}|\d{2}))?\s*(.*)$/i,
+  ]
+
+  const parseDateLine = (line: string) => {
+    let match = line.match(dateLinePatterns[0])
+    if (match) {
+      const day = match[1].padStart(2, '0')
+      const month = monthMap[match[2].toLowerCase()]
+      if (!month) return null
+      const year = futureSafeYear(month, day, match[3] || null)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || ''), rawDateLine: line }
+    }
+
+    match = line.match(dateLinePatterns[1])
+    if (match) {
+      const day = match[1].padStart(2, '0')
+      const month = monthMap[match[2].toLowerCase()]
+      if (!month) return null
+      const year = futureSafeYear(month, day, match[3] || null)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || ''), rawDateLine: line }
+    }
+
+    match = line.match(dateLinePatterns[2])
+    if (match) {
+      const month = monthMap[match[1].toLowerCase()]
+      if (!month) return null
+      const day = match[2].padStart(2, '0')
+      const year = futureSafeYear(month, day, match[3] || null)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || ''), rawDateLine: line }
+    }
+
+    match = line.match(dateLinePatterns[3])
+    if (match) {
+      const day = match[1].padStart(2, '0')
+      const month = match[2].padStart(2, '0')
+      const explicitYear = normaliseTwoDigitYear(match[3])
+      const year = futureSafeYear(month, day, explicitYear)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || ''), rawDateLine: line }
+    }
+
+    return null
+  }
+
+  const isDateLine = (line: string) => !!parseDateLine(line)
+
+  const titleFromNearbyLinks = (title: string) => {
+    const normalisedTitle = normalizeTitle(title)
+    if (!normalisedTitle) return null
+
+    const matchingLink = links.find((link) => {
+      const linkText = normalizeTitle(link.text)
+      const href = link.href.toLowerCase()
+      if (isJunkUrl(link.href)) return false
+
+      return (
+        linkText.includes(normalisedTitle.slice(0, 20)) ||
+        normalisedTitle.includes(linkText.slice(0, 20)) ||
+        href.includes(normalisedTitle.split(' ').slice(0, 3).join('-'))
+      )
+    })
+
+    return matchingLink?.href || null
+  }
+
+  const pushAcquaCandidate = (input: {
+    title: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    href?: string | null
+    method: string
+  }) => {
+    let title = cleanAcquaTitle(input.title)
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isAcquaJunkTitle(title)) return
+    if (!input.event_date) return
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const href =
+      input.href ||
+      titleFromNearbyLinks(title) ||
+      eventUrlWithAnchor(baseUrl, title)
+
+    const key = `${normalizeTitle(title)}|${input.event_date}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: input.event_date,
+      start_time: input.start_time,
+      raw: cleanText(input.raw || title).slice(0, 500),
+      image_url: pageImage,
+      method: input.method,
+    })
+  }
+
+  // WordPress/Event Calendar style links or cards.
+  for (const link of links) {
+    const combined = `${link.href} ${link.text} ${link.raw}`
+    const lower = combined.toLowerCase()
+
+    if (
+      !lower.includes('/events/') &&
+      !lower.includes('/event/') &&
+      !lower.includes('tribe_events') &&
+      !lower.includes('eventon') &&
+      !lower.includes('event')
+    ) {
+      continue
+    }
+
+    if (isJunkUrl(link.href)) continue
+
+    const title =
+      cleanText(link.text) ||
+      cleanText(link.raw.match(/title=["']([^"']+)["']/i)?.[1]) ||
+      cleanText(link.raw.match(/aria-label=["']([^"']+)["']/i)?.[1])
+
+    const eventDate =
+      extractCalendarDateFromRaw(link.raw) ||
+      extractDate(`${link.raw} ${link.text} ${link.href}`)
+
+    if (!title || !eventDate) continue
+
+    pushAcquaCandidate({
+      title,
+      event_date: eventDate,
+      start_time: extractTime(`${link.raw} ${link.text}`),
+      raw: link.raw || link.text,
+      href: link.href,
+      method: 'acqua-link-card',
+    })
+  }
+
+  // Line-block parser for pages where the date is one line and the title is nearby.
+  for (let index = 0; index < lines.length; index++) {
+    const parsedDate = parseDateLine(lines[index])
+    if (!parsedDate?.event_date) continue
+
+    const today = new Date()
+    const todayString = validDateOrNull(
+      `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    )
+    if (todayString && parsedDate.event_date < todayString) continue
+
+    const block: string[] = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (isDateLine(lines[next])) break
+      if (normalizeTitle(lines[next]) === 'contact') break
+      if (normalizeTitle(lines[next]) === 'opening times') break
+      if (normalizeTitle(lines[next]) === 'prices') break
+      block.push(lines[next])
+    }
+
+    const titleCandidates = [
+      parsedDate.inlineTitle,
+      ...block.slice(1, 10),
+    ]
+      .map((line) => cleanText(line))
+      .filter(Boolean)
+      .filter((line) => line.length <= 110)
+      .filter((line) => !isAcquaJunkTitle(line))
+      .filter((line) => !/^£/.test(line))
+      .filter((line) => !/^\d{1,2}(:\d{2})?\s*(am|pm)?/i.test(line))
+
+    const title = titleCandidates[0]
+    if (!title) continue
+
+    pushAcquaCandidate({
+      title,
+      event_date: parsedDate.event_date,
+      start_time: extractTime(block.join(' ')),
+      raw: block.join(' '),
+      method: 'acqua-events-page',
+    })
+  }
+
+  // Compact fallback: "Event Name Friday 13 June" or "Friday 13 June Event Name" in flattened text.
+  const compactText = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
+  const compactPatterns = [
+    new RegExp(`(?:${weekdayNames})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthNames})(?:\\s+(20\\d{2}))?\\s+([A-Z][A-Za-z0-9 '&+.,:/!-]{5,100}?)(?=\\s+(?:${weekdayNames})\\s+\\d{1,2}|$)`, 'gi'),
+    new RegExp(`([A-Z][A-Za-z0-9 '&+.,:/!-]{5,100}?)\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthNames})(?:\\s+(20\\d{2}))?`, 'gi'),
+  ]
+
+  for (const pattern of compactPatterns) {
+    let match
+
+    while ((match = pattern.exec(compactText)) !== null) {
+      let title = ''
+      let day = ''
+      let monthName = ''
+      let explicitYear: string | null = null
+
+      if (pattern === compactPatterns[0]) {
+        day = match[1].padStart(2, '0')
+        monthName = match[2]
+        explicitYear = match[3] || null
+        title = match[4]
+      } else {
+        title = match[1]
+        day = match[2].padStart(2, '0')
+        monthName = match[3]
+        explicitYear = match[4] || null
+      }
+
+      const month = monthMap[monthName.toLowerCase()]
+      if (!month) continue
+
+      const year = futureSafeYear(month, day, explicitYear)
+      const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+      if (!eventDate) continue
+
+      pushAcquaCandidate({
+        title,
+        event_date: eventDate,
+        start_time: extractTime(match[0]),
+        raw: match[0],
+        method: 'acqua-compact-text',
+      })
+    }
+  }
+
+  return candidates
+}
+
+
+
 
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
@@ -5480,7 +5881,12 @@ export async function GET(request: Request) {
         ? discoverElectrowerkzEventPages(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls]
+    const acquaDiscoveredUrls =
+      isAcquaSource(source.venue_id, source.source_url)
+        ? discoverAcquaEventPages(source.source_url)
+        : []
+
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -5498,6 +5904,8 @@ export async function GET(request: Request) {
               ? Math.max(MAX_PAGES_PER_SOURCE, 6)
             : isElectrowerkzSource(source.venue_id, source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 6)
+            : isAcquaSource(source.venue_id, source.source_url)
+              ? Math.max(MAX_PAGES_PER_SOURCE, 12)
             : isWixLikeSource(source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 12)
               : MAX_PAGES_PER_SOURCE
@@ -5575,6 +5983,10 @@ export async function GET(request: Request) {
         const electrowerkzEvents =
           isElectrowerkzSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractElectrowerkzEvents(html, pageUrl)
+            : []
+        const acquaEvents =
+          isAcquaSource(source.venue_id, `${source.source_url} ${pageUrl}`)
+            ? extractAcquaEvents(html, pageUrl)
             : []
         let clubAlchemyBundleEvents: {
           href: string
@@ -5783,6 +6195,60 @@ export async function GET(request: Request) {
               event_url: ticketUrl,
               image_url: electrowerkzEvent.image_url,
               method: electrowerkzEvent.method,
+            })
+          }
+        }
+
+        for (const acquaEvent of acquaEvents) {
+          candidatesFound++
+
+          const title = acquaEvent.text
+          const description = acquaEvent.raw || acquaEvent.text
+          const ticketUrl = acquaEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, acquaEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: acquaEvent.event_date,
+            start_time: acquaEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: acquaEvent.image_url,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else {
+            failed++
+
+            if (errors.length < 20) {
+              errors.push({
+                venue_id: source.venue_id,
+                event_name: title,
+                event_date: acquaEvent.event_date,
+                error: result.error?.message || 'Unknown upsert error',
+              })
+            }
+          }
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: acquaEvent.event_date,
+              event_url: ticketUrl,
+              image_url: acquaEvent.image_url,
+              method: acquaEvent.method,
             })
           }
         }
