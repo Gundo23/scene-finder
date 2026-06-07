@@ -4148,6 +4148,354 @@ async function fetchPenthouseBundleEvents(html: string, baseUrl: string) {
   return events
 }
 
+
+const SF10_RECOVERY_VENUES = new Set([
+  'club_f_birmingham',
+  'dominium_vita_london',
+  'eureka_parties_fawkham_kent',
+  'ignite_west_drayton_heathrow',
+  'me1_sauna_rochester_kent',
+  'the_annex_king_s_lynn',
+  'the_new_gatehouse_bolton_bolton',
+  'riot_party_london_manchester_bristol',
+  'route69_weston_super_mare',
+])
+
+function isSf10RecoverySource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const venue = String(venueId || '')
+  const url = String(sourceUrl || '').toLowerCase()
+
+  return (
+    SF10_RECOVERY_VENUES.has(venue) ||
+    url.includes('clubf.uk') ||
+    url.includes('dominiumvita.com') ||
+    url.includes('eurekanaturistclub.co.uk') ||
+    url.includes('club-ignite.co.uk') ||
+    url.includes('me1sauna.co.uk') ||
+    url.includes('theannex.org.uk') ||
+    url.includes('thenewgatehousebolton.co.uk') ||
+    url.includes('riotparty.co.uk') ||
+    url.includes('route69-wsm.co.uk')
+  )
+}
+
+function discoverSf10RecoveryEventPages(source: { venue_id: string; source_url: string }) {
+  const urls = new Set<string>()
+  urls.add(source.source_url)
+
+  const perVenuePaths: Record<string, string[]> = {
+    club_f_birmingham: ['/events', '/events/', '/calendar', '/whats-on'],
+    dominium_vita_london: ['/events/', '/events'],
+    eureka_parties_fawkham_kent: ['/events-calendar/', '/events-calendar', '/events/', '/events'],
+    ignite_west_drayton_heathrow: ['/events-new/', '/events-new', '/events/', '/events'],
+    me1_sauna_rochester_kent: ['/events', '/events/'],
+    the_annex_king_s_lynn: ['/events-2/', '/events-2', '/events/', '/events'],
+    the_new_gatehouse_bolton_bolton: ['/other-events', '/other-events/', '/events/', '/events'],
+    riot_party_london_manchester_bristol: ['/upcoming-events/', '/upcoming-events', '/events/', '/events'],
+    route69_weston_super_mare: ['/events', '/events/'],
+  }
+
+  for (const path of perVenuePaths[source.venue_id] || ['/events', '/events/', '/calendar']) {
+    const url = absoluteUrl(source.source_url, path)
+    if (url) urls.add(url)
+  }
+
+  return [...urls].filter((url) => allowedSourcePageForVenue(source, url) && !isJunkUrl(url))
+}
+
+function isSf10RecoverySkipLine(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const fragments = [
+    'upcoming events',
+    'events calendar',
+    'calendar',
+    'book now',
+    'book tickets',
+    'buy tickets',
+    'tickets',
+    'ticket',
+    'read more',
+    'more info',
+    'find out more',
+    'view event',
+    'view details',
+    'details',
+    'contact',
+    'home',
+    'about',
+    'membership',
+    'memberships',
+    'opening times',
+    'prices',
+    'privacy policy',
+    'cookie policy',
+    'terms and conditions',
+    'facebook',
+    'instagram',
+    'twitter',
+    'whatsapp',
+    'share',
+    'subscribe',
+    'newsletter',
+    'menu',
+  ]
+
+  if (isJunkTitle(value || '')) return true
+  if (fragments.some((fragment) => cleaned === fragment || cleaned.includes(fragment))) return true
+  if (/^£\s*\d+/.test(cleanText(value || ''))) return true
+  if (/^\d{1,2}(:\d{2})?\s*(am|pm)\s*(to|until|-)/i.test(cleanText(value || ''))) return true
+
+  return false
+}
+
+function cleanSf10RecoveryTitle(value: string) {
+  let title = cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\b(?:book now|book tickets|buy tickets|tickets?|read more|more info|view event|view details|details)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const cutMarkers = [
+    ' book now',
+    ' book tickets',
+    ' buy tickets',
+    ' tickets',
+    ' read more',
+    ' more info',
+    ' view details',
+    ' view event',
+  ]
+
+  for (const marker of cutMarkers) {
+    const index = title.toLowerCase().indexOf(marker)
+    if (index > 4) title = title.slice(0, index).trim()
+  }
+
+  return title
+}
+
+function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const image = extractBestImage(html, baseUrl)
+  const links = extractLinks(html, baseUrl)
+  const monthWords = 'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
+  const weekdayWords = 'mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday'
+
+  const addCandidate = (input: {
+    title: string
+    event_date: string | null
+    start_time?: string | null
+    raw: string
+    href?: string | null
+    method: string
+  }) => {
+    let title = cleanSf10RecoveryTitle(input.title)
+    if (!title || isSf10RecoverySkipLine(title)) return
+    if (title.length < 5) return
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const href =
+      input.href ||
+      links.find((link) => {
+        const linkText = normalizeTitle(link.text)
+        const titleText = normalizeTitle(title)
+        if (!titleText || isJunkUrl(link.href)) return false
+        return (
+          linkText.includes(titleText.slice(0, 20)) ||
+          titleText.includes(linkText.slice(0, 20)) ||
+          link.href.toLowerCase().includes(titleText.split(' ').slice(0, 3).join('-'))
+        )
+      })?.href ||
+      eventUrlWithAnchor(baseUrl, title)
+
+    const eventDate = input.event_date || extractDate(input.raw)
+    if (!eventDate && !looksLikeStrongUndatedEvent(`${title} ${input.raw}`)) return
+
+    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: input.start_time || extractTime(input.raw),
+      raw: cleanText(input.raw || title).slice(0, 600),
+      image_url: image,
+      method: input.method,
+    })
+  }
+
+  // JSON-LD is the safest when present.
+  for (const event of extractJsonLdEvents(html, baseUrl)) {
+    addCandidate({
+      title: event.name,
+      event_date: event.date,
+      start_time: event.start_time,
+      raw: event.description || event.name,
+      href: event.url || baseUrl,
+      method: 'sf10-recovery-jsonld',
+    })
+  }
+
+  // WordPress/Event-calendar cards and links.
+  for (const link of extractCalendarEventLinks(html, baseUrl)) {
+    addCandidate({
+      title: link.text,
+      event_date: link.event_date,
+      start_time: extractTime(link.raw),
+      raw: link.raw || link.text,
+      href: link.href,
+      method: 'sf10-recovery-calendar-link',
+    })
+  }
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|section|article|tr|td)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(decodeEscapedText(line)))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const dateLinePatterns = [
+    new RegExp(`^(?:${weekdayWords})\\s+(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthWords})(?:\\s+(20\\d{2}))?\\s*(.*)$`, 'i'),
+    new RegExp(`^(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthWords})(?:\\s+(20\\d{2}))?\\s*(.*)$`, 'i'),
+    new RegExp(`^(${monthWords})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+(20\\d{2}))?\\s*(.*)$`, 'i'),
+    /^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](20\d{2}|\d{2}))?\s*(.*)$/i,
+  ]
+
+  const parseDateLine = (line: string) => {
+    let match = line.match(dateLinePatterns[0])
+    if (match) {
+      const month = monthNameToNumber(match[2])
+      if (!month) return null
+      const day = match[1].padStart(2, '0')
+      const year = futureSafeYear(month, day, match[3] || null)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || '') }
+    }
+
+    match = line.match(dateLinePatterns[1])
+    if (match) {
+      const month = monthNameToNumber(match[2])
+      if (!month) return null
+      const day = match[1].padStart(2, '0')
+      const year = futureSafeYear(month, day, match[3] || null)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || '') }
+    }
+
+    match = line.match(dateLinePatterns[2])
+    if (match) {
+      const month = monthNameToNumber(match[1])
+      if (!month) return null
+      const day = match[2].padStart(2, '0')
+      const year = futureSafeYear(month, day, match[3] || null)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || '') }
+    }
+
+    match = line.match(dateLinePatterns[3])
+    if (match) {
+      const day = match[1].padStart(2, '0')
+      const month = match[2].padStart(2, '0')
+      const year = futureSafeYear(month, day, normaliseTwoDigitYear(match[3]) || null)
+      return { event_date: validDateOrNull(`${year}-${month}-${day}`), inlineTitle: cleanText(match[4] || '') }
+    }
+
+    return null
+  }
+
+  const isDateLine = (line: string) => !!parseDateLine(line)
+
+  for (let index = 0; index < lines.length; index++) {
+    const parsedDate = parseDateLine(lines[index])
+    if (!parsedDate?.event_date) continue
+
+    const block = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (isDateLine(lines[next])) break
+      if (normalizeTitle(lines[next]) === 'contact') break
+      if (normalizeTitle(lines[next]) === 'footer') break
+      block.push(lines[next])
+      if (block.length >= 10) break
+    }
+
+    const title =
+      [parsedDate.inlineTitle, ...block.slice(1)]
+        .map((line) => cleanText(line))
+        .filter(Boolean)
+        .filter((line) => line.length <= 120)
+        .find((line) => !isSf10RecoverySkipLine(line)) || ''
+
+    addCandidate({
+      title,
+      event_date: parsedDate.event_date,
+      start_time: extractTime(block.join(' ')),
+      raw: block.join(' '),
+      method: `sf10-recovery-lines-${venueId}`,
+    })
+  }
+
+  const compactText = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
+  const compactPatterns = [
+    new RegExp(`(?:${weekdayWords})?\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthWords})(?:\\s+(20\\d{2}))?\\s+([A-Z][A-Za-z0-9 '&+.,:/!()\\-]{5,120}?)(?=\\s+(?:${weekdayWords})?\\s*\\d{1,2}(?:st|nd|rd|th)?\\s+(?:${monthWords})|$)`, 'gi'),
+    new RegExp(`([A-Z][A-Za-z0-9 '&+.,:/!()\\-]{5,120}?)\\s+(?:${weekdayWords})?\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthWords})(?:\\s+(20\\d{2}))?`, 'gi'),
+  ]
+
+  for (const pattern of compactPatterns) {
+    let match
+
+    while ((match = pattern.exec(compactText)) !== null) {
+      if (pattern === compactPatterns[0]) {
+        const month = monthNameToNumber(match[2])
+        if (!month) continue
+        const day = match[1].padStart(2, '0')
+        const year = futureSafeYear(month, day, match[3] || null)
+
+        addCandidate({
+          title: match[4],
+          event_date: validDateOrNull(`${year}-${month}-${day}`),
+          start_time: extractTime(match[0]),
+          raw: match[0],
+          method: `sf10-recovery-compact-after-date-${venueId}`,
+        })
+      } else {
+        const month = monthNameToNumber(match[3])
+        if (!month) continue
+        const day = match[2].padStart(2, '0')
+        const year = futureSafeYear(month, day, match[4] || null)
+
+        addCandidate({
+          title: match[1],
+          event_date: validDateOrNull(`${year}-${month}-${day}`),
+          start_time: extractTime(match[0]),
+          raw: match[0],
+          method: `sf10-recovery-compact-before-date-${venueId}`,
+        })
+      }
+    }
+  }
+
+  return candidates
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -4166,7 +4514,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('pandora') ||
     combined.includes('pandoraswingers.com') ||
     isAtticExperienceSource(venueId, sourceUrl) ||
-    isPenthouseSource(venueId, sourceUrl)
+    isPenthouseSource(venueId, sourceUrl) ||
+    isSf10RecoverySource(venueId, sourceUrl)
   )
 }
 
@@ -4256,6 +4605,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isSf10RecoverySource(source.venue_id, source.source_url)) {
+    for (const url of discoverSf10RecoveryEventPages(source)) {
+      urls.add(url)
+    }
+  }
+
   return [...urls].filter((url) => !isJunkUrl(url))
 }
 
@@ -4268,6 +4623,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
+  if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
 
   return [] as {
     href: string
@@ -5957,6 +6313,76 @@ function hasBadEventPattern(value: string | null | undefined) {
   return BAD_EVENT_PATTERNS.some((pattern) => cleaned.includes(pattern))
 }
 
+async function saveEventCandidate(input: {
+  venue_id: string
+  source_id?: string | null
+  source_url: string
+  candidate_url: string
+  candidate_title: string
+  matched_text?: string | null
+  status: string
+}) {
+  const title = cleanEventName(input.candidate_title || '')
+  const candidateUrl = input.candidate_url || input.source_url
+
+  if (!input.venue_id || !title) return
+
+  try {
+    await supabaseAdmin.from('event_candidates').insert({
+      venue_id: input.venue_id,
+      source_id: input.source_id || null,
+      source_url: input.source_url,
+      candidate_url: candidateUrl,
+      candidate_title: title.slice(0, 240),
+      matched_text: cleanText(input.matched_text || title).slice(0, 1000),
+      status: input.status,
+    })
+  } catch (err: any) {
+    console.log('EVENT CANDIDATE LOG FAILED:', input.venue_id, title, err?.message || err)
+  }
+}
+
+function candidateRejectionReason(input: {
+  venue_id: string
+  event_name: string
+  event_date: string | null
+  ticket_url: string
+  description: string | null
+}) {
+  const eventName = cleanEventName(input.event_name)
+
+  if (isLeBoudoirSource(input.venue_id)) {
+    if (isLeBoudoirJunkEventTitle(eventName)) return 'rejected_junk_title'
+    if (!input.event_date) return 'rejected_missing_date'
+  }
+
+  if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
+
+  if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return 'rejected_blacklisted_tbc'
+  if (isJunkTitle(eventName)) return 'rejected_junk_title'
+  if (isJunkUrl(input.ticket_url)) return 'rejected_junk_url'
+
+  const lowerUrl = input.ticket_url.toLowerCase()
+  if (lowerUrl.includes('google.com/calendar')) return 'rejected_calendar_export'
+  if (lowerUrl.includes('ical=1')) return 'rejected_calendar_export'
+  if (lowerUrl.includes('action=template')) return 'rejected_calendar_export'
+  if (lowerUrl.includes('/fetish-guide')) return 'rejected_info_page'
+  if (lowerUrl.includes('/fetish-membership')) return 'rejected_info_page'
+  if (lowerUrl.includes('/fetish-events-and-cost')) return 'rejected_info_page'
+
+  const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
+
+  if (hasBadEventPattern(combined)) return 'rejected_bad_pattern'
+
+  if (!input.event_date && !looksLikeStrongUndatedEvent(`${eventName} ${input.description || ''}`)) {
+    return 'rejected_missing_date'
+  }
+
+  if (!looksLikeEvent(combined) && !input.event_date) return 'rejected_weak_event_signal'
+
+  return null
+}
+
 function isBlacklistedTbcEvent(
   venueId: string | null | undefined,
   eventName: string | null | undefined,
@@ -6035,41 +6461,7 @@ function shouldSaveEvent(input: {
   ticket_url: string
   description: string | null
 }) {
-  const eventName = cleanEventName(input.event_name)
-
-  if (isLeBoudoirSource(input.venue_id)) {
-    if (isLeBoudoirJunkEventTitle(eventName)) return false
-    if (!input.event_date) return false
-  }
-
-  if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return true
-
-  if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return false
-  if (isJunkTitle(eventName)) return false
-  if (isJunkUrl(input.ticket_url)) return false
-
-  const lowerUrl = input.ticket_url.toLowerCase()
-  if (lowerUrl.includes('google.com/calendar')) return false
-  if (lowerUrl.includes('ical=1')) return false
-  if (lowerUrl.includes('action=template')) return false
-  if (lowerUrl.includes('/fetish-guide')) return false
-  if (lowerUrl.includes('/fetish-membership')) return false
-  if (lowerUrl.includes('/fetish-events-and-cost')) return false
-
-  const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
-
-  if (hasBadEventPattern(combined)) return false
-
-  // Undated events are allowed, but only when the title/description has a
-  // strong event signal. This keeps the Date TBC tab from filling with
-  // gallery titles, marketing headings, Outlook links, and general page text.
-  if (!input.event_date && !looksLikeStrongUndatedEvent(`${eventName} ${input.description || ''}`)) {
-    return false
-  }
-
-  if (!looksLikeEvent(combined) && !input.event_date) return false
-
-  return true
+  return candidateRejectionReason(input) === null
 }
 
 async function upsertEvent(input: {
@@ -6089,15 +6481,33 @@ async function upsertEvent(input: {
   const safeTicketUrl = normalizeTicketUrl(input.ticket_url)
   const tags = inferEventTags(`${eventName} ${safeDescription || ''} ${safeTicketUrl}`)
 
-  if (
-    !shouldSaveEvent({
-      ...input,
-      event_name: eventName,
-      ticket_url: safeTicketUrl,
+  const rejectionReason = candidateRejectionReason({
+    ...input,
+    event_name: eventName,
+    ticket_url: safeTicketUrl,
+  })
+
+  if (rejectionReason) {
+    await saveEventCandidate({
+      venue_id: input.venue_id,
+      source_url: input.source_url,
+      candidate_url: safeTicketUrl,
+      candidate_title: eventName,
+      matched_text: safeDescription || input.description || eventName,
+      status: rejectionReason,
     })
-  ) {
+
     return { action: 'skipped', error: null }
   }
+
+  await saveEventCandidate({
+    venue_id: input.venue_id,
+    source_url: input.source_url,
+    candidate_url: safeTicketUrl,
+    candidate_title: eventName,
+    matched_text: safeDescription || input.description || eventName,
+    status: 'approved',
+  })
 
   // Important: do not treat a repeated ticket URL as the same event by itself.
   // Some venues, especially Quest, use the same page/anchor for recurring events.
