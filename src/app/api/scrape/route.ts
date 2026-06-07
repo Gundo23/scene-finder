@@ -364,7 +364,6 @@ const BAD_EVENT_PATTERNS = [
 
 
 const TBC_VENUE_BLACKLIST = [
-  'acqua_sauna_blackpool',
   'club_play_blackpool',
   'ggs_lounge_runcorn',
   'our_place_4_fun_london',
@@ -3055,6 +3054,35 @@ function isAcquaJunkTitle(value: string | null | undefined) {
   return false
 }
 
+function isAcquaSafeDatedEvent(input: {
+  venue_id: string
+  event_name: string
+  event_date: string | null
+  ticket_url: string
+  description: string | null
+}) {
+  if (!isAcquaSource(input.venue_id, input.ticket_url)) return false
+  if (!input.event_date) return false
+
+  const eventName = cleanEventName(input.event_name)
+  if (!eventName || isAcquaJunkTitle(eventName)) return false
+  if (isJunkUrl(input.ticket_url)) return false
+
+  const lowerUrl = input.ticket_url.toLowerCase()
+  if (lowerUrl.includes('google.com/calendar')) return false
+  if (lowerUrl.includes('ical=1')) return false
+  if (lowerUrl.includes('action=template')) return false
+  if (lowerUrl.includes('/fetish-guide')) return false
+  if (lowerUrl.includes('/fetish-membership')) return false
+  if (lowerUrl.includes('/fetish-events-and-cost')) return false
+
+  // Acqua event pages often include repeated site chrome in the description
+  // (prices, membership, opening text). For dated Acqua candidates, trust the
+  // custom parser and protect mainly on title/date/url instead of rejecting
+  // because the surrounding page text contains generic site words.
+  return true
+}
+
 function cleanAcquaTitle(value: string) {
   return cleanEventName(value)
     .replace(/^[-–—:|]+/g, '')
@@ -5201,6 +5229,7 @@ async function cleanupBadExistingEvents() {
       const description = event.description || ''
 
       if (isLeBoudoirSource(event.venue_id) && isLeBoudoirJunkExistingEvent(event)) return true
+      if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
       if (isJunkUrl(ticketUrl)) return true
@@ -5239,6 +5268,8 @@ function shouldSaveEvent(input: {
     if (isLeBoudoirJunkEventTitle(eventName)) return false
     if (!input.event_date) return false
   }
+
+  if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return true
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return false
   if (isJunkTitle(eventName)) return false
@@ -5455,6 +5486,7 @@ export async function GET(request: Request) {
   const found: any[] = []
   const errors: any[] = []
   const failedPages: any[] = []
+  const debugSkipped: any[] = []
   const runSeen = new Set<string>()
 
   if (!targetVenueId) {
@@ -6209,6 +6241,16 @@ export async function GET(request: Request) {
 
           if (runSeen.has(dedupeKey)) {
             skipped++
+            if (debugSkipped.length < 80) {
+              debugSkipped.push({
+                venue_id: source.venue_id,
+                event_name: title,
+                event_date: acquaEvent.event_date,
+                event_url: ticketUrl,
+                method: acquaEvent.method,
+                reason: 'duplicate-in-current-run',
+              })
+            }
             continue
           }
 
@@ -6227,8 +6269,20 @@ export async function GET(request: Request) {
 
           if (result.action === 'created') created++
           else if (result.action === 'updated') updated++
-          else if (result.action === 'skipped') skipped++
-          else {
+          else if (result.action === 'skipped') {
+            skipped++
+            if (debugSkipped.length < 80) {
+              debugSkipped.push({
+                venue_id: source.venue_id,
+                event_name: cleanEventName(title),
+                event_date: acquaEvent.event_date,
+                event_url: ticketUrl,
+                method: acquaEvent.method,
+                reason: 'upsert-filtered-by-shouldSaveEvent',
+                description: cleanDescription(description),
+              })
+            }
+          } else {
             failed++
 
             if (errors.length < 20) {
@@ -6822,6 +6876,7 @@ export async function GET(request: Request) {
     timedOutOrEmpty,
     failed_pages: failedPages,
     found,
+    debug_skipped: debugSkipped,
     errors,
   })
 }
