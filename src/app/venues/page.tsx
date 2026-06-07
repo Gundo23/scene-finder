@@ -230,23 +230,7 @@ export default async function VenuesPage({
         </div>
 
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
-          <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
-            <input
-              name="search"
-              defaultValue={search}
-              placeholder="Search Leeds, Blackpool, Quest..."
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
-            />
-
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white transition hover:bg-blue-400 sm:w-auto"
-            >
-              Search
-            </button>
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <select
               name="city"
               defaultValue={city}
@@ -272,6 +256,24 @@ export default async function VenuesPage({
                 </option>
               ))}
             </select>
+
+            <div className="col-span-2 mt-1">
+              <input
+                name="search"
+                defaultValue={search}
+                placeholder="Search Leeds, Blackpool, Quest..."
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="col-span-2">
+              <button
+                type="submit"
+                className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white transition hover:bg-blue-400"
+              >
+                Search
+              </button>
+            </div>
 
             {hasFilters && (
               <div className="col-span-2">
