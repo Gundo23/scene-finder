@@ -131,7 +131,6 @@ export default async function VenuesPage({
     .select(
       'venue_id, name, city_area, region, website, category, image_url, like_count'
     )
-    .order('name')
 
   if (search) {
     query = query.or(
@@ -183,6 +182,17 @@ export default async function VenuesPage({
     )
   })
 
+  const sortedVenues = [...(venues || [])].sort((a, b) => {
+    const aEventCount = upcomingEventCountByVenue.get(a.venue_id) || 0
+    const bEventCount = upcomingEventCountByVenue.get(b.venue_id) || 0
+
+    if (bEventCount !== aEventCount) {
+      return bEventCount - aEventCount
+    }
+
+    return cleanText(a.name || '').localeCompare(cleanText(b.name || ''))
+  })
+
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 text-white sm:px-6 sm:py-10">
       <section className="mx-auto w-full max-w-7xl overflow-x-hidden">
@@ -230,7 +240,7 @@ export default async function VenuesPage({
         </div>
 
         <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <select
               name="city"
               defaultValue={city}
@@ -256,36 +266,34 @@ export default async function VenuesPage({
                 </option>
               ))}
             </select>
-
-            <div className="col-span-2 mt-1">
-              <input
-                name="search"
-                defaultValue={search}
-                placeholder="Search Leeds, Blackpool, Quest..."
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <button
-                type="submit"
-                className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white transition hover:bg-blue-400"
-              >
-                Search
-              </button>
-            </div>
-
-            {hasFilters && (
-              <div className="col-span-2">
-                <Link
-                  href="/venues"
-                  className="block rounded-full border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
-                >
-                  Clear filters
-                </Link>
-              </div>
-            )}
           </div>
+
+          <div className="mt-3 grid w-full grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
+            <input
+              name="search"
+              defaultValue={search}
+              placeholder="Search Leeds, Blackpool, Quest..."
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
+            />
+
+            <button
+              type="submit"
+              className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white transition hover:bg-blue-400 sm:w-auto"
+            >
+              Search
+            </button>
+          </div>
+
+          {hasFilters && (
+            <div className="mt-4">
+              <Link
+                href="/venues"
+                className="block rounded-full border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
+              >
+                Clear filters
+              </Link>
+            </div>
+          )}
         </form>
 
         <div className="mt-6 flex items-center justify-between gap-4">
@@ -294,13 +302,13 @@ export default async function VenuesPage({
           </h2>
 
           <p className="shrink-0 text-sm text-zinc-400">
-            {venues?.length || 0} found
+            {sortedVenues.length} found
           </p>
         </div>
 
         <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
-          {venues && venues.length > 0 ? (
-            venues.map((venue) => {
+          {sortedVenues.length > 0 ? (
+            sortedVenues.map((venue) => {
               const category = formatCategory(venue.category)
               const venueName = cleanText(venue.name || 'Venue')
               const venueCity = cleanText(venue.city_area || '')
