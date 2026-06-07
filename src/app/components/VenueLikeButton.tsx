@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 export default function VenueLikeButton({
   venueId,
@@ -9,53 +9,61 @@ export default function VenueLikeButton({
   venueId: string
   initialLikeCount: number
 }) {
-  const [likeCount, setLikeCount] = useState(initialLikeCount)
+  const [likeCount, setLikeCount] = useState(Number(initialLikeCount || 0))
   const [liked, setLiked] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const clickedRef = useRef(false)
 
-  async function handleLike() {
-    if (loading || liked) return
+  async function likeVenue() {
+    if (clickedRef.current) return
 
-    setLoading(true)
+    clickedRef.current = true
+    setLiked(true)
+    setSaving(true)
+    setLikeCount((current) => current + 1)
 
     try {
       const response = await fetch(`/api/venues/${venueId}/like`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       })
 
       const data = await response.json()
 
-      if (!response.ok) {
-        throw new Error(data?.error || 'Could not like venue')
+      if (response.ok && typeof data.like_count === 'number') {
+        setLikeCount(data.like_count)
       }
-
-      setLikeCount(Number(data.like_count || likeCount + 1))
-      setLiked(true)
     } catch (error) {
-      console.error(error)
+      console.error('Venue like failed:', error)
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
   return (
     <button
       type="button"
-      style={{ pointerEvents: 'auto' }}
+      aria-label={liked ? 'Venue liked' : 'Like venue'}
+      onPointerDownCapture={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        likeVenue()
+      }}
       onClick={(event) => {
         event.preventDefault()
         event.stopPropagation()
-        handleLike()
       }}
-      disabled={loading || liked}
-      aria-label={liked ? 'Venue liked' : 'Like venue'}
-      className="relative z-50 inline-flex cursor-pointer items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-pink-500 hover:text-pink-300 disabled:cursor-default disabled:opacity-90"
+      className="relative z-[9999] inline-flex cursor-pointer select-none items-center gap-2 rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-pink-500 hover:text-pink-300"
     >
       <span className={liked ? 'text-pink-400' : 'text-zinc-400'}>
         {liked ? '♥' : '♡'}
       </span>
 
       <span>{likeCount}</span>
+
+      {saving && <span className="text-xs text-zinc-500">...</span>}
     </button>
   )
 }
