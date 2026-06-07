@@ -2675,6 +2675,292 @@ function extractKlubVerbotenEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+function isElectrowerkzSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('slimelight_london') ||
+    combined.includes('electrowerkz_london') ||
+    combined.includes('electrowerkz.co.uk')
+  )
+}
+
+function discoverElectrowerkzEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/whatson'),
+    absoluteUrl(sourceUrl, '/whatson/'),
+    absoluteUrl(sourceUrl, '/whats-on'),
+    absoluteUrl(sourceUrl, '/whats-on/'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'electrowerkz.co.uk' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isElectrowerkzJunkTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exact = new Set([
+    'upcoming',
+    'what s on',
+    'whats on',
+    'more info',
+    'get tickets',
+    'tickets',
+    'join now',
+    'contact',
+    'general enquiries access',
+    'lost property',
+    'quick links',
+    'subscribe',
+    'sign up',
+    'thank you',
+    'electrowerkz',
+    'electrowerkz since',
+    'electrowerkz since 1987',
+    'open menu close menu',
+  ])
+
+  if (exact.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+  if (cleaned.includes('email address')) return true
+  if (cleaned.includes('membership gives discounted tickets')) return true
+  if (cleaned.includes('torrens street')) return true
+  if (cleaned.includes('islington')) return true
+  if (cleaned.includes('london ec1v')) return true
+
+  return false
+}
+
+function cleanElectrowerkzTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\bmore info\b/gi, '')
+    .replace(/\bget tickets\b/gi, '')
+    .replace(/\btickets\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractElectrowerkzEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const pageImage = extractBestImage(html, baseUrl)
+  const links = extractLinks(html, baseUrl)
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(h1|h2|h3|h4|h5|h6|p|div|li|section|article)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const currentYear = new Date().getFullYear()
+  const monthMap: Record<string, string> = {
+    jan: '01',
+    january: '01',
+    feb: '02',
+    february: '02',
+    mar: '03',
+    march: '03',
+    apr: '04',
+    april: '04',
+    may: '05',
+    jun: '06',
+    june: '06',
+    jul: '07',
+    july: '07',
+    aug: '08',
+    august: '08',
+    sep: '09',
+    sept: '09',
+    september: '09',
+    oct: '10',
+    october: '10',
+    nov: '11',
+    november: '11',
+    dec: '12',
+    december: '12',
+  }
+
+  const monthNames =
+    'JAN|JANUARY|FEB|FEBRUARY|MAR|MARCH|APR|APRIL|MAY|JUN|JUNE|JUL|JULY|AUG|AUGUST|SEP|SEPT|SEPTEMBER|OCT|OCTOBER|NOV|NOVEMBER|DEC|DECEMBER'
+
+  const dateLinePatterns = [
+    new RegExp(
+      `^(?:MON|TUE|TUES|WED|THU|THUR|THURS|FRI|SAT|SUN)(?:DAY|SDAY|NESDAY|RSDAY|URDAY)?\\s+(\\d{1,2})\\.\\s*(${monthNames})\\s*\\|\\s*([^\\n]+)$`,
+      'i'
+    ),
+    new RegExp(
+      `^(\\d{1,2})(?:ST|ND|RD|TH)?\\s*[-–—]\\s*(\\d{1,2})(?:ST|ND|RD|TH)?\\s+(${monthNames})\\s*\\|\\s*([^\\n]+)$`,
+      'i'
+    ),
+    new RegExp(
+      `^(\\d{1,2})\\s*[-–—]\\s*(\\d{1,2})\\s+(${monthNames})\\s*\\|\\s*([^\\n]+)$`,
+      'i'
+    ),
+  ]
+
+  const parseDateLine = (line: string) => {
+    const single = line.match(dateLinePatterns[0])
+    if (single) {
+      const day = single[1].padStart(2, '0')
+      const month = monthMap[single[2].toLowerCase()]
+      if (!month) return null
+
+      return {
+        day,
+        month,
+        event_date: validDateOrNull(`${futureSafeYear(month, day)}-${month}-${day}`),
+        timeText: cleanText(single[3] || ''),
+        rawDateLine: line,
+      }
+    }
+
+    const ranged = line.match(dateLinePatterns[1]) || line.match(dateLinePatterns[2])
+    if (ranged) {
+      const day = ranged[1].padStart(2, '0')
+      const month = monthMap[ranged[3].toLowerCase()]
+      if (!month) return null
+
+      return {
+        day,
+        month,
+        event_date: validDateOrNull(`${futureSafeYear(month, day)}-${month}-${day}`),
+        timeText: cleanText(ranged[4] || ''),
+        rawDateLine: line,
+      }
+    }
+
+    return null
+  }
+
+  const isDateLine = (line: string) => !!parseDateLine(line)
+
+  const ticketLinks = links
+    .filter((link) => {
+      const combined = `${link.href} ${link.text}`.toLowerCase()
+      return (
+        combined.includes('get tickets') ||
+        combined.includes('ticket') ||
+        combined.includes('dice.fm') ||
+        combined.includes('ra.co') ||
+        combined.includes('universe.com') ||
+        combined.includes('link.dice.fm')
+      )
+    })
+    .filter((link) => !isJunkUrl(link.href))
+
+  let ticketIndex = 0
+
+  for (let index = 0; index < lines.length; index++) {
+    const parsedDate = parseDateLine(lines[index])
+    if (!parsedDate?.event_date) continue
+
+    const today = new Date()
+    const todayString = validDateOrNull(
+      `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    )
+    if (todayString && parsedDate.event_date < todayString) continue
+
+    const block: string[] = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (isDateLine(lines[next])) break
+      if (normalizeTitle(lines[next]) === 'contact') break
+      if (normalizeTitle(lines[next]) === 'electrowerkz') break
+      block.push(lines[next])
+    }
+
+    const titleLine =
+      block
+        .slice(1, 8)
+        .find((line) => {
+          const cleaned = cleanText(line)
+          if (!cleaned) return false
+          if (isElectrowerkzJunkTitle(cleaned)) return false
+          if (/^(more info|get tickets|tickets)$/i.test(cleaned)) return false
+          if (/^https?:\/\//i.test(cleaned)) return false
+          if (cleaned.length > 100) return false
+          return true
+        }) || ''
+
+    let title = cleanElectrowerkzTitle(titleLine)
+
+    if (!title || isElectrowerkzJunkTitle(title)) continue
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const blockLinks = links.filter((link) => {
+      const combined = `${link.href} ${link.text}`.toLowerCase()
+      return (
+        normalizeTitle(link.text).includes(normalizeTitle(title).slice(0, 20)) ||
+        combined.includes(normalizeTitle(title).split(' ').slice(0, 2).join('-')) ||
+        combined.includes('dice.fm') ||
+        combined.includes('ra.co') ||
+        combined.includes('universe.com')
+      )
+    })
+
+    const ticketUrl =
+      blockLinks.find((link) => !link.href.includes('instagram.com'))?.href ||
+      ticketLinks[ticketIndex++]?.href ||
+      eventUrlWithAnchor(baseUrl, title)
+
+    const description = block
+      .slice(1)
+      .filter((line) => normalizeTitle(line) !== normalizeTitle(titleLine))
+      .filter((line) => !isElectrowerkzJunkTitle(line))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const startTime =
+      extractTime(parsedDate.timeText) ||
+      validTimeOrNull(parsedDate.timeText.match(/\b([01]?\d|2[0-3]):(\d{2})\b/)?.[0] || null)
+
+    const key = `${normalizeTitle(title)}|${parsedDate.event_date}|${normalizeTicketUrl(ticketUrl)}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: ticketUrl,
+      text: title,
+      event_date: parsedDate.event_date,
+      start_time: startTime,
+      raw: description || block.join(' ').slice(0, 500),
+      image_url: pageImage,
+      method: 'electrowerkz-whatson',
+    })
+  }
+
+  return candidates
+}
+
+
 
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
@@ -5189,7 +5475,12 @@ export async function GET(request: Request) {
         ? discoverKlubVerbotenEventPages(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls]
+    const electrowerkzDiscoveredUrls =
+      isElectrowerkzSource(source.venue_id, source.source_url)
+        ? discoverElectrowerkzEventPages(source.source_url)
+        : []
+
+    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -5204,6 +5495,8 @@ export async function GET(request: Request) {
             : isTargetVenueSource(source.venue_id, source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 18)
             : isKlubVerbotenSource(source.venue_id, source.source_url)
+              ? Math.max(MAX_PAGES_PER_SOURCE, 6)
+            : isElectrowerkzSource(source.venue_id, source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 6)
             : isWixLikeSource(source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 12)
@@ -5278,6 +5571,10 @@ export async function GET(request: Request) {
         const klubVerbotenEvents =
           isKlubVerbotenSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractKlubVerbotenEvents(html, pageUrl)
+            : []
+        const electrowerkzEvents =
+          isElectrowerkzSource(source.venue_id, `${source.source_url} ${pageUrl}`)
+            ? extractElectrowerkzEvents(html, pageUrl)
             : []
         let clubAlchemyBundleEvents: {
           href: string
@@ -5432,6 +5729,60 @@ export async function GET(request: Request) {
               event_url: ticketUrl,
               image_url: klubVerbotenEvent.image_url,
               method: klubVerbotenEvent.method,
+            })
+          }
+        }
+
+        for (const electrowerkzEvent of electrowerkzEvents) {
+          candidatesFound++
+
+          const title = electrowerkzEvent.text
+          const description = electrowerkzEvent.raw || electrowerkzEvent.text
+          const ticketUrl = electrowerkzEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, electrowerkzEvent.event_date, ticketUrl)
+
+          if (runSeen.has(dedupeKey)) {
+            skipped++
+            continue
+          }
+
+          runSeen.add(dedupeKey)
+
+          const result = await upsertEvent({
+            venue_id: source.venue_id,
+            event_name: title,
+            event_date: electrowerkzEvent.event_date,
+            start_time: electrowerkzEvent.start_time,
+            description,
+            ticket_url: ticketUrl,
+            image_url: electrowerkzEvent.image_url,
+            source_url: source.source_url,
+          })
+
+          if (result.action === 'created') created++
+          else if (result.action === 'updated') updated++
+          else if (result.action === 'skipped') skipped++
+          else {
+            failed++
+
+            if (errors.length < 20) {
+              errors.push({
+                venue_id: source.venue_id,
+                event_name: title,
+                event_date: electrowerkzEvent.event_date,
+                error: result.error?.message || 'Unknown upsert error',
+              })
+            }
+          }
+
+          if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+            found.push({
+              venue_id: source.venue_id,
+              event_name: cleanEventName(title),
+              event_date: electrowerkzEvent.event_date,
+              event_url: ticketUrl,
+              image_url: electrowerkzEvent.image_url,
+              method: electrowerkzEvent.method,
             })
           }
         }
