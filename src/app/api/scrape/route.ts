@@ -3629,6 +3629,321 @@ function extractAtticExperienceEvents(html: string, baseUrl: string) {
 }
 
 
+
+
+function isPenthouseSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('penthouse_playrooms_dunstable') ||
+    combined.includes('penthouse-playrooms.co.uk') ||
+    combined.includes('penthouse playrooms')
+  )
+}
+
+function discoverPenthouseEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/events'),
+    absoluteUrl(sourceUrl, '/events/'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'penthouse-playrooms.co.uk' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isPenthouseJunkTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exact = new Set([
+    'events',
+    'event',
+    'upcoming events',
+    'about',
+    'membership',
+    'gallery',
+    'faq',
+    'contact',
+    'login',
+    'log in',
+    'apply now',
+    'reserve your spot for our exclusive experiences',
+    'exclusive',
+    'limited spots',
+    'open to guest members',
+    'tickets from',
+    'ladies only event',
+    'guest members',
+    'penthouse playrooms',
+  ])
+
+  if (exact.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  const fragments = [
+    'reserve your spot',
+    'membership',
+    'apply now',
+    'limited spots',
+    'tickets from',
+    'open to guest members',
+    'ladies only event',
+    'terms',
+    'privacy',
+    'cookie',
+    'login',
+    'log in',
+    'faq',
+    'contact',
+  ]
+
+  if (fragments.some((fragment) => cleaned === fragment || cleaned.startsWith(`${fragment} `))) return true
+
+  return false
+}
+
+function cleanPenthouseTitle(value: string) {
+  let title = cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\b(?:limited spots|exclusive|open to guest members|tickets from|apply now)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Some rendered card text can append the first ticket/perk line after the title.
+  const cutMarkers = [
+    ' ladies only event',
+    ' tickets from',
+    ' open to guest members',
+    ' reserve your spot',
+    ' limited spots',
+  ]
+
+  for (const marker of cutMarkers) {
+    const index = title.toLowerCase().indexOf(marker)
+    if (index > 4) title = title.slice(0, index).trim()
+  }
+
+  return title
+}
+
+function extractPenthouseImageFromBlock(block: string, baseUrl: string) {
+  const rawImage =
+    block.match(/(?:image|imageUrl|image_url|src|url)["']?\s*[:=]\s*["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["']/i)?.[1] ||
+    block.match(/https?:\\?\/\\?\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/i)?.[0] ||
+    block.match(/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/i)?.[0]
+
+  return validImageUrl(absoluteUrl(baseUrl, decodeEscapedText(rawImage || '')))
+}
+
+function extractPenthouseHrefFromBlock(block: string, baseUrl: string, title: string) {
+  const rawHref =
+    block.match(/(?:href|url|link|slug)["']?\s*[:=]\s*["']([^"']{2,240})["']/i)?.[1] ||
+    block.match(/\/events\/[a-z0-9][a-z0-9_-]*/i)?.[0] ||
+    null
+
+  const href = absoluteUrl(baseUrl, decodeEscapedText(rawHref || ''))
+  if (href && !isJunkUrl(href)) return href
+
+  return eventUrlWithAnchor(baseUrl, title)
+}
+
+function extractPenthouseEventsFromText(value: string, baseUrl: string, method: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const decoded = decodeEscapedText(value)
+  const text = cleanText(decoded).replace(/\s+/g, ' ').trim()
+  const fallbackImage = extractBestImage(decoded, baseUrl)
+
+  const addCandidate = (input: {
+    title: string
+    raw: string
+    href?: string | null
+    image_url?: string | null
+  }) => {
+    let title = cleanPenthouseTitle(input.title)
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isPenthouseJunkTitle(title)) return
+    if (title.length < 5 || title.length > 140) return
+
+    const raw = cleanText(input.raw || title).slice(0, 600)
+    const eventDate = extractDate(raw)
+    const startTime = extractTime(raw)
+    const href =
+      input.href ||
+      extractPenthouseHrefFromBlock(input.raw, baseUrl, title) ||
+      eventUrlWithAnchor(baseUrl, title)
+    const imageUrl =
+      validImageUrl(input.image_url || null) ||
+      extractPenthouseImageFromBlock(input.raw, baseUrl) ||
+      fallbackImage
+
+    // Penthouse is a JS-rendered card site. If the visible card/poster does not expose
+    // a machine-readable date, still save strong event titles as Date TBC rather than
+    // losing the event completely.
+    if (!eventDate && !looksLikeStrongUndatedEvent(`${title} ${raw}`)) return
+
+    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw,
+      image_url: imageUrl,
+      method,
+    })
+  }
+
+  // JSON/JS object parser. This catches React/Vite bundles and embedded state
+  // where event cards are stored as title/name plus optional image/date fields.
+  const titleFieldPattern =
+    /(?:^|[,{])\s*["']?(?:title|name|eventName|event_name|heading)["']?\s*[:=]\s*["'`]([^"'`]{5,140})["'`]/gi
+
+  let titleMatch
+  while ((titleMatch = titleFieldPattern.exec(decoded)) !== null) {
+    const start = Math.max(0, (titleMatch.index || 0) - 700)
+    const end = Math.min(decoded.length, (titleMatch.index || 0) + 2200)
+    const block = decoded.slice(start, end)
+
+    addCandidate({
+      title: titleMatch[1],
+      raw: block,
+      image_url: extractPenthouseImageFromBlock(block, baseUrl),
+      href: extractPenthouseHrefFromBlock(block, baseUrl, titleMatch[1]),
+    })
+  }
+
+  // HTML/SSR card parser for cases where cards are rendered in the initial document.
+  const headingPattern =
+    /<(?:h1|h2|h3|h4|p|span|div)[^>]*>([^<]{5,140})<\/(?:h1|h2|h3|h4|p|span|div)>/gi
+
+  let headingMatch
+  while ((headingMatch = headingPattern.exec(decoded)) !== null) {
+    const title = cleanText(headingMatch[1])
+    if (!title || isPenthouseJunkTitle(title)) continue
+
+    const start = Math.max(0, (headingMatch.index || 0) - 900)
+    const end = Math.min(decoded.length, (headingMatch.index || 0) + 2200)
+    const block = decoded.slice(start, end)
+
+    addCandidate({
+      title,
+      raw: block,
+      image_url: extractPenthouseImageFromBlock(block, baseUrl),
+      href: extractPenthouseHrefFromBlock(block, baseUrl, title),
+    })
+  }
+
+  // Flattened-text fallback. Handles runs like:
+  // "Limited Spots ... Pink Noise - Breast Cancer Awareness Event ... Tickets From ..."
+  const cardTitlePattern =
+    /\b(?:Limited Spots|Exclusive|Upcoming Events)\b\s+([A-Z][A-Za-z0-9 '&+.,:/!()-]{5,130}?)(?=\s+(?:Ladies Only Event|Open to Guest Members|Tickets From|Limited Spots|Exclusive|Apply Now|About|Membership|Gallery|FAQ|Contact)\b)/gi
+
+  let cardMatch
+  while ((cardMatch = cardTitlePattern.exec(text)) !== null) {
+    const start = Math.max(0, cardMatch.index - 300)
+    const end = Math.min(text.length, cardMatch.index + 900)
+    addCandidate({
+      title: cardMatch[1],
+      raw: text.slice(start, end),
+    })
+  }
+
+  // Poster/date-text fallback. Useful if the date appears around the card text.
+  const datedTitlePatterns = [
+    /([A-Z][A-Za-z0-9 '&+.,:/!()-]{5,120}?)\s+(?:on\s+)?(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*(20\d{2})?/gi,
+    /(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*(20\d{2})?\s+([A-Z][A-Za-z0-9 '&+.,:/!()-]{5,120}?)(?=\s+(?:Ladies Only Event|Open to Guest Members|Tickets From|Limited Spots|Exclusive|$))/gi,
+  ]
+
+  for (const pattern of datedTitlePatterns) {
+    let match
+
+    while ((match = pattern.exec(text)) !== null) {
+      const title = pattern === datedTitlePatterns[0] ? match[1] : match[4]
+      const raw = match[0]
+
+      addCandidate({
+        title,
+        raw,
+      })
+    }
+  }
+
+  return candidates
+}
+
+function extractPenthouseEvents(html: string, baseUrl: string) {
+  return extractPenthouseEventsFromText(html, baseUrl, 'penthouse-rendered-or-state')
+}
+
+async function fetchPenthouseBundleEvents(html: string, baseUrl: string) {
+  const events: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const seen = new Set<string>()
+  const scriptUrls = extractScriptUrls(html, baseUrl)
+    .filter((url) => {
+      const lower = url.toLowerCase()
+      return (
+        sameDomain(baseUrl, url) ||
+        lower.includes('vercel.app') ||
+        lower.includes('_next') ||
+        lower.includes('/assets/') ||
+        lower.includes('.js')
+      )
+    })
+    .slice(0, 10)
+
+  for (const scriptUrl of scriptUrls) {
+    const js = await fetchText(scriptUrl, 'application/javascript,text/javascript,text/plain,*/*')
+    if (!js) continue
+
+    const parsed = extractPenthouseEventsFromText(js, scriptUrl, 'penthouse-js-bundle')
+
+    for (const event of parsed) {
+      const href = event.href || eventUrlWithAnchor(baseUrl, event.text)
+      const key = `${normalizeTitle(event.text)}|${event.event_date || 'no-date'}|${normalizeTicketUrl(href)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      events.push({
+        ...event,
+        href,
+      })
+    }
+  }
+
+  return events
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -3646,7 +3961,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('ecclesiaglasgow.com') ||
     combined.includes('pandora') ||
     combined.includes('pandoraswingers.com') ||
-    isAtticExperienceSource(venueId, sourceUrl)
+    isAtticExperienceSource(venueId, sourceUrl) ||
+    isPenthouseSource(venueId, sourceUrl)
   )
 }
 
@@ -3730,6 +4046,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isPenthouseSource(source.venue_id, source.source_url)) {
+    for (const url of discoverPenthouseEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   return [...urls].filter((url) => !isJunkUrl(url))
 }
 
@@ -3741,6 +4063,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isPandoraSource(venueId, pageUrl)) return extractPandoraEvents(html, pageUrl)
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
+  if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
 
   return [] as {
     href: string
@@ -6250,10 +6573,18 @@ export async function GET(request: Request) {
           isVanillaAlternativeSource(`${source.source_url} ${source.venue_id} ${pageUrl}`)
             ? extractVanillaAlternativeEvents(html, pageUrl)
             : []
-        const targetVenueEvents =
+        let targetVenueEvents =
           isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
+
+        if (isPenthouseSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+          targetVenueEvents = [
+            ...targetVenueEvents,
+            ...(await fetchPenthouseBundleEvents(html, pageUrl)),
+          ]
+        }
+
         const klubVerbotenEvents =
           isKlubVerbotenSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractKlubVerbotenEvents(html, pageUrl)
