@@ -15,7 +15,7 @@ export default function VenueLikeButton({
   const clickedRef = useRef(false)
 
   async function likeVenue() {
-    if (clickedRef.current) return
+    if (clickedRef.current || !venueId) return
 
     clickedRef.current = true
     setLiked(true)
@@ -23,7 +23,7 @@ export default function VenueLikeButton({
     setLikeCount((current) => current + 1)
 
     try {
-      const response = await fetch(`/api/venues/${venueId}/like`, {
+      const response = await fetch(`/api/venues/${encodeURIComponent(venueId)}/like`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
