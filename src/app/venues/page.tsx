@@ -3,6 +3,9 @@ import Link from 'next/link'
 import FallbackImage from '@/app/components/FallbackImage'
 import VenueLikeButton from '@/app/components/VenueLikeButton'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 const REGIONS = [
   'North East',
   'North West',
