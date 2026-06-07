@@ -281,7 +281,20 @@ export default async function Home({
                     {venue.city_area} • {venue.region}
                   </p>
 
-                  <div className="mt-3">
+                  <div
+                    className="relative z-50 mt-3 inline-flex"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation()
+                    }}
+                  >
                     <VenueLikeButton
                       venueId={venue.venue_id}
                       initialLikeCount={venue.like_count || 0}
