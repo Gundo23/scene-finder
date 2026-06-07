@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import FallbackImage from '@/app/components/FallbackImage'
 import VenueLikeButton from '@/app/components/VenueLikeButton'
+import { cleanText } from '@/lib/cleanText'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -90,6 +91,30 @@ const CITIES = [
   'Wrexham',
 ]
 
+
+function getTodayString() {
+  return new Date().toISOString().split('T')[0]
+}
+
+function formatCategory(category: string | null | undefined) {
+  const cleanedCategory = cleanText(category || '')
+
+  if (!cleanedCategory) return null
+
+  const lowerCategory = cleanedCategory.toLowerCase()
+
+  if (
+    lowerCategory === 'lead' ||
+    lowerCategory === 'unknown' ||
+    lowerCategory === 'uncategorised' ||
+    lowerCategory === 'uncategorized'
+  ) {
+    return null
+  }
+
+  return cleanedCategory
+}
+
 export default async function VenuesPage({
   searchParams,
 }: {
@@ -99,6 +124,7 @@ export default async function VenuesPage({
   const search = params.search || ''
   const city = params.city || ''
   const region = params.region || ''
+  const today = getTodayString()
 
   let query = supabase
     .from('venues')
@@ -125,10 +151,15 @@ export default async function VenuesPage({
     { data: venues, error },
     { count: venueCount },
     { count: eventCount },
+    { data: upcomingVenueEvents },
   ] = await Promise.all([
     query,
     supabase.from('venues').select('*', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }),
+    supabase
+      .from('events')
+      .select('venue_id')
+      .or(`event_date.gte.${today},event_date.is.null`),
   ])
 
   if (error) {
@@ -140,6 +171,17 @@ export default async function VenuesPage({
   }
 
   const hasFilters = Boolean(search || city || region)
+
+  const upcomingEventCountByVenue = new Map<string, number>()
+
+  upcomingVenueEvents?.forEach((event) => {
+    if (!event.venue_id) return
+
+    upcomingEventCountByVenue.set(
+      event.venue_id,
+      (upcomingEventCountByVenue.get(event.venue_id) || 0) + 1
+    )
+  })
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 text-white sm:px-6 sm:py-10">
@@ -256,68 +298,88 @@ export default async function VenuesPage({
 
         <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
           {venues && venues.length > 0 ? (
-            venues.map((venue) => (
-              <article
-                key={venue.venue_id}
-                className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 transition hover:border-blue-500"
-              >
-                <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
-                  <FallbackImage
-                    src={venue.image_url}
-                    fallbackSrc="/images/venue-placeholder.jpg"
-                    alt={venue.name || 'Venue'}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
+            venues.map((venue) => {
+              const category = formatCategory(venue.category)
+              const venueName = cleanText(venue.name || 'Venue')
+              const venueCity = cleanText(venue.city_area || '')
+              const venueRegion = cleanText(venue.region || '')
+              const upcomingEventCount = upcomingEventCountByVenue.get(venue.venue_id) || 0
 
-                <div className="min-w-0 p-3 sm:p-4">
-                  {venue.category && (
-                    <div className="mb-2 flex min-w-0 flex-wrap gap-2">
-                      <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
-                        {venue.category}
-                      </p>
-                    </div>
-                  )}
-
-                  <Link href={`/venue/${venue.venue_id}`}>
-                    <h3 className="line-clamp-2 break-words text-base font-semibold leading-snug hover:text-blue-400 sm:text-lg">
-                      {venue.name}
-                    </h3>
-                  </Link>
-
-                  <p className="mt-2 truncate text-xs text-zinc-400 sm:text-sm">
-                    {venue.city_area} • {venue.region}
-                  </p>
-
-                  <div className="relative z-50 mt-3 flex w-fit items-center">
-                    <VenueLikeButton
-                      venueId={venue.venue_id}
-                      initialLikeCount={venue.like_count || 0}
+              return (
+                <article
+                  key={venue.venue_id}
+                  className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 transition hover:border-blue-500"
+                >
+                  <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
+                    <FallbackImage
+                      src={venue.image_url}
+                      fallbackSrc="/images/venue-placeholder.jpg"
+                      alt={venueName}
+                      className="h-full w-full object-cover"
                     />
                   </div>
 
-                  <div className="mt-3 flex flex-wrap gap-4">
-                    <Link
-                      href={`/venue/${venue.venue_id}`}
-                      className="inline-flex items-center justify-center rounded-full border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-200 transition hover:border-blue-400 hover:bg-blue-500/20 hover:text-white"
-                    >
-                      View details
+                  <div className="min-w-0 p-3 sm:p-4">
+                    {category && (
+                      <div className="mb-2 flex min-w-0 flex-wrap gap-2">
+                        <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
+                          {category}
+                        </p>
+                      </div>
+                    )}
+
+                    <Link href={`/venue/${venue.venue_id}`}>
+                      <h3 className="line-clamp-2 break-words text-base font-semibold leading-snug hover:text-blue-400 sm:text-lg">
+                        {venueName}
+                      </h3>
                     </Link>
 
-                    {venue.website && (
-                      <a
-                        href={venue.website}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center justify-center rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
+                    <p className="mt-2 truncate text-xs text-zinc-400 sm:text-sm">
+                      {venueCity || 'UK'}{venueRegion ? ` • ${venueRegion}` : ''}
+                    </p>
+
+                    <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Venue Information
+                      </p>
+
+                      <div className="mt-2 space-y-1 text-xs text-zinc-300 sm:text-sm">
+                        <p>{venue.website ? '✓ Official Website Found' : 'Website Not Listed'}</p>
+                        <p>{venueCity || venueRegion ? '✓ Location Confirmed' : 'Location Being Reviewed'}</p>
+                        <p>✓ Events Available: {upcomingEventCount}</p>
+                      </div>
+                    </div>
+
+                    <div className="relative z-50 mt-3 flex w-fit items-center">
+                      <VenueLikeButton
+                        venueId={venue.venue_id}
+                        initialLikeCount={venue.like_count || 0}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-4">
+                      <Link
+                        href={`/venue/${venue.venue_id}`}
+                        className="inline-flex items-center justify-center rounded-full border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-200 transition hover:border-blue-400 hover:bg-blue-500/20 hover:text-white"
                       >
-                        Website
-                      </a>
-                    )}
+                        View details
+                      </Link>
+
+                      {venue.website && (
+                        <a
+                          href={venue.website}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center justify-center rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
+                        >
+                          Website
+                        </a>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))
+                </article>
+              )
+            })
           ) : (
             <p className="text-zinc-400">No venues found.</p>
           )}
