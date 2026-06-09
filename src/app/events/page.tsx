@@ -464,7 +464,7 @@ export default async function EventsPage({
     });
 
   return (
-    <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 text-white sm:px-6 sm:py-10">
+    <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 pb-24 text-white sm:px-6 sm:py-10">
       <section className="mx-auto w-full max-w-7xl overflow-x-hidden">
         <div className="flex justify-center">
           <FallbackImage
@@ -475,8 +475,8 @@ export default async function EventsPage({
           />
         </div>
 
-        <div className="mt-5">
-          <h1 className="text-3xl font-bold tracking-tight sm:text-5xl">
+        <div className="relative mt-5 overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-6 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20">
+          <h1 className="text-3xl font-extrabold tracking-tight sm:text-5xl">
             All Events
           </h1>
 
@@ -486,7 +486,7 @@ export default async function EventsPage({
           </p>
         </div>
 
-        <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
+        <form className="mt-5 w-full rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-4 shadow-xl shadow-blue-950/20 ring-1 ring-purple-500/10 sm:p-5">
           <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-12">
             <div className="min-w-0 sm:col-span-2 lg:col-span-2">
               <label className="mb-2 block text-sm font-medium text-zinc-300">
@@ -613,7 +613,7 @@ export default async function EventsPage({
             <div className="flex min-w-0 items-end">
               <button
                 type="submit"
-                className="w-full rounded-xl border border-blue-500 bg-blue-500 px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-950/20 transition hover:bg-blue-400"
+                className="w-full rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5"
               >
                 Search
               </button>
@@ -655,7 +655,7 @@ export default async function EventsPage({
           Showing {filteredEvents?.length || 0} of {events?.length || 0} events
         </p>
 
-        <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-5 grid w-full grid-cols-1 gap-5 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
           {filteredEvents && filteredEvents.length > 0 ? (
             filteredEvents.map((event) => {
               const venue = venueMap.get(event.venue_id);
@@ -671,19 +671,20 @@ export default async function EventsPage({
                 <Link
                   key={event.event_id}
                   href={`/events/${event.event_id}`}
-                  className="group block min-w-0"
+                  className="group block min-w-0 cursor-pointer"
                 >
-                  <article className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 hover:border-blue-500">
+                  <article className="relative h-full min-w-0 overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20">
+<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.15),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.13),transparent_30%)]" />
                     <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
                       <FallbackImage
                         src={event.image_url}
                         fallbackSrc={PLACEHOLDER_IMAGE}
                         alt={cleanText(event.event_name || "Event")}
-                        className="h-full w-full object-cover"
+                        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                       />
                     </div>
 
-                    <div className="min-w-0 p-3 sm:p-4">
+                    <div className="relative min-w-0 p-4 sm:p-5">
                       <div className="mb-3 flex min-w-0 flex-wrap gap-2">
                         {timingLabel && (
                           <p className="max-w-full truncate rounded-full border border-blue-500 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200">
@@ -701,7 +702,7 @@ export default async function EventsPage({
                         ))}
                       </div>
 
-                      <h2 className="line-clamp-2 break-words text-base font-semibold leading-snug text-white sm:text-lg">
+                      <h2 className="line-clamp-2 break-words text-xl font-extrabold leading-snug text-white transition group-hover:text-blue-200 sm:text-2xl">
                         {cleanText(event.event_name || "Untitled event")}
                       </h2>
 
@@ -751,8 +752,8 @@ export default async function EventsPage({
                       )}
 
                       <div className="mt-4 flex items-center justify-between gap-3">
-                        <span className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-300 transition group-hover:bg-blue-500 group-hover:text-white">
-                          View Event Details →
+                        <span className="text-sm font-semibold text-blue-300 transition group-hover:translate-x-1">
+                          Tap anywhere on card →
                         </span>
                       </div>
                     </div>

@@ -115,6 +115,28 @@ function formatCategory(category: string | null | undefined) {
   return cleanedCategory
 }
 
+function getVenueCategoryPillClass(category: string | null) {
+  const lower = (category || '').toLowerCase()
+
+  if (lower.includes('sauna')) {
+    return 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200 shadow-cyan-500/10'
+  }
+
+  if (lower.includes('swing') || lower.includes('club')) {
+    return 'border-pink-400/40 bg-pink-500/15 text-pink-200 shadow-pink-500/10'
+  }
+
+  if (lower.includes('fetish') || lower.includes('kink') || lower.includes('bdsm')) {
+    return 'border-red-400/40 bg-red-500/15 text-red-200 shadow-red-500/10'
+  }
+
+  if (lower.includes('social')) {
+    return 'border-purple-400/40 bg-purple-500/15 text-purple-200 shadow-purple-500/10'
+  }
+
+  return 'border-blue-400/40 bg-blue-500/15 text-blue-200 shadow-blue-500/10'
+}
+
 export default async function VenuesPage({
   searchParams,
 }: {
@@ -194,17 +216,21 @@ export default async function VenuesPage({
   })
 
   return (
-    <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 text-white sm:px-6 sm:py-10">
+    <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 pb-24 text-white sm:px-6 sm:py-10">
       <section className="mx-auto w-full max-w-7xl overflow-x-hidden">
-        <div className="rounded-3xl border border-zinc-800 bg-gradient-to-b from-blue-950/35 via-zinc-950 to-zinc-950 p-4 shadow-2xl shadow-blue-950/10 sm:p-8">
-          <div>
-            <p className="text-sm font-medium uppercase tracking-wide text-blue-400">
+        <div className="relative overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-4 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20 sm:p-8">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_28%)]" />
+          <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400 to-transparent" />
+
+          <div className="relative">
+            <p className="text-sm font-bold uppercase tracking-[0.25em] text-blue-300">
               Scene Finder
             </p>
           </div>
 
-          <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-[radial-gradient(circle_at_center,rgba(59,130,246,0.22),rgba(24,24,27,0.92)_45%,rgba(9,9,11,1)_100%)] px-5 py-7 text-center sm:px-10 sm:py-9">
-            <div className="mx-auto flex max-w-3xl flex-col items-center">
+          <div className="relative mt-6 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950/60 px-5 py-7 text-center shadow-xl shadow-black/30 sm:px-10 sm:py-9">
+            <div className="relative mx-auto flex max-w-3xl flex-col items-center">
               <p className="text-xs font-semibold uppercase tracking-[0.25em] text-blue-300">
                 Discover the scene
               </p>
@@ -239,12 +265,12 @@ export default async function VenuesPage({
           </div>
         </div>
 
-        <form className="mt-5 w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-3 sm:p-5">
+        <form className="mt-5 w-full rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-3 shadow-xl shadow-blue-950/20 ring-1 ring-purple-500/10 sm:p-5">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <select
               name="city"
               defaultValue={city}
-              className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
+              className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
             >
               <option value="">Search by City</option>
               {CITIES.map((cityName) => (
@@ -257,7 +283,7 @@ export default async function VenuesPage({
             <select
               name="region"
               defaultValue={region}
-              className="min-w-0 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
+              className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
             >
               <option value="">Search by Region</option>
               {REGIONS.map((regionName) => (
@@ -273,12 +299,12 @@ export default async function VenuesPage({
               name="search"
               defaultValue={search}
               placeholder="Search Leeds, Blackpool, Quest..."
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-3 text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
+              className="w-full rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
             />
 
             <button
               type="submit"
-              className="w-full rounded-lg bg-blue-500 px-6 py-3 font-medium text-white transition hover:bg-blue-400 sm:w-auto"
+              className="w-full rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-3 font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40 sm:w-auto"
             >
               Search
             </button>
@@ -297,7 +323,7 @@ export default async function VenuesPage({
         </form>
 
         <div className="mt-6 flex items-center justify-between gap-4">
-          <h2 className="text-xl font-semibold">
+          <h2 className="text-2xl font-extrabold">
             {hasFilters ? 'Search results' : 'Featured venues'}
           </h2>
 
@@ -306,7 +332,7 @@ export default async function VenuesPage({
           </p>
         </div>
 
-        <div className="mt-4 grid w-full grid-cols-1 gap-3 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-5 grid w-full grid-cols-1 gap-5 overflow-hidden sm:grid-cols-2 xl:grid-cols-3">
           {sortedVenues.length > 0 ? (
             sortedVenues.map((venue) => {
               const category = formatCategory(venue.category)
@@ -318,28 +344,31 @@ export default async function VenuesPage({
               return (
                 <article
                   key={venue.venue_id}
-                  className="h-full min-w-0 overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 transition hover:border-blue-500"
+                  className="group relative h-full min-w-0 overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20"
                 >
-                  <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.15),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.13),transparent_30%)] opacity-80 transition group-hover:opacity-100" />
+                  <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/70 to-transparent" />
+                  <div className="pointer-events-none absolute inset-y-6 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400/50 to-transparent" />
+                  <div className="relative h-32 w-full overflow-hidden bg-zinc-950 sm:h-44">
                     <FallbackImage
                       src={venue.image_url}
                       fallbackSrc="/images/venue-placeholder.jpg"
                       alt={venueName}
-                      className="h-full w-full object-cover"
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                     />
                   </div>
 
-                  <div className="min-w-0 p-3 sm:p-4">
+                  <div className="relative min-w-0 p-4 sm:p-5">
                     {category && (
                       <div className="mb-2 flex min-w-0 flex-wrap gap-2">
-                        <p className="max-w-full truncate rounded-full border border-zinc-700 px-2.5 py-1 text-[11px] text-zinc-300">
+                        <p className={`max-w-full truncate rounded-full border px-3 py-1 text-[11px] font-bold shadow-lg ${getVenueCategoryPillClass(category)}`}>
                           {category}
                         </p>
                       </div>
                     )}
 
                     <Link href={`/venue/${venue.venue_id}`}>
-                      <h3 className="line-clamp-2 break-words text-base font-semibold leading-snug hover:text-blue-400 sm:text-lg">
+                      <h3 className="line-clamp-2 break-words text-xl font-extrabold leading-snug text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_10px_rgba(59,130,246,0.35)] sm:text-2xl">
                         {venueName}
                       </h3>
                     </Link>
@@ -348,15 +377,35 @@ export default async function VenuesPage({
                       {venueCity || 'UK'}{venueRegion ? ` • ${venueRegion}` : ''}
                     </p>
 
-                    <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950/70 p-3">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                        Venue Information
-                      </p>
+                    <div className="mt-4 grid grid-cols-3 gap-2">
+                      <div className="rounded-2xl border border-pink-400/20 bg-pink-500/10 p-2">
+                        <p className="text-lg">📍</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-pink-200">
+                          Area
+                        </p>
+                        <p className="mt-1 truncate text-[11px] font-semibold text-white">
+                          {venueCity || venueRegion || 'UK'}
+                        </p>
+                      </div>
 
-                      <div className="mt-2 space-y-1 text-xs text-zinc-300 sm:text-sm">
-                        <p>{venue.website ? '✓ Official Website Found' : 'Website Not Listed'}</p>
-                        <p>{venueCity || venueRegion ? '✓ Location Confirmed' : 'Location Being Reviewed'}</p>
-                        <p>✓ Events Available: {upcomingEventCount}</p>
+                      <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-2">
+                        <p className="text-lg">🌐</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200">
+                          Website ↗
+                        </p>
+                        <p className="mt-1 text-[11px] font-semibold text-white">
+                          {venue.website ? 'Listed' : 'TBC'}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-purple-400/20 bg-purple-500/10 p-2">
+                        <p className="text-lg">📅</p>
+                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-purple-200">
+                          Events
+                        </p>
+                        <p className="mt-1 text-[11px] font-semibold text-white">
+                          {upcomingEventCount}
+                        </p>
                       </div>
                     </div>
 
@@ -367,12 +416,12 @@ export default async function VenuesPage({
                       />
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-4">
+                    <div className="mt-4 grid grid-cols-2 gap-3">
                       <Link
                         href={`/venue/${venue.venue_id}`}
-                        className="inline-flex items-center justify-center rounded-full border border-blue-500/50 bg-blue-500/10 px-3 py-1.5 text-sm font-medium text-blue-200 transition hover:border-blue-400 hover:bg-blue-500/20 hover:text-white"
+                        className="inline-flex items-center justify-center rounded-2xl border border-blue-400/70 bg-blue-500/10 px-3 py-2 text-sm font-bold text-blue-200 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:bg-gradient-to-r hover:from-blue-500 hover:to-purple-600 hover:text-white"
                       >
-                        View details
+                        View venue →
                       </Link>
 
                       {venue.website && (
@@ -380,9 +429,9 @@ export default async function VenuesPage({
                           href={venue.website}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center justify-center rounded-full border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-zinc-500 hover:bg-zinc-800 hover:text-white"
+                          className="inline-flex items-center justify-center rounded-2xl border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-sm font-bold text-cyan-200 shadow-lg shadow-cyan-950/20 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:bg-cyan-500/20 hover:text-white"
                         >
-                          Website
+                          Website ↗
                         </a>
                       )}
                     </div>
