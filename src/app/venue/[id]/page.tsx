@@ -155,8 +155,8 @@ export default async function VenuePage({
           <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
           <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400 to-transparent" />
 
-          <div className="relative p-5 sm:p-7">
-            <h1 className="mt-2 break-words text-3xl font-bold sm:text-4xl">
+          <div className="relative p-4 sm:p-7">
+            <h1 className="break-words text-3xl font-bold sm:text-4xl">
               {venueName}
             </h1>
 
@@ -166,28 +166,28 @@ export default async function VenuePage({
               </p>
             )}
 
-            <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Link
                 href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
-                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30 transition hover:-translate-y-1 hover:border-pink-500/70 hover:bg-zinc-900"
+                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-pink-500/70 hover:bg-zinc-900"
               >
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
                 <div className="relative flex items-start justify-between gap-3">
                   <div>
-                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-pink-400/30 bg-pink-500/15 text-2xl shadow-lg shadow-pink-500/10">
+                    <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-pink-400/30 bg-pink-500/15 text-xl shadow-lg sm:text-2xl shadow-pink-500/10">
                       📍
                     </div>
-                    <p className="mt-4 text-xs font-bold uppercase tracking-wide text-pink-300">
+                    <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-pink-300">
                       Events nearby
                     </p>
-                    <p className="mt-1 text-base font-bold text-white">
+                    <p className="mt-1 text-sm font-bold text-white sm:text-base">
                       {[venueCity, venueRegion].filter(Boolean).join(', ') || 'UK'}
                     </p>
-                    <p className="mt-2 text-xs leading-5 text-zinc-400">
+                    <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
                       Explore events near this venue
                     </p>
                   </div>
-                  <span className="mt-2 text-2xl text-zinc-500 transition group-hover:translate-x-1 group-hover:text-pink-300">
+                  <span className="mt-1 text-xl text-zinc-500 sm:mt-2 sm:text-2xl transition group-hover:translate-x-1 group-hover:text-pink-300">
                     ›
                   </span>
                 </div>
@@ -198,41 +198,41 @@ export default async function VenuePage({
                   href={venue.website}
                   target="_blank"
                   rel="noreferrer"
-                  className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30 transition hover:-translate-y-1 hover:border-cyan-400/70 hover:bg-zinc-900"
+                  className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-cyan-400/70 hover:bg-zinc-900"
                 >
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
                   <div className="relative flex items-start justify-between gap-3">
                     <div>
-                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-500/15 text-2xl shadow-lg shadow-cyan-500/10">
+                      <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-cyan-400/30 bg-cyan-500/15 text-xl shadow-lg sm:text-2xl shadow-cyan-500/10">
                         🌐
                       </div>
-                      <p className="mt-4 text-xs font-bold uppercase tracking-wide text-cyan-300">
+                      <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-cyan-300">
                         Official website
                       </p>
-                      <p className="mt-1 text-base font-bold text-white">
+                      <p className="mt-1 text-sm font-bold text-white sm:text-base">
                         Visit Website
                       </p>
-                      <p className="mt-2 text-xs leading-5 text-zinc-400">
+                      <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
                         Open the venue's official site
                       </p>
                     </div>
-                    <span className="mt-2 text-2xl text-zinc-500 transition group-hover:translate-x-1 group-hover:text-cyan-300">
+                    <span className="mt-1 text-xl text-zinc-500 sm:mt-2 sm:text-2xl transition group-hover:translate-x-1 group-hover:text-cyan-300">
                       ›
                     </span>
                   </div>
                 </a>
               ) : (
-                <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 shadow-lg shadow-black/30">
-                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-2xl">
+                <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3 shadow-lg sm:p-4 shadow-black/30">
+                  <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-zinc-700 bg-zinc-900 text-2xl">
                     🌐
                   </div>
-                  <p className="mt-4 text-xs font-bold uppercase tracking-wide text-zinc-500">
+                  <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-zinc-500">
                     Official website
                   </p>
-                  <p className="mt-1 text-base font-bold text-white">
+                  <p className="mt-1 text-sm font-bold text-white sm:text-base">
                     Not Listed Yet
                   </p>
-                  <p className="mt-2 text-xs leading-5 text-zinc-500">
+                  <p className="mt-1.5 text-[11px] leading-4 text-zinc-500 sm:mt-2 sm:text-xs sm:leading-5">
                     Website details are being checked
                   </p>
                 </div>
@@ -240,71 +240,71 @@ export default async function VenuePage({
 
               <Link
                 href={`/events?venue=${encodeURIComponent(venue.venue_id || '')}`}
-                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30 transition hover:-translate-y-1 hover:border-purple-400/70 hover:bg-zinc-900"
+                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-purple-400/70 hover:bg-zinc-900"
               >
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-purple-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
                 <div className="relative flex items-start justify-between gap-3">
                   <div>
-                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-purple-400/30 bg-purple-500/15 text-2xl shadow-lg shadow-purple-500/10">
+                    <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-purple-400/30 bg-purple-500/15 text-xl shadow-lg sm:text-2xl shadow-purple-500/10">
                       📅
                     </div>
-                    <p className="mt-4 text-xs font-bold uppercase tracking-wide text-purple-300">
+                    <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-purple-300">
                       Venue events
                     </p>
-                    <p className="mt-1 text-base font-bold text-white">
+                    <p className="mt-1 text-sm font-bold text-white sm:text-base">
                       {sortedEvents.length} Upcoming Event{sortedEvents.length === 1 ? '' : 's'}
                     </p>
-                    <p className="mt-2 text-xs leading-5 text-zinc-400">
+                    <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
                       View all events at this venue
                     </p>
                   </div>
-                  <span className="mt-2 text-2xl text-zinc-500 transition group-hover:translate-x-1 group-hover:text-purple-300">
+                  <span className="mt-1 text-xl text-zinc-500 sm:mt-2 sm:text-2xl transition group-hover:translate-x-1 group-hover:text-purple-300">
                     ›
                   </span>
                 </div>
               </Link>
 
-              <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30">
+              <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30">
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-amber-500/10 via-transparent to-transparent" />
                 <div className="relative">
-                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/15 text-2xl shadow-lg shadow-amber-500/10">
+                  <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-amber-400/30 bg-amber-500/15 text-xl shadow-lg sm:text-2xl shadow-amber-500/10">
                     ✨
                   </div>
-                  <p className="mt-4 text-xs font-bold uppercase tracking-wide text-amber-300">
+                  <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-amber-300">
                     Last updated
                   </p>
-                  <p className="mt-1 text-base font-bold text-white">
+                  <p className="mt-1 text-sm font-bold text-white sm:text-base">
                     {formatDate(today)}
                   </p>
-                  <p className="mt-2 text-xs leading-5 text-zinc-400">
+                  <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
                     Information up to date
                   </p>
                 </div>
               </div>
             </div>
 
-            <div className="mt-7 flex flex-wrap gap-4">
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:mt-7 sm:flex sm:flex-wrap sm:gap-4">
               {venue.website && (
                 <a
                   href={venue.website}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-3 py-2.5 text-xs font-bold sm:px-5 sm:py-3 sm:text-sm text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40"
                 >
-                  🌐 Visit Official Website ↗
+                  🌐 Visit Website ↗
                 </a>
               )}
 
               <Link
                 href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
-                className="inline-flex items-center gap-2 rounded-2xl border border-blue-500/70 bg-zinc-950/70 px-5 py-3 text-sm font-bold text-zinc-100 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:border-blue-400 hover:bg-zinc-900 hover:text-white"
+                className="inline-flex items-center gap-2 rounded-2xl border border-blue-500/70 bg-zinc-950/70 px-3 py-2.5 text-xs font-bold sm:px-5 sm:py-3 sm:text-sm text-zinc-100 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:border-blue-400 hover:bg-zinc-900 hover:text-white"
               >
-                📅 View All Venue Events
+                📅 View Events →
               </Link>
             </div>
 
-            <div className="mt-7 border-t border-zinc-800/80 pt-7">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/65 p-5 shadow-lg shadow-black/20">
+            <div className="mt-5 border-t border-zinc-800/80 pt-5 sm:mt-7 sm:pt-7">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/65 p-4 shadow-lg shadow-black/20 sm:p-5">
               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 About this venue
               </p>
@@ -323,7 +323,7 @@ export default async function VenuePage({
           </div>
         </div>
 
-        <div className="mt-10 flex flex-wrap items-end justify-between gap-4">
+        <div className="mt-7 flex flex-wrap items-end justify-between gap-4 sm:mt-10">
           <div>
             <h2 className="text-2xl font-bold">Upcoming events</h2>
             <p className="mt-2 text-sm text-zinc-400">
@@ -339,7 +339,7 @@ export default async function VenuePage({
           </Link>
         </div>
 
-        <div className="mt-5 grid gap-5">
+        <div className="mt-4 grid gap-4 sm:mt-5 sm:gap-5">
           {sortedEvents.length > 0 ? (
             sortedEvents.map((event) => {
               const startTime = formatTime(event.start_time)
@@ -367,7 +367,7 @@ export default async function VenuePage({
                       />
                     )}
 
-                    <div className="relative p-5">
+                    <div className="relative p-4 sm:p-5">
                       <div className="mb-3 flex flex-wrap gap-2">
                         <p className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold shadow-lg ${getCategoryPillClass(category)}`}>
                           🏷 {category}
@@ -380,11 +380,11 @@ export default async function VenuePage({
                         )}
                       </div>
 
-                      <h3 className="break-words text-2xl font-extrabold text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] sm:text-3xl">
+                      <h3 className="break-words text-xl font-extrabold sm:text-2xl text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] lg:text-3xl">
                         {eventName}
                       </h3>
 
-                      <div className="mt-3 grid gap-2 text-sm text-zinc-300 sm:grid-cols-3">
+                      <div className="mt-3 grid gap-2 text-xs text-zinc-300 sm:grid-cols-3 sm:text-sm">
                         <p>📍 {venueCity || venueRegion || 'Location TBC'}</p>
                         <p>📅 {formatDate(event.event_date)}</p>
                         <p>🕘 {startTime || 'Time TBC'}</p>
