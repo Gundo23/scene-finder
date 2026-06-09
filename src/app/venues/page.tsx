@@ -237,10 +237,10 @@ export default async function VenuesPage({
 
               <div className="mt-5 flex justify-center">
                 <FallbackImage
-                  src="/images/home-hero.jpg"
-                  fallbackSrc="/images/venue-placeholder.jpg"
+                  src="/images/scene-finder-logo-transparent.png"
+                  fallbackSrc="/images/home-hero.jpg"
                   alt="Scene Finder"
-                  className="h-36 w-36 object-contain sm:h-44 sm:w-44"
+                  className="h-40 w-40 object-contain drop-shadow-[0_0_25px_rgba(255,215,0,0.16)] sm:h-52 sm:w-52"
                 />
               </div>
 
