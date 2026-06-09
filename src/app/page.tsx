@@ -57,8 +57,8 @@ export default function Home() {
             </Link>
 
             <Link
-              href="/support"
-              className="block rounded-2xl border border-pink-400/50 bg-pink-500/10 py-5 text-xl font-bold text-pink-200 shadow-lg shadow-pink-500/15 transition hover:-translate-y-1 hover:bg-pink-500/20 hover:shadow-purple-500/30"
+              href="/submit"
+              className="block rounded-2xl border border-pink-400/50 bg-pink-500/10 py-5 text-xl font-bold text-pink-200 shadow-lg shadow-pink-500/15 transition hover:-translate-y-1 hover:bg-pink-500/20 hover:shadow-pink-500/30"
             >
               Support
             </Link>
