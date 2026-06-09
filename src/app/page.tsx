@@ -5,22 +5,27 @@ export default function Home() {
   return (
     <main className="fixed inset-0 overflow-hidden bg-zinc-950 text-white">
       <div className="relative flex h-[100svh] w-screen items-center justify-center overflow-hidden bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-6 py-5 sm:px-8">
+
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_28%)]" />
+
         <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
+
         <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400 to-transparent" />
+
         <div className="pointer-events-none absolute inset-y-8 left-0 w-px bg-gradient-to-b from-transparent via-blue-400/70 to-transparent" />
 
         <div className="relative w-full max-w-md text-center">
+
           <p className="mb-4 text-sm font-bold uppercase tracking-[0.45em] text-blue-300">
             Scene Finder
           </p>
 
           <div className="mb-6 flex justify-center">
             <FallbackImage
-              src="/images/home-hero.jpg"
-              fallbackSrc="/images/venue-placeholder.jpg"
+              src="/images/scene-finder-logo-transparent.png"
+              fallbackSrc="/images/home-hero.jpg"
               alt="Scene Finder"
-              className="w-56 max-w-full object-contain sm:w-64"
+              className="w-72 max-w-full object-contain drop-shadow-[0_0_30px_rgba(255,215,0,0.18)] sm:w-80"
             />
           </div>
 
@@ -35,6 +40,7 @@ export default function Home() {
           </div>
 
           <div className="space-y-4">
+
             <Link
               href="/venues"
               className="block rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 py-5 text-xl font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-1 hover:shadow-blue-500/40"
@@ -55,8 +61,11 @@ export default function Home() {
             >
               Support
             </Link>
+
           </div>
+
         </div>
+
       </div>
     </main>
   )
