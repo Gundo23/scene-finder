@@ -124,7 +124,23 @@ export default async function VenuePage({
   return (
     <main className="min-h-screen bg-zinc-950 px-4 py-8 text-white sm:px-6 sm:py-10">
       <section className="mx-auto max-w-5xl">
-        <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
+        <div className="flex flex-wrap gap-4">
+          <Link
+            href="/venues"
+            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
+          >
+            ← Back to Clubs
+          </Link>
+
+          <Link
+            href="/events"
+            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
+          >
+            Browse Events
+          </Link>
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
           <div className="p-5 sm:p-6">
             <p className="text-sm font-medium text-blue-400">Venue</p>
 
@@ -191,16 +207,21 @@ export default async function VenuePage({
               </Link>
             </div>
 
-            {venueNotes && (
-              <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  About this venue
-                </p>
-                <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
-                  {venueNotes}
-                </p>
-              </div>
-            )}
+            <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                About this venue
+              </p>
+
+              <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
+                {venue.name} is a lifestyle venue based in {venueCity || 'the UK'}
+                {venueRegion ? `, ${venueRegion}` : ''}. The venue hosts regular social
+                events, club nights and community gatherings throughout the year.
+              </p>
+
+              <p className="mt-3 text-sm leading-6 text-zinc-400">
+                Browse upcoming events below or visit the venue website for the latest information.
+              </p>
+            </div>
           </div>
         </div>
 
