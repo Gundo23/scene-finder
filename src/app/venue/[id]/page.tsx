@@ -124,26 +124,12 @@ export default async function VenuePage({
   return (
     <main className="min-h-screen bg-zinc-950 px-4 py-8 text-white sm:px-6 sm:py-10">
       <section className="mx-auto max-w-5xl">
-        <div className="flex flex-wrap gap-4">
-          <Link
-            href="/venues"
-            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
-          >
-            ← Back to Clubs
-          </Link>
+        <div className="relative overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_28%)]" />
+          <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
+          <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400 to-transparent" />
 
-          <Link
-            href="/events"
-            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
-          >
-            Browse Events
-          </Link>
-        </div>
-
-        <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
-          <div className="p-5 sm:p-6">
-            <p className="text-sm font-medium text-blue-400">Venue</p>
-
+          <div className="relative p-5 sm:p-7">
             <h1 className="mt-2 break-words text-3xl font-bold sm:text-4xl">
               {venueName}
             </h1>
@@ -154,60 +140,145 @@ export default async function VenuePage({
               </p>
             )}
 
-            <div className="mt-6 grid gap-4 rounded-2xl border border-zinc-700 bg-zinc-950 p-4 md:grid-cols-3">
-              <div className="md:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Venue Information
-                </p>
-
-                <div className="mt-3 grid gap-2 text-sm text-zinc-300 sm:grid-cols-2">
-                  <p>
-                    {hasWebsite ? '✓ Official Website Found' : 'Website not listed yet'}
-                  </p>
-                  <p>
-                    {hasEvents
-                      ? `✓ Events Available: ${sortedEvents.length}`
-                      : 'Events not currently listed'}
-                  </p>
-                  <p>{hasLocation ? '✓ Location Confirmed' : 'Location being reviewed'}</p>
-                  <p>🔄 Last Updated: {formatDate(today)}</p>
+            <div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <Link
+                href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
+                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30 transition hover:-translate-y-1 hover:border-pink-500/70 hover:bg-zinc-900"
+              >
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+                <div className="relative flex items-start justify-between gap-3">
+                  <div>
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-pink-400/30 bg-pink-500/15 text-2xl shadow-lg shadow-pink-500/10">
+                      📍
+                    </div>
+                    <p className="mt-4 text-xs font-bold uppercase tracking-wide text-pink-300">
+                      Events nearby
+                    </p>
+                    <p className="mt-1 text-base font-bold text-white">
+                      {[venueCity, venueRegion].filter(Boolean).join(', ') || 'UK'}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-zinc-400">
+                      Explore events near this venue
+                    </p>
+                  </div>
+                  <span className="mt-2 text-2xl text-zinc-500 transition group-hover:translate-x-1 group-hover:text-pink-300">
+                    ›
+                  </span>
                 </div>
-              </div>
+              </Link>
 
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Quick Facts
-                </p>
+              {venue.website ? (
+                <a
+                  href={venue.website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30 transition hover:-translate-y-1 hover:border-cyan-400/70 hover:bg-zinc-900"
+                >
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+                  <div className="relative flex items-start justify-between gap-3">
+                    <div>
+                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-500/15 text-2xl shadow-lg shadow-cyan-500/10">
+                        🌐
+                      </div>
+                      <p className="mt-4 text-xs font-bold uppercase tracking-wide text-cyan-300">
+                        Official website
+                      </p>
+                      <p className="mt-1 text-base font-bold text-white">
+                        Visit Website
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-zinc-400">
+                        Open the venue's official site
+                      </p>
+                    </div>
+                    <span className="mt-2 text-2xl text-zinc-500 transition group-hover:translate-x-1 group-hover:text-cyan-300">
+                      ›
+                    </span>
+                  </div>
+                </a>
+              ) : (
+                <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/60 p-4 shadow-lg shadow-black/30">
+                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-2xl">
+                    🌐
+                  </div>
+                  <p className="mt-4 text-xs font-bold uppercase tracking-wide text-zinc-500">
+                    Official website
+                  </p>
+                  <p className="mt-1 text-base font-bold text-white">
+                    Not Listed Yet
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-zinc-500">
+                    Website details are being checked
+                  </p>
+                </div>
+              )}
 
-                <div className="mt-3 space-y-2 text-sm text-zinc-300">
-                  {venuePostcode && <p>📮 {venuePostcode}</p>}
-                  <p>🌐 {hasWebsite ? 'Website Available' : 'Website Not Listed'}</p>
-                  <p>📅 {sortedEvents.length} Upcoming Event{sortedEvents.length === 1 ? '' : 's'}</p>
+              <Link
+                href={`/events?venue=${encodeURIComponent(venue.venue_id || '')}`}
+                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30 transition hover:-translate-y-1 hover:border-purple-400/70 hover:bg-zinc-900"
+              >
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-purple-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+                <div className="relative flex items-start justify-between gap-3">
+                  <div>
+                    <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-purple-400/30 bg-purple-500/15 text-2xl shadow-lg shadow-purple-500/10">
+                      📅
+                    </div>
+                    <p className="mt-4 text-xs font-bold uppercase tracking-wide text-purple-300">
+                      Venue events
+                    </p>
+                    <p className="mt-1 text-base font-bold text-white">
+                      {sortedEvents.length} Upcoming Event{sortedEvents.length === 1 ? '' : 's'}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-zinc-400">
+                      View all events at this venue
+                    </p>
+                  </div>
+                  <span className="mt-2 text-2xl text-zinc-500 transition group-hover:translate-x-1 group-hover:text-purple-300">
+                    ›
+                  </span>
+                </div>
+              </Link>
+
+              <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-4 shadow-lg shadow-black/30">
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-amber-500/10 via-transparent to-transparent" />
+                <div className="relative">
+                  <div className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/15 text-2xl shadow-lg shadow-amber-500/10">
+                    ✨
+                  </div>
+                  <p className="mt-4 text-xs font-bold uppercase tracking-wide text-amber-300">
+                    Last updated
+                  </p>
+                  <p className="mt-1 text-base font-bold text-white">
+                    {formatDate(today)}
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-zinc-400">
+                    Information up to date
+                  </p>
                 </div>
               </div>
             </div>
 
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-7 flex flex-wrap gap-4">
               {venue.website && (
                 <a
                   href={venue.website}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-400"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40"
                 >
-                  Visit Official Website ↗
+                  🌐 Visit Official Website ↗
                 </a>
               )}
 
               <Link
                 href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
-                className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950 px-5 py-3 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:text-white"
+                className="inline-flex items-center gap-2 rounded-2xl border border-blue-500/70 bg-zinc-950/70 px-5 py-3 text-sm font-bold text-zinc-100 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:border-blue-400 hover:bg-zinc-900 hover:text-white"
               >
-                Browse Events in {venueCity || 'this area'}
+                📅 View All Venue Events
               </Link>
             </div>
 
-            <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+            <div className="mt-7 border-t border-zinc-800/80 pt-7">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/65 p-5 shadow-lg shadow-black/20">
               <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                 About this venue
               </p>
@@ -221,6 +292,7 @@ export default async function VenuePage({
               <p className="mt-3 text-sm leading-6 text-zinc-400">
                 Browse upcoming events below or visit the venue website for the latest information.
               </p>
+              </div>
             </div>
           </div>
         </div>
@@ -254,7 +326,7 @@ export default async function VenuePage({
 
               return (
                 <Link key={event.event_id} href={`/events/${event.event_id}`} className="group block">
-                  <article className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900 transition hover:border-blue-500">
+                  <article className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-950 shadow-lg shadow-black/25 transition hover:-translate-y-0.5 hover:border-blue-500/70 hover:shadow-blue-950/30">
                     {event.image_url && (
                       <img
                         src={event.image_url}
