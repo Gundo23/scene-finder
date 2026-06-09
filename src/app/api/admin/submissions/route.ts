@@ -6,38 +6,24 @@ const supabaseAdmin = createClient(
 )
 
 function createVenueId(name: string, location: string) {
-  return `${name}_${location}`
+  const rawId = `${name || 'venue'}_${location || 'unknown'}`
     .toLowerCase()
+    .replace(/&/g, 'and')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
+
+  return rawId || `venue_${Date.now()}`
 }
 
-async function triggerVenueScrape(request: Request, venueId: string) {
-  try {
-    const scrapeUrl = new URL('/api/scrape', request.url)
-    scrapeUrl.searchParams.set('venue_id', venueId)
+function getVenueCategory(type: string | null | undefined) {
+  const normalisedType = String(type || '').toLowerCase()
 
-    const response = await fetch(scrapeUrl.toString(), {
-      method: 'GET',
-      cache: 'no-store',
-    })
+  if (normalisedType.includes('event')) return 'Event Venue'
+  if (normalisedType.includes('club')) return 'Swingers Club'
+  if (normalisedType.includes('sauna')) return 'Sauna'
+  if (normalisedType.includes('social')) return 'Social'
 
-    const result = await response.json().catch(() => null)
-
-    return {
-      triggered: true,
-      ok: response.ok,
-      status: response.status,
-      result,
-    }
-  } catch (error: any) {
-    return {
-      triggered: false,
-      ok: false,
-      status: null,
-      error: error?.message || 'Scrape trigger failed',
-    }
-  }
+  return 'Venue'
 }
 
 export async function POST(request: Request) {
@@ -72,42 +58,49 @@ export async function POST(request: Request) {
     return Response.json({ error: 'Submission not found' }, { status: 404 })
   }
 
-  const { error } = await supabaseAdmin
-    .from('submissions')
-    .update({ status: action })
-    .eq('id', id)
-
-  if (error) return Response.json({ error: error.message }, { status: 500 })
-
   let venueId: string | null = null
-  let scrapeResult: any = null
 
   if (action === 'approved') {
     venueId = createVenueId(
       submission.name,
-      submission.location || 'unknown'
+      submission.location || submission.hosted_at || 'unknown'
     )
 
-    const { data: existingVenue } = await supabaseAdmin
+    const { data: existingVenue, error: existingVenueError } = await supabaseAdmin
       .from('venues')
       .select('venue_id')
       .eq('venue_id', venueId)
       .maybeSingle()
 
+    if (existingVenueError) {
+      return Response.json({ error: existingVenueError.message }, { status: 500 })
+    }
+
     if (!existingVenue) {
+      const notes = [
+        submission.notes ? `Submission notes: ${submission.notes}` : '',
+        submission.contact_name ? `Contact name: ${submission.contact_name}` : '',
+        submission.submitter_email ? `Contact email: ${submission.submitter_email}` : '',
+        submission.event_date ? `Submitted event date: ${submission.event_date}` : '',
+        submission.hosted_at ? `Hosted at: ${submission.hosted_at}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n')
+
       const { error: venueError } = await supabaseAdmin.from('venues').insert([
         {
           venue_id: venueId,
-          name: submission.name,
+          name: submission.name || submission.hosted_at || 'Unnamed Venue',
           city_area: submission.location || '',
           region: '',
           website: submission.website || '',
           source_url: submission.website || '',
-          collection_method: 'User Submission',
-          category: submission.type === 'club' ? 'Swingers Club' : 'Event Venue',
+          collection_method: 'Manual Submission',
+          category: getVenueCategory(submission.type),
           status: 'active',
           last_verified: new Date().toISOString().split('T')[0],
-          notes: submission.notes || '',
+          notes,
+          like_count: 0,
         },
       ])
 
@@ -115,39 +108,20 @@ export async function POST(request: Request) {
         return Response.json({ error: venueError.message }, { status: 500 })
       }
     }
+  }
 
-    if (submission.website) {
-      const { data: existingSource } = await supabaseAdmin
-        .from('event_sources')
-        .select('source_id')
-        .eq('venue_id', venueId)
-        .eq('source_url', submission.website)
-        .maybeSingle()
+  const { error: updateError } = await supabaseAdmin
+    .from('submissions')
+    .update({ status: action })
+    .eq('id', id)
 
-      if (!existingSource) {
-        const { error: sourceError } = await supabaseAdmin
-          .from('event_sources')
-          .insert([
-            {
-              venue_id: venueId,
-              source_url: submission.website,
-              collection_method: 'User Submission',
-              active: true,
-            },
-          ])
-
-        if (sourceError) {
-          return Response.json({ error: sourceError.message }, { status: 500 })
-        }
-      }
-
-      scrapeResult = await triggerVenueScrape(request, venueId)
-    }
+  if (updateError) {
+    return Response.json({ error: updateError.message }, { status: 500 })
   }
 
   return Response.json({
     success: true,
+    action,
     venue_id: venueId,
-    scrape: scrapeResult,
   })
 }
