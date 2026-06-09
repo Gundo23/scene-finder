@@ -44,6 +44,32 @@ function getEventCategory(event: any) {
   return 'General'
 }
 
+function getCategoryPillClass(category: string) {
+  const lower = category.toLowerCase()
+
+  if (lower.includes('club')) {
+    return 'border-purple-400/40 bg-purple-500/15 text-purple-200 shadow-purple-500/10'
+  }
+
+  if (lower.includes('social') || lower.includes('greedy') || lower.includes('single')) {
+    return 'border-pink-400/40 bg-pink-500/15 text-pink-200 shadow-pink-500/10'
+  }
+
+  if (lower.includes('sauna')) {
+    return 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200 shadow-cyan-500/10'
+  }
+
+  if (lower.includes('fetish') || lower.includes('kink') || lower.includes('bdsm')) {
+    return 'border-red-400/40 bg-red-500/15 text-red-200 shadow-red-500/10'
+  }
+
+  if (lower.includes('party')) {
+    return 'border-amber-400/40 bg-amber-500/15 text-amber-200 shadow-amber-500/10'
+  }
+
+  return 'border-blue-400/40 bg-blue-500/15 text-blue-200 shadow-blue-500/10'
+}
+
 function cleanVenueNotes(notes: string | null | undefined) {
   if (!notes) return ''
 
@@ -313,7 +339,7 @@ export default async function VenuePage({
           </Link>
         </div>
 
-        <div className="mt-4 grid gap-4">
+        <div className="mt-5 grid gap-5">
           {sortedEvents.length > 0 ? (
             sortedEvents.map((event) => {
               const startTime = formatTime(event.start_time)
@@ -325,8 +351,14 @@ export default async function VenuePage({
                 : ''
 
               return (
-                <Link key={event.event_id} href={`/events/${event.event_id}`} className="group block">
-                  <article className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900 to-zinc-950 shadow-lg shadow-black/25 transition hover:-translate-y-0.5 hover:border-blue-500/70 hover:shadow-blue-950/30">
+                <Link key={event.event_id} href={`/events/${event.event_id}`} className="group block cursor-pointer">
+                  <article className="relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20">
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.12),transparent_30%)] opacity-75 transition group-hover:opacity-100" />
+                    <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/70 to-transparent" />
+                    <div className="pointer-events-none absolute inset-y-6 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400/50 to-transparent" />
+                    <div className="pointer-events-none absolute right-5 top-1/2 hidden -translate-y-1/2 text-4xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-blue-300 sm:block">
+                      ›
+                    </div>
                     {event.image_url && (
                       <img
                         src={event.image_url}
@@ -335,20 +367,20 @@ export default async function VenuePage({
                       />
                     )}
 
-                    <div className="p-5">
+                    <div className="relative p-5">
                       <div className="mb-3 flex flex-wrap gap-2">
-                        <p className="inline-flex rounded-full border border-blue-900 bg-blue-950/40 px-3 py-1 text-xs font-medium text-blue-200">
+                        <p className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold shadow-lg ${getCategoryPillClass(category)}`}>
                           🏷 {category}
                         </p>
 
                         {eventType && eventType !== 'Event' && (
-                          <p className="inline-flex rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-300">
+                          <p className="inline-flex rounded-full border border-purple-400/30 bg-purple-500/10 px-3 py-1 text-xs font-semibold text-purple-200 shadow-lg shadow-purple-500/10">
                             {eventType}
                           </p>
                         )}
                       </div>
 
-                      <h3 className="break-words text-xl font-semibold group-hover:text-blue-400 sm:text-2xl">
+                      <h3 className="break-words text-2xl font-extrabold text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] sm:text-3xl">
                         {eventName}
                       </h3>
 
@@ -364,10 +396,8 @@ export default async function VenuePage({
                         </p>
                       )}
 
-                      <div className="mt-5">
-                        <span className="inline-flex items-center rounded-xl border border-blue-500 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-300 transition group-hover:bg-blue-500 group-hover:text-white">
-                          View Event Details →
-                        </span>
+                      <div className="mt-5 flex items-center text-sm font-semibold text-blue-300 opacity-80 transition group-hover:translate-x-1 group-hover:text-blue-200">
+                        Tap anywhere on this card to view details →
                       </div>
                     </div>
                   </article>
