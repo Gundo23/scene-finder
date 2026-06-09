@@ -124,23 +124,7 @@ export default async function VenuePage({
   return (
     <main className="min-h-screen bg-zinc-950 px-4 py-8 text-white sm:px-6 sm:py-10">
       <section className="mx-auto max-w-5xl">
-        <div className="flex flex-wrap gap-4">
-          <Link
-            href="/venues"
-            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
-          >
-            ← Back to Clubs
-          </Link>
-
-          <Link
-            href="/events"
-            className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
-          >
-            Browse Events
-          </Link>
-        </div>
-
-        <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
+        <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
           <div className="p-5 sm:p-6">
             <p className="text-sm font-medium text-blue-400">Venue</p>
 
