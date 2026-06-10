@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import { cleanText } from '@/lib/cleanText'
+import FallbackImage from '@/app/components/FallbackImage'
 
 function formatDate(date: string | null) {
   if (!date) return 'Date TBC'
@@ -210,16 +211,15 @@ export default async function EventDetailPage({
         </div>
 
         <article className="mt-6 overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-900 via-zinc-950 to-purple-950/30 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20">
-          {event.image_url && (
-            <div className="relative">
-              <img
-                src={event.image_url}
-                alt={eventName}
-                className="h-64 w-full object-cover sm:h-80"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent" />
-            </div>
-          )}
+          <div className="relative">
+            <FallbackImage
+              src={event.image_url || '/images/venue-placeholder.jpg'}
+fallbackSrc="/images/venue-placeholder.jpg"
+              alt={eventName}
+              className="h-64 w-full object-cover sm:h-80"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent" />
+          </div>
 
           <div className="p-5 sm:p-7">
             <div className="flex flex-wrap gap-2">
