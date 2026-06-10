@@ -96,6 +96,44 @@ function getTodayString() {
   return new Date().toISOString().split('T')[0]
 }
 
+async function fetchUpcomingEventCountByVenue(today: string) {
+  const upcomingEventCountByVenue = new Map<string, number>()
+  const pageSize = 1000
+  let from = 0
+
+  while (true) {
+    const to = from + pageSize - 1
+
+    const { data, error } = await supabase
+      .from('events')
+      .select('venue_id')
+      .or(`event_date.gte.${today},event_date.is.null`)
+      .range(from, to)
+
+    if (error) {
+      console.error('Error loading venue event counts:', error.message)
+      break
+    }
+
+    data?.forEach((event) => {
+      if (!event.venue_id) return
+
+      upcomingEventCountByVenue.set(
+        event.venue_id,
+        (upcomingEventCountByVenue.get(event.venue_id) || 0) + 1
+      )
+    })
+
+    if (!data || data.length < pageSize) {
+      break
+    }
+
+    from += pageSize
+  }
+
+  return upcomingEventCountByVenue
+}
+
 function formatCategory(category: string | null | undefined) {
   const cleanedCategory = cleanText(category || '')
 
@@ -172,15 +210,12 @@ export default async function VenuesPage({
     { data: venues, error },
     { count: venueCount },
     { count: eventCount },
-    { data: upcomingVenueEvents },
+    upcomingEventCountByVenue,
   ] = await Promise.all([
     query,
     supabase.from('venues').select('*', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }),
-    supabase
-      .from('events')
-      .select('venue_id')
-      .or(`event_date.gte.${today},event_date.is.null`),
+    fetchUpcomingEventCountByVenue(today),
   ])
 
   if (error) {
@@ -192,17 +227,6 @@ export default async function VenuesPage({
   }
 
   const hasFilters = Boolean(search || city || region)
-
-  const upcomingEventCountByVenue = new Map<string, number>()
-
-  upcomingVenueEvents?.forEach((event) => {
-    if (!event.venue_id) return
-
-    upcomingEventCountByVenue.set(
-      event.venue_id,
-      (upcomingEventCountByVenue.get(event.venue_id) || 0) + 1
-    )
-  })
 
   const sortedVenues = [...(venues || [])].sort((a, b) => {
     const aEventCount = upcomingEventCountByVenue.get(a.venue_id) || 0
