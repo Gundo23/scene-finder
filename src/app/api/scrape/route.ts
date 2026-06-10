@@ -1390,15 +1390,12 @@ function extractQuestEvents(html: string, baseUrl: string) {
 
 
 function discoverXtasiaEventPages(sourceUrl: string) {
+  // Xtasia has multiple aliases for the same Google Calendar embeds. Only scan
+  // the canonical public diary pages once, otherwise each source/page repeats
+  // the same recurring entries and inflates the venue count.
   const pages = [
-    'https://xtasia.co.uk/page/swingers-diary',
-    'https://xtasia.co.uk/page/fetish-diary',
     'https://www.xtasia.co.uk/page/swingers-diary',
     'https://www.xtasia.co.uk/page/fetish-diary',
-    'https://xtasia.co.uk/en/page/swingers-diary',
-    'https://xtasia.co.uk/en/page/fetish-diary',
-    'https://www.xtasia.co.uk/en/page/swingers-diary',
-    'https://www.xtasia.co.uk/en/page/fetish-diary',
   ]
 
   return [...new Set(pages)]
@@ -1664,7 +1661,74 @@ function isJunkIcsCalendarEntry(title: string, description: string) {
   return junk.some((item) => combined.includes(item))
 }
 
-function parseIcsEvents(ics: string, baseUrl: string, diaryName: string) {
+
+function isXtasiaMalformedEvent(title: string | null | undefined, description?: string | null) {
+  const rawTitle = cleanText(title || '')
+  const cleaned = normalizeTitle(rawTitle)
+  const combined = normalizeTitle(`${rawTitle} ${description || ''}`)
+
+  if (!cleaned) return true
+
+  const exactJunk = new Set([
+    'swingers diary',
+    'fetish diary',
+    'xtasia swingers diary',
+    'xtasia fetish diary',
+    'this months swingers diary',
+    'this months fetish diary',
+    'google calendar',
+    'add to calendar',
+  ])
+
+  if (exactJunk.has(cleaned)) return true
+
+  // Old Xtasia fallback parsing created hundreds of clipped titles ending in "to",
+  // e.g. "Flirts Spa - Midday to", "Flirts - Bi Night - to", "TCZ to".
+  // Real diary titles should not end with a dangling preposition.
+  if (/\bto\s*$/i.test(rawTitle)) return true
+  if (/[-–—:]\s*to\s*$/i.test(rawTitle)) return true
+
+  const badFragments = [
+    'this months swingers diary',
+    'this months fetish diary',
+    'years swingers diary',
+    'years fetish diary',
+    'xtasia is listed on fabswingers',
+    'fabswingers',
+    'ffff',
+    'closed for private event',
+    'flirts spa closed',
+    'closed midday',
+  ]
+
+  if (badFragments.some((fragment) => combined.includes(fragment))) return true
+
+  return false
+}
+
+
+function cleanXtasiaCalendarTitle(value: string | null | undefined) {
+  let title = cleanText(value || '')
+    .replace(/^\.?\s*/g, '')
+    .replace(/^@?\s*Xtasia\s*[-–—:]\s*/i, '')
+    .replace(/^Xtasia\s+[-–—:]?\s*/i, '')
+    .replace(/^Flirts\s*[-–—:]\s*/i, 'Flirts - ')
+    .replace(/\s*[|]+\s*/g, ' - ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Keep useful opening-time wording in Xtasia titles. Do not run cleanEventName
+  // here because it strips 8pm/10pm/Midnight and creates bad titles ending in "to".
+  title = title
+    .replace(/\b12:00\s*pm\b/gi, 'Midday')
+    .replace(/\b00:00\b/g, 'Midnight')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return title
+}
+
+function parseIcsEvents(ics: string, baseUrl: string, diaryName: string, options: { preserveRawTitle?: boolean } = {}) {
   const candidates: {
     href: string
     text: string
@@ -1711,12 +1775,14 @@ function parseIcsEvents(ics: string, baseUrl: string, diaryName: string) {
     const rawTitle = decodeIcsText(event.SUMMARY || '')
     const rawDescription = decodeIcsText(event.DESCRIPTION || `${rawTitle} ${diaryName}`)
 
-    let title = cleanEventName(rawTitle)
-      .replace(/^@?\s*Xtasia\s*[-–:]\s*/i, '')
-      .replace(/^Xtasia\s+/i, '')
-      .replace(/^Flirts\s*[-–:]\s*/i, 'Flirts - ')
-      .replace(/\s+/g, ' ')
-      .trim()
+    let title = options.preserveRawTitle
+      ? cleanXtasiaCalendarTitle(rawTitle)
+      : cleanEventName(rawTitle)
+        .replace(/^@?\s*Xtasia\s*[-–:]\s*/i, '')
+        .replace(/^Xtasia\s+/i, '')
+        .replace(/^Flirts\s*[-–:]\s*/i, 'Flirts - ')
+        .replace(/\s+/g, ' ')
+        .trim()
 
     if (!title || isJunkTitle(title)) continue
     if (isJunkIcsCalendarEntry(title, rawDescription)) continue
@@ -1806,7 +1872,7 @@ async function extractXtasiaEvents(html: string, baseUrl: string) {
       const ics = await fetchText(icsUrl, 'text/calendar,text/plain,*/*')
       if (!ics || !ics.includes('BEGIN:VCALENDAR')) continue
 
-      candidates.push(...parseIcsEvents(ics, baseUrl, diaryName))
+      candidates.push(...parseIcsEvents(ics, baseUrl, diaryName, { preserveRawTitle: true }))
       break
     }
   }
@@ -1863,7 +1929,25 @@ async function extractXtasiaEvents(html: string, baseUrl: string) {
     }
   }
 
-  return candidates
+  const today = new Date()
+  const todayDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+  const maxDate = new Date(todayDate)
+  maxDate.setUTCDate(maxDate.getUTCDate() + 120)
+  const minDateString = todayDate.toISOString().slice(0, 10)
+  const maxDateString = maxDate.toISOString().slice(0, 10)
+  const seen = new Set<string>()
+
+  return candidates.filter((event) => {
+    if (!event.event_date) return false
+    if (event.event_date < minDateString || event.event_date > maxDateString) return false
+    if (isXtasiaMalformedEvent(event.text, event.raw)) return false
+
+    const key = `${normalizeTitle(event.text)}|${event.event_date}`
+    if (seen.has(key)) return false
+    seen.add(key)
+
+    return true
+  })
 }
 
 
@@ -1904,13 +1988,9 @@ function cleanIcsEventTitleForVenue(venueId: string, title: string) {
   let cleaned = cleanEventName(title)
 
   if (venueId === 'xtasia_west_bromwich') {
-    cleaned = cleaned
-      .replace(/^@?\s*Xtasia\s*[-–:]\s*/i, '')
-      .replace(/^Xtasia\s+/i, '')
-      .replace(/^Flirts\s*[-–:]\s*/i, 'Flirts - ')
-      .replace(/\s*-\s*to\s*$/i, '')
-      .replace(/\s+/g, ' ')
-      .trim()
+    cleaned = cleanXtasiaCalendarTitle(title)
+
+    if (isXtasiaMalformedEvent(cleaned, title)) return ''
   }
 
   return cleaned
@@ -1933,7 +2013,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
     data
       ?.filter((event) => {
         if (venueId === 'xtasia_west_bromwich') {
-          return isJunkIcsCalendarEntry(event.event_name || '', event.description || '')
+          return (
+            isJunkIcsCalendarEntry(event.event_name || '', event.description || '') ||
+            isXtasiaMalformedEvent(event.event_name || '', event.description || '')
+          )
         }
 
         if (isVanillaVenue) {
@@ -2012,7 +2095,7 @@ async function scrapeIcsSource(source: {
     }
   }
 
-  const icsEvents = parseIcsEvents(ics, diaryPage, diaryName)
+  const icsEvents = parseIcsEvents(ics, diaryPage, diaryName, source.venue_id === 'xtasia_west_bromwich' ? { preserveRawTitle: true } : {})
 
   let candidatesFound = 0
   let created = 0
@@ -2030,7 +2113,11 @@ async function scrapeIcsSource(source: {
     const title = cleanIcsEventTitleForVenue(source.venue_id, event.text)
     const description = event.raw || `${title} ${diaryName}`
 
-    if (!title || isJunkIcsCalendarEntry(title, description)) {
+    if (
+      !title ||
+      isJunkIcsCalendarEntry(title, description) ||
+      (source.venue_id === 'xtasia_west_bromwich' && isXtasiaMalformedEvent(title, description))
+    ) {
       skipped++
       continue
     }
@@ -7026,7 +7113,9 @@ async function upsertEvent(input: {
   source_url: string
 }) {
   const safeDescription = cleanDescription(input.description)
-  const eventName = cleanSf10RescueCandidateTitle(input.event_name, safeDescription || input.description)
+  const eventName = input.venue_id === 'xtasia_west_bromwich'
+    ? cleanXtasiaCalendarTitle(input.event_name)
+    : cleanSf10RescueCandidateTitle(input.event_name, safeDescription || input.description)
   const normalised = normalizeTitle(eventName)
   const safeImageUrl = validImageUrl(input.image_url)
   const safeTicketUrl = normalizeTicketUrl(input.ticket_url)
@@ -7652,14 +7741,16 @@ export async function GET(request: Request) {
         ? discoverAcquaEventPages(source.source_url)
         : []
 
-    const queue = [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
+    const queue = source.venue_id === 'xtasia_west_bromwich'
+      ? xtasiaDiscoveredUrls
+      : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
       source.venue_id === 'townhouse_wirral_near_liverpool'
         ? 1
         : source.venue_id === 'xtasia_west_bromwich'
-          ? Math.max(MAX_PAGES_PER_SOURCE, 12)
+          ? 2
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
             : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
@@ -8214,10 +8305,19 @@ export async function GET(request: Request) {
         for (const xtasiaEvent of xtasiaEvents) {
           candidatesFound++
 
-          const title = xtasiaEvent.text
+          const title = cleanXtasiaCalendarTitle(xtasiaEvent.text)
           const description = xtasiaEvent.raw || `${xtasiaEvent.text} Xtasia diary`
           const ticketUrl = xtasiaEvent.href || eventUrlWithAnchor(pageUrl, title)
-          const dedupeKey = eventDedupeKey(source.venue_id, title, xtasiaEvent.event_date, ticketUrl)
+
+          if (!title || !xtasiaEvent.event_date || isXtasiaMalformedEvent(title, description)) {
+            skipped++
+            continue
+          }
+
+          // Xtasia can surface the same Google Calendar event from multiple public
+          // pages/sources. Dedupe by title + date only so URL aliases cannot create
+          // separate rows.
+          const dedupeKey = `${source.venue_id}|${normalizeTitle(title)}|${xtasiaEvent.event_date}`
 
           if (runSeen.has(dedupeKey)) {
             skipped++
@@ -8245,7 +8345,7 @@ export async function GET(request: Request) {
           if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
             found.push({
               venue_id: source.venue_id,
-              event_name: cleanEventName(title),
+              event_name: title,
               event_date: xtasiaEvent.event_date,
               event_url: ticketUrl,
               image_url: pageImage,

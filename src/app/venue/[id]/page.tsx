@@ -168,7 +168,7 @@ export default async function VenuePage({
 
             <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Link
-                href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
+                href={`/venues?city=${encodeURIComponent(venue.city_area || '')}`}
                 className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-pink-500/70 hover:bg-zinc-900"
               >
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
@@ -178,13 +178,13 @@ export default async function VenuePage({
                       📍
                     </div>
                     <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-pink-300">
-                      Events nearby
+                      Clubs nearby
                     </p>
                     <p className="mt-1 text-sm font-bold text-white sm:text-base">
                       {[venueCity, venueRegion].filter(Boolean).join(', ') || 'UK'}
                     </p>
                     <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
-                      Explore events near this venue
+                      Explore clubs in this area
                     </p>
                   </div>
                   <span className="mt-1 text-xl text-zinc-500 sm:mt-2 sm:text-2xl transition group-hover:translate-x-1 group-hover:text-pink-300">
@@ -239,7 +239,7 @@ export default async function VenuePage({
               )}
 
               <Link
-                href={`/events?venue=${encodeURIComponent(venue.venue_id || '')}`}
+                href={`/venue/${venue.venue_id}`}
                 className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-purple-400/70 hover:bg-zinc-900"
               >
                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-purple-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
@@ -296,7 +296,7 @@ export default async function VenuePage({
               )}
 
               <Link
-                href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
+                href={`/venues?city=${encodeURIComponent(venue.city_area || '')}`}
                 className="inline-flex items-center gap-2 rounded-2xl border border-blue-500/70 bg-zinc-950/70 px-3 py-2.5 text-xs font-bold sm:px-5 sm:py-3 sm:text-sm text-zinc-100 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:border-blue-400 hover:bg-zinc-900 hover:text-white"
               >
                 📅 View Events →
@@ -332,7 +332,7 @@ export default async function VenuePage({
           </div>
 
           <Link
-            href={`/events?city=${encodeURIComponent(venue.city_area || '')}`}
+            href={`/venues?city=${encodeURIComponent(venue.city_area || '')}`}
             className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:text-white"
           >
             Search nearby events
