@@ -4875,6 +4875,486 @@ function extractClubFEvents(html: string, baseUrl: string) {
 }
 
 
+function isHu9Source(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('hu9_hull') ||
+    combined.includes('hu9swingersclub.co.uk') ||
+    combined.includes('swingerspridegc.wix-vibe-site.com') ||
+    combined.includes('swingerspridegc')
+  )
+}
+
+function discoverHu9EventPages(sourceUrl: string) {
+  // HU9 mirrors the same embedded router feed across several aliases
+  // (/events, /event, /calendar, /what-s-on and the homepage).
+  // Keep this venue to one canonical page so candidates are not emitted repeatedly.
+  const canonicalEventsUrl = absoluteUrl(sourceUrl, '/events') || sourceUrl
+
+  return [canonicalEventsUrl].filter(
+    (url) => sameDomain(sourceUrl, url) && !isJunkUrl(url)
+  )
+}
+
+function cleanHu9Title(value: string) {
+  let title = cleanText(value)
+    .replace(/\([^)]*(?:am|pm)[^)]*\)/gi, '')
+    .replace(/^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+/i, '')
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const cutMarkers = [
+    ' single females',
+    ' single males',
+    ' couples',
+    ' trans',
+    ' hulls premier',
+    "hull's premier",
+    ' safe welcoming',
+  ]
+
+  for (const marker of cutMarkers) {
+    const index = title.toLowerCase().indexOf(marker)
+    if (index > 4) title = title.slice(0, index).trim()
+  }
+
+  return title
+}
+
+function extractHu9Events(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isHu9Source('hu9_hull', baseUrl)) return candidates
+
+  const image = extractBestImage(html, baseUrl)
+  const seen = new Set<string>()
+  let latestHu9MonthlyCalendarDate: string | null = null
+  const monthWords =
+    'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
+  const weekdayWords =
+    'monday|tuesday|wednesday|thursday|friday|saturday|sunday'
+
+  const pushHu9Candidate = (input: {
+    titleAndTime: string
+    monthName: string
+    year: string
+    day: string
+    raw: string
+    method?: string
+  }) => {
+    const month = monthNameToNumber(input.monthName)
+    if (!month) return
+
+    const day = input.day.padStart(2, '0')
+    const eventDate = validDateOrNull(`${input.year}-${month}-${day}`)
+    if (!eventDate) return
+
+    const title = cleanHu9Title(input.titleAndTime)
+    if (!title || isJunkTitle(title)) return
+    if (title.length < 4 || title.length > 120) return
+
+    const startTime = extractTime(input.titleAndTime) || extractTime(input.raw)
+    const href = eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate}`
+
+    if (seen.has(key)) return
+    seen.add(key)
+
+    if ((input.method || 'hu9-monthly-list') === 'hu9-monthly-calendar') {
+      if (!latestHu9MonthlyCalendarDate || eventDate > latestHu9MonthlyCalendarDate) {
+        latestHu9MonthlyCalendarDate = eventDate
+      }
+    }
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: cleanText(input.raw || input.titleAndTime).slice(0, 500),
+      image_url: image,
+      method: input.method || 'hu9-monthly-list',
+    })
+  }
+
+  // HU9's real event feed is embedded inside the Astro Router bundle as
+  // JavaScript objects, for example:
+  // title: "WWE Party", date: new Date("2026-05-24"), time: "8PM-3AM".
+  // Parse those objects before the generic text cleanup strips punctuation.
+  const decodeHu9JsString = (value: string | null | undefined) =>
+    cleanText(
+      decodeEscapedText(value || '')
+        .replace(/\\n/g, ' ')
+        .replace(/\\r/g, ' ')
+        .replace(/\\t/g, ' ')
+        .replace(/\\u0026/g, '&')
+        .replace(/\\u002F/g, '/')
+        .replace(/\\"/g, '"')
+        .replace(/\\'/g, "'")
+    )
+
+  const pushHu9DatedCandidate = (input: {
+    title: string
+    eventDate: string
+    timeText?: string | null
+    raw: string
+    eventImage?: string | null
+  }) => {
+    const eventDate = validDateOrNull(input.eventDate)
+    if (!eventDate) return
+
+    // The monthly calendar is the canonical HU9 source. The smaller router
+    // featured feed sometimes repeats or remaps older events, so only use it
+    // for dates beyond the latest monthly calendar date.
+    if (latestHu9MonthlyCalendarDate && eventDate <= latestHu9MonthlyCalendarDate) return
+
+    const title = cleanHu9Title(input.title)
+    if (!title || isJunkTitle(title)) return
+    if (title.length < 4 || title.length > 120) return
+
+    const timeText = decodeHu9JsString(input.timeText || '')
+    const startTime = extractTime(timeText) || extractTime(input.raw)
+    const href = eventUrlWithAnchor(baseUrl, title)
+    const eventImage = validImageUrl(input.eventImage || null) || image
+    const key = `${normalizeTitle(title)}|${eventDate}`
+
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: cleanText(input.raw).slice(0, 500),
+      image_url: eventImage,
+      method: 'hu9-router-feed',
+    })
+  }
+
+  const htmlForHu9Feed = decodeEscapedText(html)
+    .replace(/\\u0026/g, '&')
+    .replace(/\\u002F/g, '/')
+    .replace(/\\"/g, '"')
+
+  const findClosingSquareBracket = (value: string, openingIndex: number) => {
+    let depth = 0
+    let quote: string | null = null
+    let escaped = false
+
+    for (let index = openingIndex; index < value.length; index++) {
+      const char = value[index]
+
+      if (quote) {
+        if (escaped) {
+          escaped = false
+          continue
+        }
+
+        if (char === '\\') {
+          escaped = true
+          continue
+        }
+
+        if (char === quote) quote = null
+        continue
+      }
+
+      if (char === '"' || char === "'" || char === '`') {
+        quote = char
+        continue
+      }
+
+      if (char === '[') depth++
+      if (char === ']') {
+        depth--
+        if (depth === 0) return index
+      }
+    }
+
+    return -1
+  }
+
+  // HU9's full monthly calendar is embedded in the Router bundle as:
+  // { month:"June", year:2026, events:[{ day:"4th", events:[{ name:"Fetish Night", time:"8pm - 1am" }] }] }
+  // This is the canonical calendar feed; parse it before the smaller featured-events feed.
+  const hu9MonthStartPattern = /month\s*:\s*(["'`])([a-z]+)\1\s*,\s*year\s*:\s*(20\d{2})\s*,\s*events\s*:\s*\[/gi
+
+  for (const monthMatch of htmlForHu9Feed.matchAll(hu9MonthStartPattern)) {
+    const monthName = decodeHu9JsString(monthMatch[2])
+    const year = monthMatch[3]
+    const openingIndex = (monthMatch.index || 0) + monthMatch[0].length - 1
+    const closingIndex = findClosingSquareBracket(htmlForHu9Feed, openingIndex)
+
+    if (closingIndex <= openingIndex) continue
+
+    const monthEventsBlock = htmlForHu9Feed.slice(openingIndex + 1, closingIndex)
+    const dayPattern = /day\s*:\s*(["'`])(\d{1,2})(?:st|nd|rd|th)?\1\s*,\s*dayOfWeek\s*:\s*(["'`])(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\3\s*,\s*events\s*:\s*\[([\s\S]*?)\]\s*}/gi
+
+    for (const dayMatch of monthEventsBlock.matchAll(dayPattern)) {
+      const day = dayMatch[2]
+      const eventListBlock = dayMatch[4]
+      const eventItemPattern = /name\s*:\s*(["'`])([\s\S]{2,160}?)\1\s*,\s*time\s*:\s*(["'`])([\s\S]{0,80}?)\3/gi
+
+      for (const eventMatch of eventListBlock.matchAll(eventItemPattern)) {
+        const title = decodeHu9JsString(eventMatch[2])
+        const timeText = decodeHu9JsString(eventMatch[4])
+
+        pushHu9Candidate({
+          titleAndTime: `${title} (${timeText})`,
+          monthName,
+          year,
+          day,
+          raw: `${monthName} ${year} ${dayMatch[0]} ${eventMatch[0]}`,
+          method: 'hu9-monthly-calendar',
+        })
+      }
+    }
+  }
+
+  const hu9ObjectPattern =
+    /title\s*:\s*(["'`])([\s\S]{3,160}?)\1[\s\S]{0,500}?date\s*:\s*new\s+Date\s*\(\s*(["'`])(20\d{2}-\d{2}-\d{2})\3\s*\)[\s\S]{0,500}?time\s*:\s*(["'`])([\s\S]{0,80}?)\5[\s\S]{0,700}?(?:image\s*:\s*(["'`])([^"'`]+?)\7)?/gi
+
+  for (const match of htmlForHu9Feed.matchAll(hu9ObjectPattern)) {
+    const title = decodeHu9JsString(match[2])
+    const eventDate = match[4]
+    const timeText = decodeHu9JsString(match[6])
+    const eventImage = match[8] ? decodeHu9JsString(match[8]) : null
+
+    pushHu9DatedCandidate({
+      title,
+      eventDate,
+      timeText,
+      eventImage,
+      raw: match[0],
+    })
+  }
+
+  // Alternative ordering seen in some compiled bundles: date first, then title/time.
+  const hu9DateFirstPattern =
+    /date\s*:\s*new\s+Date\s*\(\s*(["'`])(20\d{2}-\d{2}-\d{2})\1\s*\)[\s\S]{0,500}?title\s*:\s*(["'`])([\s\S]{3,160}?)\3[\s\S]{0,500}?time\s*:\s*(["'`])([\s\S]{0,80}?)\5/gi
+
+  for (const match of htmlForHu9Feed.matchAll(hu9DateFirstPattern)) {
+    pushHu9DatedCandidate({
+      title: decodeHu9JsString(match[4]),
+      eventDate: match[2],
+      timeText: decodeHu9JsString(match[6]),
+      raw: match[0],
+    })
+  }
+
+  const decoded = decodeEscapedText(html)
+    .replace(/\\n/g, ' ')
+    .replace(/\\r/g, ' ')
+    .replace(/\\t/g, ' ')
+    .replace(/\\u0026/g, '&')
+    .replace(/\\u002F/g, '/')
+    .replace(/\\"/g, '"')
+    .replace(/[{}[\]`"']/g, ' ')
+    .replace(/[,:]/g, ' ')
+
+  const compactText = cleanText(decoded).replace(/\s+/g, ' ').trim()
+
+  // HU9's Astro page renders monthly accordion sections such as:
+  // "June 2026 ... 24th Sunday WWE Party (8pm - 3am)".
+  // Parse inside each month section so day numbers are tied to the correct month/year.
+  const monthSectionPattern = new RegExp(
+    `\\b(${monthWords})\\s+(20\\d{2})([\\s\\S]{0,14000}?)(?=\\b(?:${monthWords})\\s+20\\d{2}\\b|$)`,
+    'gi'
+  )
+
+  let monthMatch
+
+  while ((monthMatch = monthSectionPattern.exec(compactText)) !== null) {
+    const monthName = monthMatch[1]
+    const year = monthMatch[2]
+    const section = monthMatch[3]
+
+    const eventPattern = new RegExp(
+      `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+        `(?:(?:${weekdayWords})\\s+)?` +
+        `([^()]{3,110}?\\([^)]*(?:am|pm)[^)]*\\))` +
+        `(?=\\s+\\d{1,2}(?:st|nd|rd|th)?\\s+(?:(?:${weekdayWords})\\s+)?[^()]{3,110}?\\([^)]*(?:am|pm)[^)]*\\)|\\s+${monthWords}\\s+20\\d{2}\\b|$)`,
+      'gi'
+    )
+
+    let eventMatch
+
+    while ((eventMatch = eventPattern.exec(section)) !== null) {
+      pushHu9Candidate({
+        titleAndTime: eventMatch[2],
+        monthName,
+        year,
+        day: eventMatch[1],
+        raw: `${monthName} ${year} ${eventMatch[0]}`,
+      })
+    }
+  }
+
+  // Fallback for hydrated JS text where event title/day/month are near each other
+  // but not inside clean HTML month sections.
+  const looseEventPattern = new RegExp(
+    `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+      `(?:(?:${weekdayWords})\\s+)?` +
+      `([^()]{3,110}?\\([^)]*(?:am|pm)[^)]*\\))` +
+      `(?:\\s+|[^a-z0-9]{1,20})` +
+      `(${monthWords})\\s+(20\\d{2})\\b`,
+    'gi'
+  )
+
+  let looseMatch
+
+  while ((looseMatch = looseEventPattern.exec(compactText)) !== null) {
+    pushHu9Candidate({
+      titleAndTime: looseMatch[2],
+      monthName: looseMatch[3],
+      year: looseMatch[4],
+      day: looseMatch[1],
+      raw: looseMatch[0],
+    })
+  }
+
+  // Line-based fallback for the live DOM/source when day, weekday and title
+  // are split across separate nodes.
+  const lineText = decoded
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(h1|h2|h3|h4|h5|h6|p|div|li|button|section|article|span)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(line))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  let activeMonthName: string | null = null
+  let activeYear: string | null = null
+
+  for (let index = 0; index < lines.length; index++) {
+    const heading = lines[index].match(new RegExp(`^(${monthWords})\\s+(20\\d{2})$`, 'i'))
+    if (heading) {
+      activeMonthName = heading[1]
+      activeYear = heading[2]
+      continue
+    }
+
+    if (!activeMonthName || !activeYear) continue
+
+    const windowText = lines.slice(index, index + 5).join(' ')
+    const match = windowText.match(
+      new RegExp(
+        `^\\s*(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+          `(?:(?:${weekdayWords})\\s+)?` +
+          `(.{3,110}?\\([^)]*(?:am|pm)[^)]*\\))`,
+        'i'
+      )
+    )
+
+    if (!match) continue
+
+    pushHu9Candidate({
+      titleAndTime: match[2],
+      monthName: activeMonthName,
+      year: activeYear,
+      day: match[1],
+      raw: windowText,
+    })
+  }
+
+  const latestMonthlyDate = candidates
+    .filter((candidate) => candidate.method === 'hu9-monthly-calendar' && candidate.event_date)
+    .map((candidate) => candidate.event_date as string)
+    .sort()
+    .at(-1)
+
+  if (latestMonthlyDate) {
+    return candidates.filter((candidate) => {
+      if (candidate.method !== 'hu9-router-feed') return true
+      if (!candidate.event_date) return false
+      return candidate.event_date > latestMonthlyDate
+    })
+  }
+
+  return candidates
+}
+
+function extractHu9ScriptUrls(html: string, baseUrl: string) {
+  const urls = new Set<string>()
+
+  for (const match of html.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+    const src = absoluteUrl(baseUrl, match[1])
+    if (!src) continue
+
+    const lower = src.toLowerCase()
+
+    if (
+      lower.includes('/_astro/') ||
+      lower.includes('static.parastorage.com') ||
+      lower.includes('wix') ||
+      lower.endsWith('.js')
+    ) {
+      urls.add(src)
+    }
+  }
+
+  for (const match of html.matchAll(/(?:component-url|renderer-url)=["']([^"']+)["']/gi)) {
+    const src = absoluteUrl(baseUrl, match[1])
+    if (src) urls.add(src)
+  }
+
+  return [...urls].filter((url) => !isJunkUrl(url)).slice(0, 20)
+}
+
+async function fetchHu9HydratedText(html: string, pageUrl: string) {
+  if (!isHu9Source('hu9_hull', pageUrl)) return ''
+
+  const scriptUrls = extractHu9ScriptUrls(html, pageUrl)
+  const parts: string[] = []
+
+  for (const scriptUrl of scriptUrls) {
+    const js = await fetchText(scriptUrl, 'application/javascript,text/javascript,text/plain,*/*')
+    if (!js) continue
+
+    const lower = js.toLowerCase()
+
+    // Keep this HU9-only and avoid appending huge unrelated framework bundles unless
+    // they contain likely event/month text.
+    if (
+      lower.includes('hu9') ||
+      lower.includes('june 2026') ||
+      lower.includes('july 2026') ||
+      lower.includes('august 2026') ||
+      lower.includes('september 2026') ||
+      lower.includes('october 2026') ||
+      lower.includes('november 2026') ||
+      lower.includes('december 2026') ||
+      lower.includes('wwe party') ||
+      lower.includes('greedy girl') ||
+      lower.includes('frisky friday') ||
+      lower.includes('sexy saturday') ||
+      lower.includes('8pm') ||
+      lower.includes('3am')
+    ) {
+      parts.push(js.slice(0, 500000))
+    }
+  }
+
+  return parts.join('\n')
+}
+
+
 function isPlusciousPartiesSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -5010,6 +5490,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isPenthouseSource(venueId, sourceUrl) ||
     isSf10RecoverySource(venueId, sourceUrl) ||
     isClubFSource(venueId, sourceUrl) ||
+    isHu9Source(venueId, sourceUrl) ||
     isPlusciousPartiesSource(venueId, sourceUrl)
   )
 }
@@ -5020,6 +5501,18 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isHu9Source(source.venue_id, source.source_url)) {
+    try {
+      const sourceOrigin = new URL(source.source_url).origin
+      const target = new URL(pageUrl, source.source_url)
+      const targetPath = target.pathname.replace(/\/+$/, '') || '/'
+
+      return target.origin === sourceOrigin && targetPath === '/events'
+    } catch {
+      return false
+    }
+  }
+
   if (sameDomainOrClubAlchemy(source.source_url, pageUrl)) return true
 
   // Hellfire embeds/links its live calendar on Tockify, so allow this one external host.
@@ -5037,6 +5530,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isHu9Source(source.venue_id, source.source_url)) {
+    return discoverHu9EventPages(source.source_url)
+  }
 
   urls.add(source.source_url)
 
@@ -5112,6 +5609,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     urls.add(source.source_url)
   }
 
+  if (isHu9Source(source.venue_id, source.source_url)) {
+    for (const url of discoverHu9EventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   return [...urls].filter((url) => !isJunkUrl(url))
 }
 
@@ -5126,6 +5629,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
   if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
+  if (isHu9Source(venueId, pageUrl)) return extractHu9Events(html, pageUrl)
   if (isPlusciousPartiesSource(venueId, pageUrl)) return extractPlusciousPartiesEvents(html, pageUrl)
 
   return [] as {
@@ -7743,7 +8247,9 @@ export async function GET(request: Request) {
 
     const queue = source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
-      : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
+      : isHu9Source(source.venue_id, source.source_url)
+        ? targetVenueDiscoveredUrls
+        : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -7751,6 +8257,8 @@ export async function GET(request: Request) {
         ? 1
         : source.venue_id === 'xtasia_west_bromwich'
           ? 2
+          : isHu9Source(source.venue_id, source.source_url)
+            ? 1
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
             : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
@@ -7833,6 +8341,15 @@ export async function GET(request: Request) {
           source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, `${source.source_url} ${pageUrl}`) || isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
+
+        if (isHu9Source(source.venue_id, `${source.source_url} ${pageUrl}`) && targetVenueEvents.length === 0) {
+          const hu9HydratedText = await fetchHu9HydratedText(html, pageUrl)
+
+          if (hu9HydratedText) {
+            targetVenueEvents = extractHu9Events(`${html}
+${hu9HydratedText}`, pageUrl)
+          }
+        }
 
         if (isPenthouseSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
           targetVenueEvents = [
@@ -8207,7 +8724,7 @@ export async function GET(request: Request) {
           if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
             found.push({
               venue_id: source.venue_id,
-              event_name: cleanEventName(title),
+              event_name: isHu9Source(source.venue_id, source.source_url) ? title : cleanEventName(title),
               event_date: eventDate,
               event_url: ticketUrl,
               image_url: imageUrl,
