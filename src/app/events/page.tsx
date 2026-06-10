@@ -96,6 +96,37 @@ function getEventTimingLabel(date: string | null) {
   return null;
 }
 
+function getEventDateBadge(date: string | null) {
+  if (!date) return null;
+
+  const eventDate = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(eventDate.getTime())) return null;
+
+  return {
+    day: eventDate.toLocaleDateString("en-GB", { day: "2-digit" }),
+    month: eventDate
+      .toLocaleDateString("en-GB", { month: "short" })
+      .toUpperCase(),
+    weekday: eventDate
+      .toLocaleDateString("en-GB", { weekday: "short" })
+      .toUpperCase(),
+  };
+}
+
+function getDateBadgeClass(tags: string[]) {
+  const lowerTags = tags.map((tag) => tag.toLowerCase());
+
+  if (lowerTags.some((tag) => tag.includes("party") || tag.includes("club"))) {
+    return "border-purple-400/45 text-purple-200 shadow-purple-500/25 ring-purple-400/20";
+  }
+
+  if (lowerTags.some((tag) => tag.includes("fetish") || tag.includes("kink") || tag.includes("bdsm"))) {
+    return "border-pink-400/45 text-pink-200 shadow-pink-500/25 ring-pink-400/20";
+  }
+
+  return "border-blue-400/45 text-blue-200 shadow-blue-500/25 ring-blue-400/20";
+}
+
 function extractEventPrice(event: any) {
   const directPrice = cleanText(
     `${event.price || event.ticket_price || event.cost || event.admission || ""}`,
@@ -373,7 +404,6 @@ export default async function EventsPage({
         .sort(),
     ),
   ];
-
 
   const filteredEvents = events
     ?.filter((event) => {
@@ -666,6 +696,8 @@ export default async function EventsPage({
               const price = extractEventPrice(event);
               const town = cleanText(venue?.city_area || "");
               const regionName = cleanText(venue?.region || "");
+              const dateBadge = getEventDateBadge(event.event_date);
+              const dateBadgeClass = getDateBadgeClass(tags);
 
               return (
                 <Link
@@ -674,7 +706,8 @@ export default async function EventsPage({
                   className="group block min-w-0 cursor-pointer"
                 >
                   <article className="relative h-full min-w-0 overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20">
-<div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.15),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.13),transparent_30%)]" />
+                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.15),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.13),transparent_30%)]" />
+
                     <div className="h-28 w-full overflow-hidden bg-zinc-950 sm:h-44">
                       <FallbackImage
                         src={event.image_url}
@@ -685,57 +718,79 @@ export default async function EventsPage({
                     </div>
 
                     <div className="relative min-w-0 p-4 sm:p-5">
-                      <div className="mb-3 flex min-w-0 flex-wrap gap-2">
-                        {timingLabel && (
-                          <p className="max-w-full truncate rounded-full border border-blue-500 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200">
-                            {timingLabel}
-                          </p>
-                        )}
+                      <div className={dateBadge ? "grid grid-cols-[minmax(0,1fr)_5.25rem] gap-3 sm:grid-cols-[minmax(0,1fr)_5.5rem] sm:gap-4" : ""}>
+                        <div className="min-w-0">
+                          <div className="mb-3 flex min-w-0 flex-wrap gap-2">
+                            {timingLabel && (
+                              <p className="max-w-full truncate rounded-full border border-blue-500 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200">
+                                {timingLabel}
+                              </p>
+                            )}
 
-                        {tags.slice(0, 6).map((tag) => (
-                          <p
-                            key={tag}
-                            className="max-w-full truncate rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-1 text-[11px] text-zinc-300"
+                            {tags.slice(0, 4).map((tag) => (
+                              <p
+                                key={tag}
+                                className="max-w-full truncate rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-1 text-[11px] text-zinc-300"
+                              >
+                                {tag}
+                              </p>
+                            ))}
+                          </div>
+
+                          <h2 className="line-clamp-2 break-words text-xl font-extrabold leading-snug text-white transition group-hover:text-blue-200 sm:text-2xl">
+                            {cleanText(event.event_name || "Untitled event")}
+                          </h2>
+
+                          <div className="mt-3 space-y-1.5 text-sm text-zinc-300">
+                            <p className="flex min-w-0 items-center gap-2">
+                              <span aria-hidden="true">📍</span>
+                              <span className="truncate">
+                                {town || regionName || "Location TBC"}
+                              </span>
+                            </p>
+
+                            <p className="flex min-w-0 items-center gap-2">
+                              <span aria-hidden="true">📅</span>
+                              <span className="truncate">{formatDate(event.event_date)}</span>
+                            </p>
+
+                            <p className="flex min-w-0 items-center gap-2">
+                              <span aria-hidden="true">🕘</span>
+                              <span className="truncate">{timeRange}</span>
+                            </p>
+
+                            {theme && (
+                              <p className="flex min-w-0 items-center gap-2">
+                                <span aria-hidden="true">🎭</span>
+                                <span className="truncate">{theme}</span>
+                              </p>
+                            )}
+
+                            {price && (
+                              <p className="flex min-w-0 items-center gap-2">
+                                <span aria-hidden="true">💷</span>
+                                <span className="truncate">{price}</span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {dateBadge && (
+                          <div
+                            className={`pointer-events-none flex h-28 w-[5.25rem] shrink-0 flex-col items-center justify-center self-start rounded-2xl border bg-zinc-950/70 text-center shadow-[0_0_26px_rgba(168,85,247,0.18)] ring-1 backdrop-blur-sm transition group-hover:scale-[1.02] sm:h-32 sm:w-[5.5rem] ${dateBadgeClass}`}
+                            aria-hidden="true"
                           >
-                            {tag}
-                          </p>
-                        ))}
-                      </div>
-
-                      <h2 className="line-clamp-2 break-words text-xl font-extrabold leading-snug text-white transition group-hover:text-blue-200 sm:text-2xl">
-                        {cleanText(event.event_name || "Untitled event")}
-                      </h2>
-
-                      <div className="mt-3 space-y-1.5 text-sm text-zinc-300">
-                        <p className="flex min-w-0 items-center gap-2">
-                          <span aria-hidden="true">📍</span>
-                          <span className="truncate">
-                            {town || regionName || "Location TBC"}
-                          </span>
-                        </p>
-
-                        <p className="flex min-w-0 items-center gap-2">
-                          <span aria-hidden="true">📅</span>
-                          <span className="truncate">{formatDate(event.event_date)}</span>
-                        </p>
-
-                        <p className="flex min-w-0 items-center gap-2">
-                          <span aria-hidden="true">🕘</span>
-                          <span className="truncate">{timeRange}</span>
-                        </p>
-
-                        {theme && (
-                          <p className="flex min-w-0 items-center gap-2">
-                            <span aria-hidden="true">🎭</span>
-                            <span className="truncate">{theme}</span>
-                          </p>
-                        )}
-
-                        {price && (
-                          <p className="flex min-w-0 items-center gap-2">
-                            <span aria-hidden="true">💷</span>
-                            <span className="truncate">{price}</span>
-                          </p>
+                            <span className="text-4xl font-black leading-none tracking-tight text-white sm:text-5xl">
+                              {dateBadge.day}
+                            </span>
+                            <span className="mt-2 text-sm font-black tracking-[0.24em] sm:text-base">
+                              {dateBadge.month}
+                            </span>
+                            <span className="my-3 h-px w-10 bg-current opacity-35" />
+                            <span className="text-xs font-black tracking-[0.22em] sm:text-sm">
+                              {dateBadge.weekday}
+                            </span>
+                          </div>
                         )}
                       </div>
 
