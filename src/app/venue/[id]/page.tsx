@@ -36,12 +36,65 @@ function formatTime(time: string | null) {
   return time.slice(0, 5)
 }
 
+function decodeHtmlEntities(value: string) {
+  const entities: Record<string, string> = {
+    amp: '&',
+    apos: "'",
+    gt: '>',
+    lt: '<',
+    nbsp: ' ',
+    quot: '"',
+  }
+
+  return value.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity) => {
+    if (entity.startsWith('#x')) {
+      const codePoint = Number.parseInt(entity.slice(2), 16)
+
+      try {
+        return Number.isNaN(codePoint) ? match : String.fromCodePoint(codePoint)
+      } catch {
+        return match
+      }
+    }
+
+    if (entity.startsWith('#')) {
+      const codePoint = Number.parseInt(entity.slice(1), 10)
+
+      try {
+        return Number.isNaN(codePoint) ? match : String.fromCodePoint(codePoint)
+      } catch {
+        return match
+      }
+    }
+
+    return entities[entity.toLowerCase()] || match
+  })
+}
+
+function cleanDisplayText(value: string | null | undefined) {
+  if (!value) return ''
+
+  let text = String(value)
+
+  // Decode twice so encoded tags like &lt;p&gt; become real tags before stripping.
+  text = decodeHtmlEntities(decodeHtmlEntities(text))
+
+  return cleanText(text)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\\[rnt]/g, ' ')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function getTodayString() {
   return new Date().toISOString().split('T')[0]
 }
 
 function getEventCategory(event: any) {
-  const text = cleanText(
+  const text = cleanDisplayText(
     `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`
   ).toLowerCase()
 
@@ -91,7 +144,7 @@ function getCategoryPillClass(category: string) {
 function cleanVenueNotes(notes: string | null | undefined) {
   if (!notes) return ''
 
-  return cleanText(notes)
+  return cleanDisplayText(notes)
     .split('|')
     .map((part) => part.trim())
     .filter(Boolean)
@@ -157,10 +210,10 @@ export default async function VenuePage({
 
   const sortedEvents = events || []
 
-  const venueName = cleanText(venue.name)
-  const venueCity = cleanText(venue.city_area || '')
-  const venueRegion = cleanText(venue.region || '')
-  const venuePostcode = cleanText(venue.postcode || '')
+  const venueName = cleanDisplayText(venue.name)
+  const venueCity = cleanDisplayText(venue.city_area || '')
+  const venueRegion = cleanDisplayText(venue.region || '')
+  const venuePostcode = cleanDisplayText(venue.postcode || '')
   const venueNotes = cleanVenueNotes(venue.notes)
   const hasWebsite = Boolean(venue.website)
   const hasLocation = Boolean(venueCity || venueRegion || venuePostcode)
@@ -329,7 +382,7 @@ export default async function VenuePage({
               </p>
 
               <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
-                {venue.name} is a lifestyle venue based in {venueCity || 'the UK'}
+                {venueName} is a lifestyle venue based in {venueCity || 'the UK'}
                 {venueRegion ? `, ${venueRegion}` : ''}. The venue hosts regular social
                 events, club nights and community gatherings throughout the year.
               </p>
@@ -363,10 +416,10 @@ export default async function VenuePage({
             sortedEvents.map((event) => {
               const startTime = formatTime(event.start_time)
               const category = getEventCategory(event)
-              const eventName = cleanText(event.event_name)
-              const eventType = event.event_type ? cleanText(event.event_type) : 'Event'
+              const eventName = cleanDisplayText(event.event_name)
+              const eventType = event.event_type ? cleanDisplayText(event.event_type) : 'Event'
               const eventDescription = event.description
-                ? cleanText(event.description)
+                ? cleanDisplayText(event.description)
                 : ''
               const dateBadge = getEventDateBadge(event.event_date)
 
