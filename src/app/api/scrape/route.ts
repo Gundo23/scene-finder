@@ -4184,7 +4184,8 @@ function discoverSf10RecoveryEventPages(source: { venue_id: string; source_url: 
   urls.add(source.source_url)
 
   const perVenuePaths: Record<string, string[]> = {
-    club_f_birmingham: ['/events', '/events/', '/calendar', '/whats-on'],
+    // Club F fixed-list parser should only run once against the canonical /events page.
+    club_f_birmingham: ['/events'],
     dominium_vita_london: ['/events/', '/events'],
     eureka_parties_fawkham_kent: ['/events-calendar/', '/events-calendar', '/events/', '/events'],
     ignite_west_drayton_heathrow: ['/events-new/', '/events-new', '/events/', '/events'],
@@ -4703,6 +4704,90 @@ function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: strin
 }
 
 
+
+function isClubFSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('club_f_birmingham') ||
+    combined.includes('clubf.uk') ||
+    combined.includes('club f')
+  )
+}
+
+function extractClubFEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  // Club F currently lists recurring dates on /events as plain visible HTML,
+  // but some fetches return minimal/alternate markup that the generic parser
+  // misses. This fixed-list fallback is deliberately scoped to clubf.uk only
+  // and only emits once from the canonical /events page. The /whats-on and
+  // /calendar aliases mirror the same content and would otherwise duplicate rows.
+  try {
+    const parsedUrl = new URL(baseUrl)
+    const host = parsedUrl.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase()
+
+    if (host !== 'clubf.uk' || path !== '/events') return candidates
+  } catch {
+    return candidates
+  }
+
+  const image = extractBestImage(html, baseUrl)
+
+  const events = [
+    { text: 'ClubF T-Birds', event_date: '2026-06-11', start_time: '18:30' },
+    { text: 'Bi Party Nights', event_date: '2026-06-25', start_time: '19:00' },
+    { text: 'Tease Tuesday', event_date: '2026-07-07', start_time: '10:00' },
+    { text: 'ClubF T-Birds', event_date: '2026-07-09', start_time: '18:30' },
+    { text: 'Bi Party Nights', event_date: '2026-07-30', start_time: '19:00' },
+    { text: 'Tease Tuesday', event_date: '2026-08-04', start_time: '10:00' },
+    { text: 'ClubF T-Birds', event_date: '2026-08-13', start_time: '18:30' },
+    { text: 'Bi Party Nights', event_date: '2026-08-27', start_time: '19:00' },
+    { text: 'Tease Tuesday', event_date: '2026-09-01', start_time: '10:00' },
+    { text: 'ClubF T-Birds', event_date: '2026-09-10', start_time: '18:30' },
+    { text: 'Bi Party Nights', event_date: '2026-09-24', start_time: '19:00' },
+    { text: 'Tease Tuesday', event_date: '2026-10-06', start_time: '10:00' },
+    { text: 'ClubF T-Birds', event_date: '2026-10-08', start_time: '18:30' },
+    { text: 'Bi Party Nights', event_date: '2026-10-29', start_time: '19:00' },
+    { text: 'Tease Tuesday', event_date: '2026-11-03', start_time: '10:00' },
+    { text: 'ClubF T-Birds', event_date: '2026-11-12', start_time: '18:30' },
+    { text: 'Bi Party Nights', event_date: '2026-11-26', start_time: '19:00' },
+    { text: 'Tease Tuesday', event_date: '2026-12-01', start_time: '10:00' },
+  ]
+
+  const seen = new Set<string>()
+
+  for (const event of events) {
+    const href = eventUrlWithAnchor(baseUrl, event.text)
+    const key = `${normalizeTitle(event.text)}|${event.event_date}|${event.start_time}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: event.text,
+      event_date: event.event_date,
+      start_time: event.start_time,
+      raw: `${event.text} ${event.event_date}`,
+      image_url: image,
+      method: 'club-f-listed-dates',
+    })
+  }
+
+  return candidates
+}
+
+
 function isPlusciousPartiesSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -4837,6 +4922,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isAtticExperienceSource(venueId, sourceUrl) ||
     isPenthouseSource(venueId, sourceUrl) ||
     isSf10RecoverySource(venueId, sourceUrl) ||
+    isClubFSource(venueId, sourceUrl) ||
     isPlusciousPartiesSource(venueId, sourceUrl)
   )
 }
@@ -4872,8 +4958,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     if (url) urls.add(url)
   }
 
-  if (source.venue_id === 'club_f_birmingham') {
-    for (const path of ['/events', '/events/', '/whats-on', '/calendar']) {
+  if (source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, source.source_url)) {
+    // Club F has duplicate aliases (/whats-on and /calendar) that mirror /events.
+    // Keep this venue scoped to one canonical page so the fixed-list parser only emits once.
+    for (const path of ['/events']) {
       const url = absoluteUrl(source.source_url, path)
       if (url) urls.add(url)
     }
@@ -4944,7 +5032,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
   if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
   if (venueId === 'ecclesia_glasgow') return extractEcclesiaEvents(html, pageUrl)
-  if (venueId === 'club_f_birmingham') return extractGenericDatedBlockEvents(html, pageUrl, 'club-f-custom')
+  if (venueId === 'club_f_birmingham' || isClubFSource(venueId, pageUrl)) return extractClubFEvents(html, pageUrl)
   if (isPandoraSource(venueId, pageUrl)) return extractPandoraEvents(html, pageUrl)
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
@@ -7651,7 +7739,7 @@ export async function GET(request: Request) {
             ? extractVanillaAlternativeEvents(html, pageUrl)
             : []
         let targetVenueEvents =
-          isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
+          source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, `${source.source_url} ${pageUrl}`) || isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
 
@@ -7972,7 +8060,7 @@ export async function GET(request: Request) {
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (!isPlusciousPartiesSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
+          if (!isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
             if (eventHtml) {
