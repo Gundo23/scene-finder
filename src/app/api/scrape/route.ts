@@ -4702,6 +4702,121 @@ function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: strin
   return candidates
 }
 
+
+function isPlusciousPartiesSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('pluscious_parties_sutton') ||
+    combined.includes('pluscious-parties.com') ||
+    combined.includes('pluscious parties')
+  )
+}
+
+function extractPlusciousPartiesEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  // Pluscious is Wix and exposes lots of hidden SEO/location text. To avoid
+  // junk titles like "Sutton" or long keyword strings, this parser only trusts
+  // the live BBW parties listing page and maps the visible 2026 event dates to
+  // their known event detail URLs. This is deliberately scoped to Pluscious only.
+  if (!baseUrl.toLowerCase().includes('/bbw-parties')) return candidates
+
+  const image = extractBestImage(html, baseUrl)
+
+  const events = [
+    {
+      event_date: '2026-06-20',
+      text: 'BONE-US PARTY!',
+      href: 'https://www.pluscious-parties.com/event-details-registration/june-20th-bone-us-party-9pm-3am',
+    },
+    {
+      event_date: '2026-06-27',
+      text: 'June 27th Party',
+      href: 'https://www.pluscious-parties.com/event-details-registration/june-27th-party-9pm-3am',
+    },
+    {
+      event_date: '2026-07-25',
+      text: 'July 25th Party',
+      href: 'https://www.pluscious-parties.com/event-details-registration/july-25th-party-9pm-3am',
+    },
+    {
+      event_date: '2026-08-22',
+      text: 'August 22nd Party',
+      href: 'https://www.pluscious-parties.com/event-details-registration/august-22nd-party-9pm-3am',
+    },
+    {
+      event_date: '2026-09-26',
+      text: 'September 26th Party',
+      href: 'https://www.pluscious-parties.com/event-details-registration/sep-26th-party-9pm-3am',
+    },
+    {
+      event_date: '2026-10-24',
+      text: 'October 24th Party',
+      href: 'https://www.pluscious-parties.com/event-details-registration/october-24th-party-9pm-3am',
+    },
+    {
+      event_date: '2026-11-28',
+      text: 'November 28th Party',
+      href: 'https://www.pluscious-parties.com/event-details-registration/november-28th-party-9pm-3am',
+    },
+    {
+      event_date: '2026-12-19',
+      text: 'Christmas Party',
+      href: 'https://www.pluscious-parties.com/event-details-registration/december-19th-christmas-party-9pm-4am',
+    },
+  ]
+
+  const pageText = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
+
+  for (const event of events) {
+    // Safety check: only emit dates that are actually present on the current
+    // page, unless the page has the 2026 Events heading. This prevents old Wix
+    // hidden text or unrelated pages from creating false rows.
+    const [, month, day] = event.event_date.split('-')
+    const monthName = Object.entries({
+      '01': 'jan',
+      '02': 'feb',
+      '03': 'mar',
+      '04': 'apr',
+      '05': 'may',
+      '06': 'jun',
+      '07': 'jul',
+      '08': 'aug',
+      '09': 'sep',
+      '10': 'oct',
+      '11': 'nov',
+      '12': 'dec',
+    }).find(([number]) => number === month)?.[1]
+
+    const dateAppears =
+      pageText.toLowerCase().includes(`${Number(day)} ${monthName}`) ||
+      pageText.toLowerCase().includes(`${event.event_date.slice(0, 4)} events`)
+
+    if (!dateAppears) continue
+
+    candidates.push({
+      href: event.href,
+      text: event.text,
+      event_date: event.event_date,
+      start_time: null,
+      raw: `${event.text} ${event.event_date}`,
+      image_url: image,
+      method: 'pluscious-parties-fixed-list',
+    })
+  }
+
+  return candidates
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -4721,7 +4836,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('pandoraswingers.com') ||
     isAtticExperienceSource(venueId, sourceUrl) ||
     isPenthouseSource(venueId, sourceUrl) ||
-    isSf10RecoverySource(venueId, sourceUrl)
+    isSf10RecoverySource(venueId, sourceUrl) ||
+    isPlusciousPartiesSource(venueId, sourceUrl)
   )
 }
 
@@ -4817,6 +4933,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isPlusciousPartiesSource(source.venue_id, source.source_url)) {
+    urls.add(source.source_url)
+  }
+
   return [...urls].filter((url) => !isJunkUrl(url))
 }
 
@@ -4831,6 +4951,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
   if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
+  if (isPlusciousPartiesSource(venueId, pageUrl)) return extractPlusciousPartiesEvents(html, pageUrl)
 
   return [] as {
     href: string
@@ -7851,7 +7972,7 @@ export async function GET(request: Request) {
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
+          if (!isPlusciousPartiesSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
             if (eventHtml) {
@@ -8259,6 +8380,11 @@ export async function GET(request: Request) {
         }
 
         for (const link of links) {
+          if (isPlusciousPartiesSource(source.venue_id, source.source_url)) {
+            skipped++
+            continue
+          }
+
           if (isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)) {
             skipped++
             continue
@@ -8287,7 +8413,20 @@ export async function GET(request: Request) {
             continue
           }
 
-          const eventName = cleanEventName(link.text)
+          let eventName = cleanEventName(link.text)
+
+          if (isPlusciousPartiesSource(source.venue_id, source.source_url)) {
+            const plusciousLinkText = normalizeTitle(`${link.text} ${link.href}`)
+            if (
+              plusciousLinkText.includes("buy tickets") ||
+              plusciousLinkText.includes("what to expect") ||
+              plusciousLinkText.includes("swinghub") ||
+              plusciousLinkText.includes("plussizeparty")
+            ) {
+              skipped++
+              continue
+            }
+          }
 
           if (isJunkTitle(eventName)) {
             skipped++
@@ -8315,6 +8454,26 @@ export async function GET(request: Request) {
 
               if (detailTitle && !isJunkTitle(detailTitle)) {
                 description = detailDescription || description
+
+                if (isPlusciousPartiesSource(source.venue_id, source.source_url)) {
+                  const cleanedDetailTitle = cleanEventName(detailTitle)
+                    .replace(/^[-–—:|]+/g, "")
+                    .replace(/^june 20th\s*/i, "")
+                    .replace(/^june 27th\s*/i, "")
+                    .replace(/^july 25th\s*/i, "")
+                    .replace(/^august 22nd\s*/i, "")
+                    .replace(/^sep(?:tember)? 26th\s*/i, "")
+                    .replace(/^october 24th\s*/i, "")
+                    .replace(/^november 28th\s*/i, "")
+                    .replace(/^december 19th\s*/i, "")
+                    .replace(/^[-–—:|]+/g, "")
+                    .replace(/\s+/g, " ")
+                    .trim()
+
+                  if (cleanedDetailTitle && !isJunkTitle(cleanedDetailTitle)) {
+                    eventName = cleanedDetailTitle
+                  }
+                }
               }
             }
           }
