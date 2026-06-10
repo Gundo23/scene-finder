@@ -13,6 +13,24 @@ function formatDate(date: string | null) {
   })
 }
 
+function getEventDateBadge(date: string | null) {
+  if (!date) {
+    return {
+      day: 'TBC',
+      month: 'DATE',
+      weekday: '',
+    }
+  }
+
+  const eventDate = new Date(`${date}T00:00:00`)
+
+  return {
+    day: eventDate.toLocaleDateString('en-GB', { day: 'numeric' }),
+    month: eventDate.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(),
+    weekday: eventDate.toLocaleDateString('en-GB', { weekday: 'short' }).toUpperCase(),
+  }
+}
+
 function formatTime(time: string | null) {
   if (!time) return null
   return time.slice(0, 5)
@@ -133,6 +151,7 @@ export default async function VenuePage({
       'event_id, event_name, event_date, start_time, event_type, description, ticket_url, status, image_url'
     )
     .eq('venue_id', venue.venue_id)
+    .eq('is_published', true)
     .or(`event_date.gte.${today},event_date.is.null`)
     .order('event_date', { ascending: true, nullsFirst: false })
 
@@ -349,6 +368,7 @@ export default async function VenuePage({
               const eventDescription = event.description
                 ? cleanText(event.description)
                 : ''
+              const dateBadge = getEventDateBadge(event.event_date)
 
               return (
                 <Link key={event.event_id} href={`/events/${event.event_id}`} className="group block cursor-pointer">
@@ -368,7 +388,26 @@ export default async function VenuePage({
                     )}
 
                     <div className="relative p-4 sm:p-5">
-                      <div className="mb-3 flex flex-wrap gap-2">
+                      <div className="absolute right-4 top-4 z-20 flex h-[94px] w-[74px] flex-col items-center justify-center rounded-2xl border border-purple-400/50 bg-zinc-950/85 text-center shadow-lg shadow-purple-500/25 ring-1 ring-white/5 backdrop-blur sm:right-5 sm:top-5 sm:h-[106px] sm:w-[82px]">
+                        <p className="text-3xl font-black leading-none text-white sm:text-4xl">
+                          {dateBadge.day}
+                        </p>
+                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.35em] text-purple-100 sm:text-xs">
+                          {dateBadge.month}
+                        </p>
+                        <div className="my-2 h-px w-10 bg-zinc-700/80" />
+                        {dateBadge.weekday ? (
+                          <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-200 sm:text-xs">
+                            {dateBadge.weekday}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-500 sm:text-xs">
+                            TBC
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mb-3 flex max-w-[calc(100%-5.75rem)] flex-wrap gap-2 sm:max-w-[calc(100%-6.5rem)]">
                         <p className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold shadow-lg ${getCategoryPillClass(category)}`}>
                           🏷 {category}
                         </p>
@@ -380,11 +419,11 @@ export default async function VenuePage({
                         )}
                       </div>
 
-                      <h3 className="break-words text-xl font-extrabold sm:text-2xl text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] lg:text-3xl">
+                      <h3 className="break-words pr-24 text-xl font-extrabold text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] sm:pr-28 sm:text-2xl lg:text-3xl">
                         {eventName}
                       </h3>
 
-                      <div className="mt-3 grid gap-2 text-xs text-zinc-300 sm:grid-cols-3 sm:text-sm">
+                      <div className="mt-3 grid gap-2 pr-24 text-xs text-zinc-300 sm:grid-cols-3 sm:pr-28 sm:text-sm">
                         <p>📍 {venueCity || venueRegion || 'Location TBC'}</p>
                         <p>📅 {formatDate(event.event_date)}</p>
                         <p>🕘 {startTime || 'Time TBC'}</p>
