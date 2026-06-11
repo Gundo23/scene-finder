@@ -3,9 +3,9 @@ import FallbackImage from '@/app/components/FallbackImage'
 
 export default function Home() {
   return (
-    <main className="fixed inset-0 overflow-hidden bg-zinc-950 text-white">
+    <main className="fixed inset-0 overflow-y-auto bg-zinc-950 text-white">
 
-      <div className="relative m-3 flex h-[calc(100svh-24px)] w-auto items-center justify-center overflow-hidden rounded-[42px] border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-6 py-5 shadow-[0_0_50px_rgba(59,130,246,0.15)] ring-1 ring-purple-500/20 sm:px-8">
+      <div className="relative m-3 flex min-h-[calc(100dvh-24px)] w-auto items-center justify-center overflow-hidden rounded-[42px] border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-6 py-5 shadow-[0_0_50px_rgba(59,130,246,0.15)] ring-1 ring-purple-500/20 sm:px-8">
 
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_28%)]" />
 
