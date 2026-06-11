@@ -96,6 +96,16 @@ function getTodayString() {
   return new Date().toISOString().split('T')[0]
 }
 
+function formatPostcodeSearch(value: string) {
+  const compact = value.toUpperCase().replace(/\s+/g, '')
+
+  if (compact.length <= 3) {
+    return compact
+  }
+
+  return `${compact.slice(0, -3)} ${compact.slice(-3)}`
+}
+
 async function fetchUpcomingEventCountByVenue(today: string) {
   const upcomingEventCountByVenue = new Map<string, number>()
   const pageSize = 1000
@@ -185,16 +195,24 @@ export default async function VenuesPage({
   const city = params.city || ''
   const region = params.region || ''
   const today = getTodayString()
+  const cleanedSearch = search.trim()
+  const postcodeSearch = formatPostcodeSearch(cleanedSearch)
 
   let query = supabase
     .from('venues')
     .select(
-      'venue_id, name, city_area, region, website, category, image_url, like_count'
+      'venue_id, name, city_area, region, postcode, website, category, image_url, like_count'
     )
 
-  if (search) {
+  if (cleanedSearch) {
     query = query.or(
-      `name.ilike.%${search}%,city_area.ilike.%${search}%,region.ilike.%${search}%`
+      [
+        `name.ilike.%${cleanedSearch}%`,
+        `city_area.ilike.%${cleanedSearch}%`,
+        `region.ilike.%${cleanedSearch}%`,
+        `postcode.ilike.%${cleanedSearch}%`,
+        `postcode.ilike.%${postcodeSearch}%`,
+      ].join(',')
     )
   }
 
