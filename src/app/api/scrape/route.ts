@@ -2000,8 +2000,9 @@ function cleanIcsEventTitleForVenue(venueId: string, title: string) {
 async function cleanupExistingVenueJunk(venueId: string) {
   const isVanillaVenue = isVanillaAlternativeSource(venueId)
   const isLeBoudoirVenue = isLeBoudoirSource(venueId)
+  const isMinistryVenue = isMinistryStudiosSource(venueId)
 
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue) return 0
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
@@ -2032,6 +2033,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
 
         if (isLeBoudoirVenue) {
           return isLeBoudoirJunkExistingEvent(event)
+        }
+
+        if (isMinistryVenue) {
+          return isMinistryStudiosJunkExistingEvent({ ...event, venue_id: venueId })
         }
 
         return false
@@ -5469,6 +5474,60 @@ function extractPlusciousPartiesEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+
+function isMinistryStudiosSource(venueId: string | null | undefined, sourceUrl?: string | null) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('ministry_studios_west_bromwich') ||
+    combined.includes('kinkministry.com')
+  )
+}
+
+function isMinistryStudiosJunkEvent(input: {
+  venue_id?: string | null
+  event_name?: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!isMinistryStudiosSource(input.venue_id, input.ticket_url)) return false
+
+  const cleanedTitle = normalizeTitle(input.event_name || '')
+  const cleanedUrl = String(input.ticket_url || '').toLowerCase()
+  const cleanedCombined = normalizeTitle(
+    `${input.event_name || ''} ${input.description || ''} ${input.ticket_url || ''}`
+  )
+
+  const exactJunkTitles = new Set([
+    'get tickets',
+    'view more',
+    'ministry',
+    'studios',
+    'event photography policy',
+    'our event photography policy',
+  ])
+
+  if (exactJunkTitles.has(cleanedTitle)) return true
+  if (cleanedUrl.includes('/event-photography-policy')) return true
+  if (cleanedCombined.includes('event photography policy')) return true
+
+  return false
+}
+
+function isMinistryStudiosJunkExistingEvent(event: {
+  venue_id?: string | null
+  event_name?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  return isMinistryStudiosJunkEvent({
+    venue_id: event.venue_id,
+    event_name: event.event_name,
+    description: event.description,
+    ticket_url: event.ticket_url,
+  })
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -7498,6 +7557,8 @@ function candidateRejectionReason(input: {
     if (!input.event_date) return 'rejected_missing_date'
   }
 
+  if (isMinistryStudiosJunkEvent({ ...input, event_name: eventName })) return 'rejected_ministry_studios_junk'
+
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return 'rejected_blacklisted_tbc'
@@ -7570,6 +7631,7 @@ async function cleanupBadExistingEvents() {
       const description = event.description || ''
 
       if (isLeBoudoirSource(event.venue_id) && isLeBoudoirJunkExistingEvent(event)) return true
+      if (isMinistryStudiosJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
@@ -7833,7 +7895,8 @@ export async function GET(request: Request) {
 
     if (
       isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`) ||
-      isLeBoudoirSource(`${source.source_url} ${source.venue_id}`)
+      isLeBoudoirSource(`${source.source_url} ${source.venue_id}`) ||
+      isMinistryStudiosSource(source.venue_id, source.source_url)
     ) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
