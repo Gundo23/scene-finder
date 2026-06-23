@@ -2001,8 +2001,9 @@ async function cleanupExistingVenueJunk(venueId: string) {
   const isVanillaVenue = isVanillaAlternativeSource(venueId)
   const isLeBoudoirVenue = isLeBoudoirSource(venueId)
   const isMinistryVenue = isMinistryStudiosSource(venueId)
+  const isChunkyMuffinsVenue = isChunkyMuffinsSource(venueId)
 
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue) return 0
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
@@ -2037,6 +2038,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
 
         if (isMinistryVenue) {
           return isMinistryStudiosJunkExistingEvent({ ...event, venue_id: venueId })
+        }
+
+        if (isChunkyMuffinsVenue) {
+          return isChunkyMuffinsJunkExistingEvent({ ...event, venue_id: venueId })
         }
 
         return false
@@ -5528,6 +5533,62 @@ function isMinistryStudiosJunkExistingEvent(event: {
   })
 }
 
+
+function isChunkyMuffinsSource(venueId: string | null | undefined, sourceUrl?: string | null) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('chunky_muffins_boston_lincolnshire') ||
+    combined.includes('chunkymuffins.co.uk')
+  )
+}
+
+function isChunkyMuffinsJunkEvent(input: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!isChunkyMuffinsSource(input.venue_id, input.ticket_url)) return false
+
+  const cleanedTitle = normalizeTitle(input.event_name || '')
+  const cleanedUrl = String(input.ticket_url || '').toLowerCase()
+  const cleanedCombined = normalizeTitle(
+    `${input.event_name || ''} ${input.description || ''} ${input.ticket_url || ''}`
+  )
+
+  const exactJunkTitles = new Set([
+    'book here',
+    'airbnbs',
+    'bdsm vs kinky',
+  ])
+
+  if (exactJunkTitles.has(cleanedTitle)) return true
+  if (cleanedUrl.includes('airbnb.co.uk')) return true
+  if (cleanedUrl.includes('/event-list')) return true
+  if (cleanedUrl.includes('/bdsmvskinky')) return true
+  if (cleanedCombined.includes('airbnb')) return true
+
+  return false
+}
+
+function isChunkyMuffinsJunkExistingEvent(event: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  return isChunkyMuffinsJunkEvent({
+    venue_id: event.venue_id,
+    event_name: event.event_name,
+    event_date: event.event_date,
+    description: event.description,
+    ticket_url: event.ticket_url,
+  })
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -5550,7 +5611,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isSf10RecoverySource(venueId, sourceUrl) ||
     isClubFSource(venueId, sourceUrl) ||
     isHu9Source(venueId, sourceUrl) ||
-    isPlusciousPartiesSource(venueId, sourceUrl)
+    isPlusciousPartiesSource(venueId, sourceUrl) ||
+    isChunkyMuffinsSource(venueId, sourceUrl)
   )
 }
 
@@ -7558,6 +7620,7 @@ function candidateRejectionReason(input: {
   }
 
   if (isMinistryStudiosJunkEvent({ ...input, event_name: eventName })) return 'rejected_ministry_studios_junk'
+  if (isChunkyMuffinsJunkEvent({ ...input, event_name: eventName })) return 'rejected_chunky_muffins_junk'
 
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
@@ -7632,6 +7695,7 @@ async function cleanupBadExistingEvents() {
 
       if (isLeBoudoirSource(event.venue_id) && isLeBoudoirJunkExistingEvent(event)) return true
       if (isMinistryStudiosJunkExistingEvent(event)) return true
+      if (isChunkyMuffinsJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
@@ -7896,7 +7960,8 @@ export async function GET(request: Request) {
     if (
       isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`) ||
       isLeBoudoirSource(`${source.source_url} ${source.venue_id}`) ||
-      isMinistryStudiosSource(source.venue_id, source.source_url)
+      isMinistryStudiosSource(source.venue_id, source.source_url) ||
+      isChunkyMuffinsSource(source.venue_id, source.source_url)
     ) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
