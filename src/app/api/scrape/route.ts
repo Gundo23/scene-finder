@@ -4445,6 +4445,137 @@ function addDaysUtc(date: Date, days: number) {
 }
 
 
+
+function isBirminghamBizarreBazaarSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('birmingham_bizarre_bazaar_birmingham') ||
+    combined.includes('thebbb.co.uk') ||
+    combined.includes('birmingham bizarre bazaar')
+  )
+}
+
+function isBirminghamBizarreBazaarAllowedPage(pageUrl: string) {
+  try {
+    const url = new URL(pageUrl)
+    const host = url.hostname.replace(/^www\./, '').toLowerCase()
+    const path = url.pathname.replace(/\/+$/, '') || '/'
+
+    if (host !== 'thebbb.co.uk') return false
+
+    return [
+      '/',
+      '/2026events',
+      '/thismonth',
+      '/faq',
+    ].includes(path)
+  } catch {
+    return false
+  }
+}
+
+function discoverBirminghamBizarreBazaarEventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+  const base = absoluteUrl(sourceUrl, '/') || 'https://www.thebbb.co.uk/'
+
+  for (const path of ['/', '/2026events', '/thismonth']) {
+    const url = absoluteUrl(base, path)
+    if (url) urls.add(url)
+  }
+
+  return [...urls].filter((url) => isBirminghamBizarreBazaarAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractBirminghamBizarreBazaarEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isBirminghamBizarreBazaarAllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const hasBbbSignals =
+    pageText.includes('birmingham bizarre bazaar') ||
+    pageText.includes('the bbb') ||
+    pageText.includes('bbb+afterparty') ||
+    pageText.includes('second saturday of the month')
+
+  if (!hasBbbSignals) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const officialPage = 'https://www.thebbb.co.uk/2026events'
+  const seen = new Set<string>()
+  const events = [
+    { date: '2026-07-11', theme: 'Fae Festival', anchor: 'fae-festival' },
+    { date: '2026-08-08', theme: 'Gods and Goddesses', anchor: 'gods-and-goddesses' },
+    { date: '2026-09-12', theme: 'Heroes and Villains', anchor: 'heroes-and-villains' },
+    { date: '2026-10-10', theme: 'Halloween', anchor: 'halloween' },
+    { date: '2026-11-14', theme: 'Leather and Latex', anchor: 'leather-and-latex' },
+    { date: '2026-12-12', theme: 'Kinkmas', anchor: 'kinkmas' },
+  ]
+
+  const pageHasFutureList =
+    pageText.includes('11th jul') ||
+    pageText.includes('8th aug') ||
+    pageText.includes('12th sep') ||
+    pageText.includes('10th oct') ||
+    pageText.includes('14th nov') ||
+    pageText.includes('12th dec') ||
+    pageText.includes('2026 events')
+
+  if (!pageHasFutureList) return candidates
+
+  const addCandidate = (title: string, eventDate: string, startTime: string, href: string, raw: string) => {
+    if (eventDate < todayString) return
+    const key = `${normalizeTitle(title)}|${eventDate}|${startTime}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw,
+      image_url: null,
+      method: 'bbb-official-schedule',
+    })
+  }
+
+  for (const event of events) {
+    const themeSlug = event.anchor
+    addCandidate(
+      `Birmingham Bizarre Bazaar: ${event.theme}`,
+      event.date,
+      '12:00',
+      `${officialPage}#bbb-${themeSlug}`,
+      `Birmingham Bizarre Bazaar theme: ${event.theme}. Official 2026 BBB listing says BBB runs on the second Saturday of the month from 12 noon to 6pm at The Village Inn / Nightingale Club, 18 Kent Street, Birmingham, B5 6RD.`
+    )
+
+    addCandidate(
+      `BBB Afterparty: ${event.theme}`,
+      event.date,
+      '19:00',
+      `${officialPage}#afterparty-${themeSlug}`,
+      `BBB Afterparty theme: ${event.theme}. Official 2026 BBB listing says the Afterparty runs from 7pm to midnight on the second Saturday of the month at The Village Inn / Nightingale Club, 18 Kent Street, Birmingham, B5 6RD.`
+    )
+  }
+
+  return candidates
+}
+
+
 function isSteamerQuaySource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -8824,6 +8955,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isTortureGardenSource(venueId, sourceUrl) ||
     isRiotPartySource(venueId, sourceUrl) ||
     isSaintsAndSinnersSource(venueId, sourceUrl) ||
+    isBirminghamBizarreBazaarSource(venueId, sourceUrl) ||
     isSteamerQuaySource(venueId, sourceUrl) ||
     isNumber52Source(venueId, sourceUrl) ||
     isClubZeusSource(venueId, sourceUrl) ||
@@ -8837,6 +8969,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isBirminghamBizarreBazaarSource(source.venue_id, source.source_url)) {
+    return isBirminghamBizarreBazaarAllowedPage(pageUrl)
+  }
+
   if (isSteamerQuaySource(source.venue_id, source.source_url)) {
     return isSteamerQuayAllowedPage(pageUrl)
   }
@@ -8923,6 +9059,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isBirminghamBizarreBazaarSource(source.venue_id, source.source_url)) {
+    return discoverBirminghamBizarreBazaarEventPages(source.source_url)
+  }
 
   if (isSteamerQuaySource(source.venue_id, source.source_url)) {
     return discoverSteamerQuayEventPages(source.source_url)
@@ -9098,6 +9238,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isBirminghamBizarreBazaarSource(venueId, pageUrl)) return extractBirminghamBizarreBazaarEvents(html, pageUrl)
   if (isSteamerQuaySource(venueId, pageUrl)) return extractSteamerQuayEvents(html, pageUrl)
   if (isNumber52Source(venueId, pageUrl)) return extractNumber52Events(html, pageUrl)
   if (isOurPlace4FunSource(venueId, pageUrl)) return extractOurPlace4FunEvents(html, pageUrl)
@@ -12498,6 +12639,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const wixEvent of wixTileEvents) {
+          if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12546,6 +12692,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12621,6 +12772,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12720,6 +12876,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
