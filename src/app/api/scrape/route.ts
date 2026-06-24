@@ -3488,7 +3488,8 @@ function extractNo3ClubEvents(html: string, baseUrl: string) {
     raw: string
   }) => {
     for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
-      const eventDate = datePartsToString(nthWeekdayOfMonth(currentYear, monthIndex, input.weekday, input.nth))
+      const occurrence = nthWeekdayOfMonth(currentYear, monthIndex, input.weekday, input.nth)
+      const eventDate = occurrence ? datePartsToString(occurrence) : null
 
       pushNo3Candidate({
         title: input.title,
