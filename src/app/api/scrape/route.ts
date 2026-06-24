@@ -413,6 +413,10 @@ const BAD_IMAGE_PATTERNS = [
   'footer_social',
   'facebook.com/tr',
   '1x1.jpg',
+  'eventdata.venue.url',
+  '$%7b',
+  '%24%7b',
+  '%7d',
 ]
 
 const TOWNHOUSE_EVENT_SEED_PATHS = [
