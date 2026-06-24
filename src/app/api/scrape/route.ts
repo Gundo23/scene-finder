@@ -4145,6 +4145,131 @@ function extractRiotPartyEvents(html: string, baseUrl: string) {
 }
 
 
+function isSaintsAndSinnersSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('saints_and_sinners_parties_sutton_london') ||
+    combined.includes('saintsandsinnersparties.co.uk')
+  )
+}
+
+function isSaintsAndSinnersAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    return (
+      host === 'saintsandsinnersparties.co.uk' &&
+      (path === '/copy-of-homeb16cd187' || path === '/welcome')
+    )
+  } catch {
+    return false
+  }
+}
+
+function discoverSaintsAndSinnersEventPages(sourceUrl: string) {
+  const urls = [
+    'https://www.saintsandsinnersparties.co.uk/copy-of-homeb16cd187',
+    'https://www.saintsandsinnersparties.co.uk/welcome',
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => isSaintsAndSinnersAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractSaintsAndSinnersEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isSaintsAndSinnersAllowedPage(baseUrl)) return candidates
+
+  const pageText = cleanText(html).toLowerCase()
+  const hasSaintsSchedule =
+    pageText.includes('saints and sinners parties') ||
+    pageText.includes('2026 party dates') ||
+    pageText.includes('15th august') ||
+    pageText.includes('black and white sparkles') ||
+    pageText.includes('old skoll swinging')
+
+  if (!hasSaintsSchedule) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const partyDatesUrl = 'https://www.saintsandsinnersparties.co.uk/copy-of-homeb16cd187'
+  const events: {
+    title: string
+    eventDate: string
+    theme: string
+    href: string
+  }[] = [
+    {
+      title: 'Saints and Sinners: Hawaii / Beach Wear',
+      eventDate: '2026-08-15',
+      theme: 'Hawaii / Beach Wear',
+      href: `${partyDatesUrl}#hawaii-beach-wear`,
+    },
+    {
+      title: 'Saints and Sinners: Black and White Sparkles',
+      eventDate: '2026-10-03',
+      theme: 'Black and White Sparkles',
+      href: `${partyDatesUrl}#black-and-white-sparkles`,
+    },
+    {
+      title: 'Saints and Sinners: Old Skoll Swinging',
+      eventDate: '2026-12-05',
+      theme: 'Old Skoll Swinging',
+      href: `${partyDatesUrl}#old-skoll-swinging`,
+    },
+  ]
+
+  const seen = new Set<string>()
+
+  for (const event of events) {
+    const eventDate = validDateOrNull(event.eventDate)
+    if (!eventDate || eventDate < todayString) continue
+
+    const title = cleanEventName(event.title)
+    if (!title || isJunkTitle(title)) continue
+
+    const titleNeedle = normalizeTitle(event.theme)
+    const pageMentionsEvent =
+      pageText.includes(titleNeedle) ||
+      pageText.includes(event.eventDate.slice(5, 7) === '08' ? '15th august' : '') ||
+      pageText.includes(event.eventDate.slice(5, 7) === '10' ? '3rd october' : '') ||
+      pageText.includes(event.eventDate.slice(5, 7) === '12' ? '5th december' : '')
+
+    if (!pageMentionsEvent) continue
+
+    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(event.href)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: event.href,
+      text: title,
+      event_date: eventDate,
+      start_time: null,
+      raw: cleanText(`${event.title}. ${event.eventDate}. ${event.theme}. Official Saints and Sinners 2026 party date listing.`),
+      image_url: null,
+      method: 'saints-and-sinners-official-schedule',
+    })
+  }
+
+  return candidates
+}
+
+
 function isAtticExperienceSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -8027,7 +8152,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isNo3ClubSource(venueId, sourceUrl) ||
     isClubCollaredSource(venueId, sourceUrl) ||
     isTortureGardenSource(venueId, sourceUrl) ||
-    isRiotPartySource(venueId, sourceUrl)
+    isRiotPartySource(venueId, sourceUrl) ||
+    isSaintsAndSinnersSource(venueId, sourceUrl)
   )
 }
 
@@ -8037,6 +8163,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isSaintsAndSinnersSource(source.venue_id, source.source_url)) {
+    return isSaintsAndSinnersAllowedPage(pageUrl)
+  }
+
   if (isRiotPartySource(source.venue_id, source.source_url)) {
     return isRiotPartyAllowedPage(pageUrl)
   }
@@ -8103,6 +8233,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isSaintsAndSinnersSource(source.venue_id, source.source_url)) {
+    return discoverSaintsAndSinnersEventPages(source.source_url)
+  }
 
   if (isRiotPartySource(source.venue_id, source.source_url)) {
     return discoverRiotPartyEventPages(source.source_url)
@@ -8258,6 +8392,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isSaintsAndSinnersSource(venueId, pageUrl)) return extractSaintsAndSinnersEvents(html, pageUrl)
   if (isRiotPartySource(venueId, pageUrl)) return extractRiotPartyEvents(html, pageUrl)
   if (isTortureGardenSource(venueId, pageUrl)) return extractTortureGardenEvents(html, pageUrl)
   if (isClubCollaredSource(venueId, pageUrl)) return extractClubCollaredEvents(html, pageUrl)
@@ -10913,6 +11048,8 @@ export async function GET(request: Request) {
           ? targetVenueDiscoveredUrls
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? targetVenueDiscoveredUrls
+            : isSaintsAndSinnersSource(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isRiotPartySource(source.venue_id, source.source_url)
               ? targetVenueDiscoveredUrls
             : isTortureGardenSource(source.venue_id, source.source_url)
@@ -10935,6 +11072,8 @@ export async function GET(request: Request) {
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
+          : isSaintsAndSinnersSource(source.venue_id, source.source_url)
+            ? 2
           : isRiotPartySource(source.venue_id, source.source_url)
             ? 1
           : isTortureGardenSource(source.venue_id, source.source_url)
@@ -11668,6 +11807,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          if (isSaintsAndSinnersSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isRiotPartySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -11718,6 +11862,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          if (isSaintsAndSinnersSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isTortureGardenSource(source.venue_id, source.source_url)) {
             skipped++
             continue
@@ -11792,6 +11941,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isSaintsAndSinnersSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isTortureGardenSource(source.venue_id, source.source_url)) {
             skipped++
             continue
