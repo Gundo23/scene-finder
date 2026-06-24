@@ -4401,6 +4401,179 @@ function extractClubZeusEvents(html: string, baseUrl: string) {
 }
 
 
+function isOurPlace4FunSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('our_place_4_fun_london') ||
+    combined.includes('ourplace4fun.com')
+  )
+}
+
+function isOurPlace4FunAllowedPage(pageUrl: string) {
+  try {
+    const url = new URL(pageUrl)
+    const host = url.hostname.replace(/^www\./, '').toLowerCase()
+    const path = url.pathname.replace(/\/+$/, '') || '/'
+
+    if (host !== 'ourplace4fun.com') return false
+    if (path === '/op4f' || path === '/op4f/clubnights.jsp') return true
+    if (path === '/op4f/club.jsp' && url.searchParams.has('cn')) return true
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+function discoverOurPlace4FunEventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+  urls.add(absoluteUrl(sourceUrl, '/op4f/clubnights.jsp') || 'https://ourplace4fun.com/op4f/clubnights.jsp')
+  return [...urls].filter((url) => isOurPlace4FunAllowedPage(url) && !isJunkUrl(url))
+}
+
+function dateFromYmd(value: string) {
+  const [year, month, day] = value.split('-').map(Number)
+  return new Date(Date.UTC(year, month - 1, day))
+}
+
+function addDaysUtc(date: Date, days: number) {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+  next.setUTCDate(next.getUTCDate() + days)
+  return next
+}
+
+function ourPlace4FunEventForDate(eventDate: string) {
+  const date = dateFromYmd(eventDate)
+  const weekday = date.getUTCDay()
+
+  if (eventDate === '2026-12-24' || eventDate === '2026-12-25') return null
+
+  if (weekday === 2) {
+    return {
+      title: 'OP4F: The Butterfly Club',
+      startTime: '22:00',
+      anchor: 'butterfly-club',
+      raw: 'The Butterfly Club. Held every Tuesday evening at Our Place 4 Fun. Official OP4F club-night calendar listing.',
+      method: 'op4f-weekly-calendar',
+    }
+  }
+
+  if (weekday === 5) {
+    return {
+      title: "OP4F: Frisky Friday's",
+      startTime: '22:00',
+      anchor: 'frisky-fridays',
+      raw: "Frisky Friday's. Held every Friday at Our Place 4 Fun, 10pm until 4am. Official OP4F club-night calendar listing.",
+      method: 'op4f-weekly-calendar',
+    }
+  }
+
+  if (weekday === 6) {
+    return {
+      title: 'OP4F: Saturday Couples & Ladies Party',
+      startTime: '22:00',
+      anchor: 'saturday-couples-ladies-party',
+      raw: 'Saturday Couples & Ladies Party. Every Saturday is listed by OP4F as a couples and ladies club night. Official OP4F club-night calendar listing.',
+      method: 'op4f-weekly-calendar',
+    }
+  }
+
+  return null
+}
+
+function extractOurPlace4FunEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isOurPlace4FunAllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const isCalendarPage = baseUrl.toLowerCase().includes('/clubnights.jsp') || baseUrl.toLowerCase().replace(/\/+$/, '').endsWith('/op4f')
+  const hasCalendarSignals =
+    pageText.includes('club nights') &&
+    (
+      pageText.includes('single guys allowed') ||
+      pageText.includes('couples and single women only') ||
+      pageText.includes('special event see details') ||
+      pageText.includes('our place 4 fun')
+    )
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const seen = new Set<string>()
+  const eventBase = 'https://ourplace4fun.com/op4f/club.jsp'
+
+  const addCandidate = (eventDate: string, fallbackOnly = false) => {
+    const event = ourPlace4FunEventForDate(eventDate)
+    if (!event) return
+    if (eventDate < todayString) return
+
+    const href = `${eventBase}?cn=${eventDate}#${event.anchor}`
+    const key = `${normalizeTitle(event.title)}|${eventDate}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: event.title,
+      event_date: eventDate,
+      start_time: event.startTime,
+      raw: fallbackOnly
+        ? `${event.raw} Date generated from the OP4F calendar URL pattern for ${eventDate}.`
+        : event.raw,
+      image_url: null,
+      method: event.method,
+    })
+  }
+
+  const dateFromUrl = (() => {
+    try {
+      const url = new URL(baseUrl)
+      return validDateOrNull(url.searchParams.get('cn'))
+    } catch {
+      return null
+    }
+  })()
+
+  if (dateFromUrl) {
+    addCandidate(dateFromUrl)
+    return candidates
+  }
+
+  if (!isCalendarPage || !hasCalendarSignals) return candidates
+
+  const dateLinkPattern = /club\.jsp\?cn=(20\d{2}-\d{2}-\d{2})/gi
+  let match
+  while ((match = dateLinkPattern.exec(html)) !== null) {
+    addCandidate(match[1])
+  }
+
+  // The OP4F calendar is rendered sparsely in the HTML on some fetchers. The club uses
+  // stable recurring club-night entries, so generate the public weekly calendar dates
+  // from today through year-end. Closed Christmas Eve/Day are explicitly skipped above.
+  const endDate = new Date(Date.UTC(today.getUTCFullYear(), 11, 31))
+  let cursor = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+  while (cursor <= endDate) {
+    const eventDate = datePartsToString(cursor)
+    if (eventDate) addCandidate(eventDate, true)
+    cursor = addDaysUtc(cursor, 1)
+  }
+
+  return candidates
+}
+
+
 function isAtticExperienceSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -8285,7 +8458,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isTortureGardenSource(venueId, sourceUrl) ||
     isRiotPartySource(venueId, sourceUrl) ||
     isSaintsAndSinnersSource(venueId, sourceUrl) ||
-    isClubZeusSource(venueId, sourceUrl)
+    isClubZeusSource(venueId, sourceUrl) ||
+    isOurPlace4FunSource(venueId, sourceUrl)
   )
 }
 
@@ -8295,6 +8469,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isOurPlace4FunSource(source.venue_id, source.source_url)) {
+    return isOurPlace4FunAllowedPage(pageUrl)
+  }
+
   if (isClubZeusSource(source.venue_id, source.source_url)) {
     return isClubZeusAllowedPage(pageUrl)
   }
@@ -8369,6 +8547,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isOurPlace4FunSource(source.venue_id, source.source_url)) {
+    return discoverOurPlace4FunEventPages(source.source_url)
+  }
 
   if (isClubZeusSource(source.venue_id, source.source_url)) {
     return discoverClubZeusEventPages(source.source_url)
@@ -8532,6 +8714,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isOurPlace4FunSource(venueId, pageUrl)) return extractOurPlace4FunEvents(html, pageUrl)
   if (isClubZeusSource(venueId, pageUrl)) return extractClubZeusEvents(html, pageUrl)
   if (isSaintsAndSinnersSource(venueId, pageUrl)) return extractSaintsAndSinnersEvents(html, pageUrl)
   if (isRiotPartySource(venueId, pageUrl)) return extractRiotPartyEvents(html, pageUrl)
@@ -11189,6 +11372,8 @@ export async function GET(request: Request) {
           ? targetVenueDiscoveredUrls
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? targetVenueDiscoveredUrls
+            : isOurPlace4FunSource(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isSaintsAndSinnersSource(source.venue_id, source.source_url)
               ? targetVenueDiscoveredUrls
             : isRiotPartySource(source.venue_id, source.source_url)
@@ -11213,6 +11398,8 @@ export async function GET(request: Request) {
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
+          : isOurPlace4FunSource(source.venue_id, source.source_url)
+            ? 2
           : isSaintsAndSinnersSource(source.venue_id, source.source_url)
             ? 2
           : isRiotPartySource(source.venue_id, source.source_url)
@@ -11661,6 +11848,10 @@ ${hu9HydratedText}`, pageUrl)
             imageUrl = null
           }
 
+          if (isOurPlace4FunSource(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
+            imageUrl = null
+          }
+
           const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
 
           if (runSeen.has(dedupeKey)) {
@@ -11957,6 +12148,11 @@ ${hu9HydratedText}`, pageUrl)
             continue
           }
 
+          if (isOurPlace4FunSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSaintsAndSinnersSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12013,6 +12209,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const calendarEvent of calendarLinks) {
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
+          if (isOurPlace4FunSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
@@ -12097,6 +12298,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const link of links) {
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
+          if (isOurPlace4FunSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
