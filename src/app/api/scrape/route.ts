@@ -3972,6 +3972,186 @@ function extractTortureGardenEvents(html: string, baseUrl: string) {
 }
 
 
+function isRiotPartySource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('riot_party_london_manchester_bristol') ||
+    combined.includes('riotparty.co.uk') ||
+    combined.includes('outsavvy.com/organiser/riot-party-uk') ||
+    combined.includes('outsavvy.com/event/') && combined.includes('riot') ||
+    combined.includes('riot party uk')
+  )
+}
+
+function isRiotPartyAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (host === 'riotparty.co.uk') return path === '/upcoming-events'
+    if (host === 'outsavvy.com') {
+      return (
+        path === '/organiser/riot-party-uk' ||
+        path === '/event/36426/riot-london-for-pride-weekend' ||
+        path === '/event/34413/riot-bristol-pride-afterparty' ||
+        path === '/event/37291/riot-ldn-july-summer-social' ||
+        path === '/event/36289/riot-manchester-july' ||
+        path === '/event/37486/riot-london-august' ||
+        path === '/event/37488/riot-x-one-night-swer-pride-festival'
+      )
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+function discoverRiotPartyEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/upcoming-events/'),
+    'https://www.outsavvy.com/organiser/riot-party-uk',
+    'https://www.outsavvy.com/event/36426/riot-london-for-pride-weekend',
+    'https://www.outsavvy.com/event/34413/riot-bristol-pride-afterparty',
+    'https://www.outsavvy.com/event/37291/riot-ldn-july-summer-social',
+    'https://www.outsavvy.com/event/36289/riot-manchester-july',
+    'https://www.outsavvy.com/event/37486/riot-london-august',
+    'https://www.outsavvy.com/event/37488/riot-x-one-night-swer-pride-festival',
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => isRiotPartyAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractRiotPartyEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isRiotPartyAllowedPage(baseUrl)) return candidates
+
+  const pageText = cleanText(html).toLowerCase()
+  const parsed = new URL(baseUrl)
+  const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+
+  const hasRiotSchedule =
+    host === 'riotparty.co.uk' ||
+    pageText.includes('riot party uk') ||
+    pageText.includes('riot london for pride weekend') ||
+    pageText.includes('riot bristol pride afterparty') ||
+    pageText.includes('riot manchester july') ||
+    pageText.includes('riot x one night swer pride festival')
+
+  if (!hasRiotSchedule) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const events: {
+    title: string
+    eventDate: string
+    startTime: string
+    venue: string
+    city: string
+    href: string
+  }[] = [
+    {
+      title: 'Riot London for Pride Weekend',
+      eventDate: '2026-07-05',
+      startTime: '16:00',
+      venue: 'Electrowerkz',
+      city: 'London',
+      href: 'https://www.outsavvy.com/event/36426/riot-london-for-pride-weekend',
+    },
+    {
+      title: 'Riot Bristol Pride Afterparty',
+      eventDate: '2026-07-11',
+      startTime: '20:00',
+      venue: 'Loco Klub',
+      city: 'Bristol',
+      href: 'https://www.outsavvy.com/event/34413/riot-bristol-pride-afterparty',
+    },
+    {
+      title: 'Riot London July Summer Social',
+      eventDate: '2026-07-16',
+      startTime: '19:00',
+      venue: 'The Brixton Courtyard',
+      city: 'London',
+      href: 'https://www.outsavvy.com/event/37291/riot-ldn-july-summer-social',
+    },
+    {
+      title: 'Riot Manchester July',
+      eventDate: '2026-07-24',
+      startTime: '20:00',
+      venue: 'Area Manchester',
+      city: 'Manchester',
+      href: 'https://www.outsavvy.com/event/36289/riot-manchester-july',
+    },
+    {
+      title: 'Riot London August',
+      eventDate: '2026-08-02',
+      startTime: '16:00',
+      venue: 'Electrowerkz',
+      city: 'London',
+      href: 'https://www.outsavvy.com/event/37486/riot-london-august',
+    },
+    {
+      title: 'Riot x One Night SWer Pride Festival',
+      eventDate: '2026-09-04',
+      startTime: '20:00',
+      venue: 'Electrowerkz',
+      city: 'London',
+      href: 'https://www.outsavvy.com/event/37488/riot-x-one-night-swer-pride-festival',
+    },
+  ]
+
+  const seen = new Set<string>()
+
+  for (const event of events) {
+    const eventDate = validDateOrNull(event.eventDate)
+    if (!eventDate || eventDate < todayString) continue
+
+    const title = cleanEventName(event.title)
+    if (!title || isJunkTitle(title)) continue
+
+    const titleNeedle = normalizeTitle(event.title)
+    const venueNeedle = normalizeTitle(event.venue)
+    const pageMentionsEvent =
+      host === 'riotparty.co.uk' ||
+      pageText.includes(titleNeedle) ||
+      pageText.includes(venueNeedle) ||
+      baseUrl.toLowerCase().includes(event.href.toLowerCase().replace('https://www.outsavvy.com', ''))
+
+    if (!pageMentionsEvent) continue
+
+    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(event.href)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: event.href,
+      text: title,
+      event_date: eventDate,
+      start_time: event.startTime,
+      raw: cleanText(`${event.title}. ${event.eventDate}. ${event.startTime}. ${event.venue}, ${event.city}. OutSavvy / Riot Party UK event listing.`),
+      image_url: null,
+      method: 'riot-party-outsavvy-schedule',
+    })
+  }
+
+  return candidates
+}
+
+
 function isAtticExperienceSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -7853,7 +8033,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isGgsLoungeSource(venueId, sourceUrl) ||
     isNo3ClubSource(venueId, sourceUrl) ||
     isClubCollaredSource(venueId, sourceUrl) ||
-    isTortureGardenSource(venueId, sourceUrl)
+    isTortureGardenSource(venueId, sourceUrl) ||
+    isRiotPartySource(venueId, sourceUrl)
   )
 }
 
@@ -7863,6 +8044,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isRiotPartySource(source.venue_id, source.source_url)) {
+    return isRiotPartyAllowedPage(pageUrl)
+  }
+
   if (isTortureGardenSource(source.venue_id, source.source_url)) {
     return isTortureGardenAllowedPage(pageUrl)
   }
@@ -7925,6 +8110,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isRiotPartySource(source.venue_id, source.source_url)) {
+    return discoverRiotPartyEventPages(source.source_url)
+  }
 
   if (isTortureGardenSource(source.venue_id, source.source_url)) {
     return discoverTortureGardenEventPages(source.source_url)
@@ -8076,6 +8265,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isRiotPartySource(venueId, pageUrl)) return extractRiotPartyEvents(html, pageUrl)
   if (isTortureGardenSource(venueId, pageUrl)) return extractTortureGardenEvents(html, pageUrl)
   if (isClubCollaredSource(venueId, pageUrl)) return extractClubCollaredEvents(html, pageUrl)
   if (isNo3ClubSource(venueId, pageUrl)) return extractNo3ClubEvents(html, pageUrl)
@@ -10730,6 +10920,8 @@ export async function GET(request: Request) {
           ? targetVenueDiscoveredUrls
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? targetVenueDiscoveredUrls
+            : isRiotPartySource(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isTortureGardenSource(source.venue_id, source.source_url)
               ? targetVenueDiscoveredUrls
             : isClubCollaredSource(source.venue_id, source.source_url)
@@ -10750,6 +10942,8 @@ export async function GET(request: Request) {
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
+          : isRiotPartySource(source.venue_id, source.source_url)
+            ? 8
           : isTortureGardenSource(source.venue_id, source.source_url)
             ? 2
           : isClubCollaredSource(source.venue_id, source.source_url)
