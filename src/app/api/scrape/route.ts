@@ -3658,22 +3658,11 @@ function extractClubCollaredEvents(html: string, baseUrl: string) {
   const parsed = new URL(baseUrl)
   const selectedEvent = normalizeTitle(parsed.searchParams.get('event') || '')
   const isLegacyPage = parsed.hostname.replace(/^www\./, '').toLowerCase() === 'legacy.clubcollared.com'
-  const pageImage = (() => {
-    const image = extractBestImage(html, baseUrl)
-    if (!image) return null
-    const loweredImage = image.toLowerCase()
-    if (
-      image.includes('${') ||
-      loweredImage.includes('%24%7b') ||
-      loweredImage.includes('$%7b') ||
-      loweredImage.includes('%7b') ||
-      loweredImage.includes('%7d') ||
-      loweredImage.includes('eventdata.venue.url')
-    ) {
-      return null
-    }
-    return image
-  })()
+  // Club Collared's current site exposes a broken templated venue image URL
+  // (for example https://clubcollared.com/${eventData.Venue.url}).
+  // Do not use page-level image fallbacks for this venue; let event cards use
+  // the app/venue fallback image instead of saving a broken URL.
+  const pageImage: string | null = null
 
   const hasCollaredSchedule =
     selectedEvent === 'collared london' ||
@@ -10976,7 +10965,7 @@ ${hu9HydratedText}`, pageUrl)
           let eventHtml: string | null = null
           let title = targetVenueEvent.text
           let description = targetVenueEvent.raw || targetVenueEvent.text
-          let imageUrl = targetVenueEvent.image_url || pageImage
+          let imageUrl = validImageUrl(targetVenueEvent.image_url || null) || pageImage
           let eventDate = targetVenueEvent.event_date
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
@@ -10996,6 +10985,10 @@ ${hu9HydratedText}`, pageUrl)
               eventDate = eventDate || detailDate
               startTime = startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
             }
+          }
+
+          if (isClubCollaredSource(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
+            imageUrl = null
           }
 
           const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
