@@ -4445,6 +4445,216 @@ function addDaysUtc(date: Date, days: number) {
 }
 
 
+function isSteamerQuaySource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('within_temptation_steamer_quay_torquay') ||
+    combined.includes('steamer-quay.co.uk')
+  )
+}
+
+function isSteamerQuayAllowedPage(pageUrl: string) {
+  try {
+    const url = new URL(pageUrl)
+    const host = url.hostname.replace(/^www\./, '').toLowerCase()
+    const path = url.pathname.replace(/\/+$/, '') || '/'
+
+    if (host !== 'steamer-quay.co.uk') return false
+
+    return [
+      '/',
+      '/new-calendar-of-events',
+      '/t-party',
+      '/exposed',
+      '/wednesday-wonderland',
+      '/about-4',
+      '/swinger-events',
+      '/sapphic-steam',
+      '/swingby',
+    ].includes(path)
+  } catch {
+    return false
+  }
+}
+
+function discoverSteamerQuayEventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+  const base = absoluteUrl(sourceUrl, '/') || 'https://www.steamer-quay.co.uk/'
+
+  for (const path of [
+    '/new-calendar-of-events',
+    '/t-party',
+    '/exposed',
+    '/wednesday-wonderland',
+    '/about-4',
+    '/swinger-events',
+    '/sapphic-steam',
+    '/swingby',
+  ]) {
+    const url = absoluteUrl(base, path)
+    if (url) urls.add(url)
+  }
+
+  return [...urls].filter((url) => isSteamerQuayAllowedPage(url) && !isJunkUrl(url))
+}
+
+function isFirstWeekdayOfMonth(date: Date, weekday: number) {
+  if (date.getUTCDay() !== weekday) return false
+
+  const first = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))
+  while (first.getUTCDay() !== weekday) {
+    first.setUTCDate(first.getUTCDate() + 1)
+  }
+
+  return date.getUTCDate() === first.getUTCDate()
+}
+
+function extractSteamerQuayEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isSteamerQuayAllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const hasSteamerSignals =
+    pageText.includes('steamer quay') ||
+    pageText.includes('t-party') ||
+    pageText.includes('exposed') ||
+    pageText.includes('top gear') ||
+    pageText.includes('swing by') ||
+    pageText.includes('sapphic steam') ||
+    pageText.includes('no mercy manor')
+
+  if (!hasSteamerSignals) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const year = today.getUTCFullYear()
+  const end = new Date(Date.UTC(year, 11, 31))
+  const seen = new Set<string>()
+  const eventBase = 'https://www.steamer-quay.co.uk'
+
+  const addCandidate = (
+    title: string,
+    eventDate: string | null,
+    startTime: string | null,
+    href: string,
+    raw: string
+  ) => {
+    if (!eventDate || eventDate < todayString) return
+    if (eventDate.endsWith('-12-24') || eventDate.endsWith('-12-25')) return
+
+    const key = `${normalizeTitle(title)}|${eventDate}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: `Steamer Quay: ${title}`,
+      event_date: eventDate,
+      start_time: startTime,
+      raw,
+      image_url: null,
+      method: 'steamer-quay-official-schedule',
+    })
+  }
+
+  for (let cursor = new Date(today); cursor <= end; cursor = addDaysUtc(cursor, 1)) {
+    const eventDate = datePartsToString(cursor)
+    if (!eventDate) continue
+
+    const weekday = cursor.getUTCDay()
+    const firstTuesday = isFirstWeekdayOfMonth(cursor, 2)
+    const firstWednesday = isFirstWeekdayOfMonth(cursor, 3)
+    const firstSaturday = isFirstWeekdayOfMonth(cursor, 6)
+    const firstSunday = isFirstWeekdayOfMonth(cursor, 0)
+
+    if (firstTuesday) {
+      addCandidate(
+        'Sapphic Steam',
+        eventDate,
+        null,
+        `${eventBase}/sapphic-steam#${eventDate}`,
+        'Sapphic Steam. Official Steamer Quay event information says this monthly event for gay and bi women runs on the first Tuesday of the month.'
+      )
+    }
+
+    if (weekday === 3) {
+      if (firstWednesday) {
+        addCandidate(
+          'Wednesday Wonderland',
+          eventDate,
+          '11:00',
+          `${eventBase}/wednesday-wonderland#${eventDate}`,
+          'Wednesday Wonderland. Official Steamer Quay event information says this monthly event runs on the first Wednesday of each month, with doors from 11am and extended hours until 10pm.'
+        )
+      } else {
+        addCandidate(
+          'T-Party',
+          eventDate,
+          '11:00',
+          `${eventBase}/t-party#${eventDate}`,
+          'T-Party. Official Steamer Quay event information lists Wednesday T-Party, aimed primarily at cross-dressers and admirers, with opening hours 11am to 8pm.'
+        )
+      }
+    }
+
+    if (weekday === 4) {
+      addCandidate(
+        'Exposed',
+        eventDate,
+        '11:00',
+        `${eventBase}/exposed#${eventDate}`,
+        'Exposed. Official Steamer Quay event information lists Thursday Exposed as the naked day for gay and bi lads, with opening hours 11am to 8pm.'
+      )
+    }
+
+    if (weekday === 6) {
+      if (firstSaturday) {
+        addCandidate(
+          'No Mercy Manor',
+          eventDate,
+          '20:30',
+          `${eventBase}/swinger-events#no-mercy-manor-${eventDate}`,
+          'No Mercy Manor. Official Steamer Quay swingers events information says No Mercy Manor runs on the first Saturday of the month.'
+        )
+      } else {
+        addCandidate(
+          'Swing By',
+          eventDate,
+          '20:30',
+          `${eventBase}/swingby#${eventDate}`,
+          'Swing By. Official Steamer Quay event information says Saturday evening Swing By welcomes male/female couples and admirers from 8:30pm until 2am Sunday.'
+        )
+      }
+    }
+
+    if (firstSunday) {
+      addCandidate(
+        'Top Gear',
+        eventDate,
+        '13:00',
+        `${eventBase}/about-4#${eventDate}`,
+        'Top Gear. Official Steamer Quay event information says Top Gear is a monthly kink event every first Sunday from 1pm to 8pm.'
+      )
+    }
+  }
+
+  return candidates
+}
+
+
 function isNumber52Source(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -8614,6 +8824,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isTortureGardenSource(venueId, sourceUrl) ||
     isRiotPartySource(venueId, sourceUrl) ||
     isSaintsAndSinnersSource(venueId, sourceUrl) ||
+    isSteamerQuaySource(venueId, sourceUrl) ||
     isNumber52Source(venueId, sourceUrl) ||
     isClubZeusSource(venueId, sourceUrl) ||
     isOurPlace4FunSource(venueId, sourceUrl)
@@ -8626,6 +8837,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isSteamerQuaySource(source.venue_id, source.source_url)) {
+    return isSteamerQuayAllowedPage(pageUrl)
+  }
+
   if (isNumber52Source(source.venue_id, source.source_url)) {
     return isNumber52AllowedPage(pageUrl)
   }
@@ -8708,6 +8923,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isSteamerQuaySource(source.venue_id, source.source_url)) {
+    return discoverSteamerQuayEventPages(source.source_url)
+  }
 
   if (isNumber52Source(source.venue_id, source.source_url)) {
     return discoverNumber52EventPages(source.source_url)
@@ -8879,6 +9098,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isSteamerQuaySource(venueId, pageUrl)) return extractSteamerQuayEvents(html, pageUrl)
   if (isNumber52Source(venueId, pageUrl)) return extractNumber52Events(html, pageUrl)
   if (isOurPlace4FunSource(venueId, pageUrl)) return extractOurPlace4FunEvents(html, pageUrl)
   if (isClubZeusSource(venueId, pageUrl)) return extractClubZeusEvents(html, pageUrl)
@@ -12018,6 +12238,10 @@ ${hu9HydratedText}`, pageUrl)
             imageUrl = null
           }
 
+          if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
+            imageUrl = null
+          }
+
           if (isNumber52Source(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
             imageUrl = null
           }
@@ -12274,6 +12498,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const wixEvent of wixTileEvents) {
+          if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           candidatesFound++
 
           const title = wixEvent.text
@@ -12317,6 +12546,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12387,6 +12621,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12481,6 +12720,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isSteamerQuaySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
