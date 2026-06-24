@@ -4011,14 +4011,7 @@ function isRiotPartyAllowedPage(pageUrl: string | null | undefined) {
 
 function discoverRiotPartyEventPages(sourceUrl: string) {
   const urls = [
-    absoluteUrl(sourceUrl, '/upcoming-events/'),
     'https://www.outsavvy.com/organiser/riot-party-uk',
-    'https://www.outsavvy.com/event/36426/riot-london-for-pride-weekend',
-    'https://www.outsavvy.com/event/34413/riot-bristol-pride-afterparty',
-    'https://www.outsavvy.com/event/37291/riot-ldn-july-summer-social',
-    'https://www.outsavvy.com/event/36289/riot-manchester-july',
-    'https://www.outsavvy.com/event/37486/riot-london-august',
-    'https://www.outsavvy.com/event/37488/riot-x-one-night-swer-pride-festival',
   ].filter(Boolean) as string[]
 
   return [...new Set(urls)].filter((url) => isRiotPartyAllowedPage(url) && !isJunkUrl(url))
@@ -10943,7 +10936,7 @@ export async function GET(request: Request) {
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
           : isRiotPartySource(source.venue_id, source.source_url)
-            ? 8
+            ? 1
           : isTortureGardenSource(source.venue_id, source.source_url)
             ? 2
           : isClubCollaredSource(source.venue_id, source.source_url)
@@ -11675,6 +11668,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          if (isRiotPartySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           candidatesFound++
 
           const dedupeKey = eventDedupeKey(
@@ -11721,6 +11719,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const calendarEvent of calendarLinks) {
           if (isTortureGardenSource(source.venue_id, source.source_url)) {
+            skipped++
+            continue
+          }
+
+          if (isRiotPartySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
@@ -11790,6 +11793,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const link of links) {
           if (isTortureGardenSource(source.venue_id, source.source_url)) {
+            skipped++
+            continue
+          }
+
+          if (isRiotPartySource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
