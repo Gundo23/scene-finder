@@ -2003,8 +2003,9 @@ async function cleanupExistingVenueJunk(venueId: string) {
   const isMinistryVenue = isMinistryStudiosSource(venueId)
   const isChunkyMuffinsVenue = isChunkyMuffinsSource(venueId)
   const isCarberrysVenue = isCarberrysEventsSource(venueId)
+  const isSheWorldVenue = isSheWorldSource(venueId)
 
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue) return 0
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue && !isSheWorldVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
@@ -2047,6 +2048,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
 
         if (isCarberrysVenue) {
           return isCarberrysJunkExistingEvent({ ...event, venue_id: venueId })
+        }
+
+        if (isSheWorldVenue) {
+          return isSheWorldJunkExistingEvent({ ...event, venue_id: venueId })
         }
 
         return false
@@ -5811,6 +5816,209 @@ function extractCarberrysEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+
+function isSheWorldSource(venueId: string | null | undefined, sourceUrl?: string | null) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('she_world_club_stratford_london') ||
+    combined.includes('she.world')
+  )
+}
+
+function discoverSheWorldEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/event-dates'),
+    absoluteUrl(sourceUrl, '/event-entry-tickets'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'she.world' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isSheWorldJunkEventTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exactJunk = new Set([
+    'event entry',
+    'event entry tickets',
+    'select event date to purchase ticket',
+    'sign in',
+    'create account',
+    'my account',
+    'signed in as',
+    'sign out',
+    'home',
+    'who is she',
+    'contact me',
+    'event dates',
+    'f a qs',
+    'faqs',
+    'membership',
+    'hotels near sheworld',
+    'make up appointment',
+    'conditions of entry rules',
+    'account',
+    'privacy policy',
+    'tvchix reviews',
+    'she world club',
+    'she world',
+  ])
+
+  if (exactJunk.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  const junkFragments = [
+    'signed in as',
+    'filler godaddy',
+    'open menu close menu',
+    '07590556766',
+    'sabrina she world',
+    'all rights reserved',
+    'copyright',
+    'entry 20 only',
+    'select event date',
+  ]
+
+  return junkFragments.some((fragment) => cleaned.includes(fragment))
+}
+
+function isSheWorldJunkEvent(input: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!isSheWorldSource(input.venue_id, input.ticket_url)) return false
+
+  const cleanedTitle = normalizeTitle(input.event_name || '')
+  const cleanedUrl = String(input.ticket_url || '').toLowerCase()
+  const cleanedCombined = normalizeTitle(
+    `${input.event_name || ''} ${input.description || ''} ${input.ticket_url || ''}`
+  )
+
+  if (isSheWorldJunkEventTitle(input.event_name || '')) return true
+  if (!input.event_date) return true
+  if (cleanedTitle === 'event entry') return true
+  if (cleanedUrl.includes('/event-entry-tickets') && cleanedCombined.includes('event entry') && !cleanedCombined.includes('club night')) return true
+
+  return false
+}
+
+function isSheWorldJunkExistingEvent(event: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  return isSheWorldJunkEvent({
+    venue_id: event.venue_id,
+    event_name: event.event_name,
+    event_date: event.event_date,
+    description: event.description,
+    ticket_url: event.ticket_url,
+  })
+}
+
+function formatSheWorldDate(date: Date) {
+  return validDateOrNull(
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  )
+}
+
+function extractSheWorldEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isSheWorldSource('she_world_club_stratford_london', baseUrl)) return candidates
+
+  try {
+    const path = new URL(baseUrl).pathname.replace(/\/+$/, '').toLowerCase() || '/'
+    if (path !== '/event-dates') return candidates
+  } catch {
+    return candidates
+  }
+
+  const pageText = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
+  const pageTextNormalised = normalizeTitle(pageText)
+  const pageImage = extractBestImage(html, baseUrl)
+  const ticketUrl = 'https://she.world/event-entry-tickets'
+  const today = new Date()
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const seen = new Set<string>()
+
+  const hasSaturday = pageTextNormalised.includes('every saturday')
+  const hasThursday = pageTextNormalised.includes('every thursday')
+
+  const pushSheWorldRecurring = (input: {
+    title: string
+    eventDate: string | null
+    startTime: string
+    raw: string
+  }) => {
+    if (!input.eventDate) return
+
+    const key = `${normalizeTitle(input.title)}|${input.eventDate}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href: ticketUrl,
+      text: input.title,
+      event_date: input.eventDate,
+      start_time: input.startTime,
+      raw: input.raw,
+      image_url: pageImage,
+      method: 'she-world-recurring-openings',
+    })
+  }
+
+  for (let offset = 0; offset <= 120; offset++) {
+    const date = new Date(start)
+    date.setDate(start.getDate() + offset)
+
+    const eventDate = formatSheWorldDate(date)
+    if (!eventDate) continue
+
+    if (hasThursday && date.getDay() === 4) {
+      pushSheWorldRecurring({
+        title: 'She World Thursday Club Night',
+        eventDate,
+        startTime: '13:00',
+        raw: 'Open every Thursday 1pm - 1am. Entry 20+ only.',
+      })
+    }
+
+    if (hasSaturday && date.getDay() === 6) {
+      pushSheWorldRecurring({
+        title: 'She World Saturday Club Night',
+        eventDate,
+        startTime: '20:00',
+        raw: 'Open every Saturday 8pm-3am. Entry 20+ only.',
+      })
+    }
+  }
+
+  return candidates
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -5835,7 +6043,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isHu9Source(venueId, sourceUrl) ||
     isPlusciousPartiesSource(venueId, sourceUrl) ||
     isChunkyMuffinsSource(venueId, sourceUrl) ||
-    isCarberrysEventsSource(venueId, sourceUrl)
+    isCarberrysEventsSource(venueId, sourceUrl) ||
+    isSheWorldSource(venueId, sourceUrl)
   )
 }
 
@@ -5959,6 +6168,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isSheWorldSource(source.venue_id, source.source_url)) {
+    for (const url of discoverSheWorldEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   if (isHu9Source(source.venue_id, source.source_url)) {
     for (const url of discoverHu9EventPages(source.source_url)) {
       urls.add(url)
@@ -5982,6 +6197,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isHu9Source(venueId, pageUrl)) return extractHu9Events(html, pageUrl)
   if (isPlusciousPartiesSource(venueId, pageUrl)) return extractPlusciousPartiesEvents(html, pageUrl)
   if (isCarberrysEventsSource(venueId, pageUrl)) return extractCarberrysEvents(html, pageUrl)
+  if (isSheWorldSource(venueId, pageUrl)) return extractSheWorldEvents(html, pageUrl)
 
   return [] as {
     href: string
@@ -7852,6 +8068,7 @@ function candidateRejectionReason(input: {
   if (isMinistryStudiosJunkEvent({ ...input, event_name: eventName })) return 'rejected_ministry_studios_junk'
   if (isChunkyMuffinsJunkEvent({ ...input, event_name: eventName })) return 'rejected_chunky_muffins_junk'
   if (isCarberrysJunkEvent({ ...input, event_name: eventName })) return 'rejected_carberrys_junk'
+  if (isSheWorldJunkEvent({ ...input, event_name: eventName })) return 'rejected_she_world_junk'
 
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
@@ -7928,6 +8145,7 @@ async function cleanupBadExistingEvents() {
       if (isMinistryStudiosJunkExistingEvent(event)) return true
       if (isChunkyMuffinsJunkExistingEvent(event)) return true
       if (isCarberrysJunkExistingEvent(event)) return true
+      if (isSheWorldJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
@@ -8194,7 +8412,8 @@ export async function GET(request: Request) {
       isLeBoudoirSource(`${source.source_url} ${source.venue_id}`) ||
       isMinistryStudiosSource(source.venue_id, source.source_url) ||
       isChunkyMuffinsSource(source.venue_id, source.source_url) ||
-      isCarberrysEventsSource(source.venue_id, source.source_url)
+      isCarberrysEventsSource(source.venue_id, source.source_url) ||
+      isSheWorldSource(source.venue_id, source.source_url)
     ) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
@@ -9029,7 +9248,7 @@ ${hu9HydratedText}`, pageUrl)
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (!isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
+          if (!isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
             if (eventHtml) {
