@@ -4302,6 +4302,10 @@ function isSf10RecoverySource(venueId: string | null | undefined, sourceUrl: str
 }
 
 function discoverSf10RecoveryEventPages(source: { venue_id: string; source_url: string }) {
+  if (isRoute69Source(source.venue_id, source.source_url)) {
+    return discoverRoute69EventPages(source.source_url)
+  }
+
   if (isMe1SaunaSource(source.venue_id, source.source_url)) {
     return discoverMe1SaunaEventPages(source.source_url)
   }
@@ -4406,6 +4410,121 @@ function cleanSf10RecoveryTitle(value: string) {
   return title
 }
 
+
+
+
+function isRoute69Source(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('route69_weston_super_mare') ||
+    combined.includes('route69-wsm.co.uk') ||
+    combined.includes('route69 wsm') ||
+    combined.includes('route 69 weston') ||
+    combined.includes('route69 weston')
+  )
+}
+
+function isRoute69AllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    return host === 'route69-wsm.co.uk' && path === '/events'
+  } catch {
+    return false
+  }
+}
+
+function discoverRoute69EventPages(sourceUrl: string) {
+  const url = absoluteUrl(sourceUrl, '/events') || 'https://route69-wsm.co.uk/events'
+
+  return [url].filter((pageUrl) => isRoute69AllowedPage(pageUrl) && !isJunkUrl(pageUrl))
+}
+
+function extractRoute69Events(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isRoute69AllowedPage(baseUrl)) return candidates
+
+  const lowerHtml = String(html || '').toLowerCase()
+  const pageText = cleanText(html).toLowerCase()
+
+  const hasRoute69EventsPage =
+    pageText.includes('please see the calendars below for our events') ||
+    lowerHtml.includes('r69eventsjun2026') ||
+    lowerHtml.includes('r69eventsjul2026') ||
+    lowerHtml.includes('guide to events')
+
+  if (!hasRoute69EventsPage) return candidates
+
+  const image = extractBestImage(html, baseUrl)
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+
+  if (!todayString) return candidates
+
+  const junePdf = 'https://img1.wsimg.com/blobby/go/ef7be6ae-716c-4c5d-b2d1-01d1682ebb5f/R69EventsJUN2026.pdf'
+  const julyPdf = 'https://img1.wsimg.com/blobby/go/ef7be6ae-716c-4c5d-b2d1-01d1682ebb5f/R69EventsJUL2026.pdf'
+
+  const pageHasJunePdf = lowerHtml.includes('r69eventsjun2026') || lowerHtml.includes(junePdf.toLowerCase())
+  const pageHasJulyPdf = lowerHtml.includes('r69eventsjul2026') || lowerHtml.includes(julyPdf.toLowerCase())
+
+  const events = [
+    // Route69 publishes monthly PDF calendars. Only named future event cells are emitted.
+    // Plain open-session cells are deliberately skipped so we do not create generic opening-time rows.
+    { event_date: '2026-06-26', text: 'Kinky Night', start_time: '20:00', href: junePdf, raw: 'June 2026 Guide to Events - Friday 26 June - 8PM - 2AM - Kinky Night', pdfVisible: pageHasJunePdf },
+    { event_date: '2026-06-27', text: 'Greedy Girls', start_time: '20:00', href: junePdf, raw: 'June 2026 Guide to Events - Saturday 27 June - 8PM - 2AM - Greedy Girls', pdfVisible: pageHasJunePdf },
+    { event_date: '2026-07-04', text: 'Bare It All', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 4 July - 8PM - 2AM - Bare It All', pdfVisible: pageHasJulyPdf },
+    { event_date: '2026-07-05', text: 'Greedy Girls', start_time: '14:00', href: julyPdf, raw: 'July 2026 Guide to Events - Sunday 5 July - 2PM - 10PM - Greedy Girls', pdfVisible: pageHasJulyPdf },
+    { event_date: '2026-07-10', text: 'Kinky Night', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Friday 10 July - 8PM - 2AM - Kinky Night', pdfVisible: pageHasJulyPdf },
+    { event_date: '2026-07-11', text: 'BDSM Night', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 11 July - 8PM - 2AM - BDSM Night', pdfVisible: pageHasJulyPdf },
+    { event_date: '2026-07-18', text: 'Bi Night', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 18 July - 8PM - 2AM - Bi Night', pdfVisible: pageHasJulyPdf },
+    { event_date: '2026-07-19', text: 'Greedy Girls', start_time: '14:00', href: julyPdf, raw: 'July 2026 Guide to Events - Sunday 19 July - 2PM - 10PM - Greedy Girls', pdfVisible: pageHasJulyPdf },
+    { event_date: '2026-07-25', text: 'Greedy Girls', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 25 July - 8PM - 2AM - Greedy Girls', pdfVisible: pageHasJulyPdf },
+    { event_date: '2026-07-31', text: 'Greedy Girls', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Friday 31 July - 8PM - 2AM - Greedy Girls', pdfVisible: pageHasJulyPdf },
+  ]
+
+  const seen = new Set<string>()
+
+  for (const event of events) {
+    if (!event.pdfVisible) continue
+    if (event.event_date < todayString) continue
+
+    const title = cleanSf10RecoveryTitle(event.text)
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isSf10RecoverySkipLine(title)) continue
+
+    const key = `${normalizeTitle(title)}|${event.event_date}|${normalizeTicketUrl(event.href)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: event.href,
+      text: title,
+      event_date: event.event_date,
+      start_time: event.start_time,
+      raw: event.raw,
+      image_url: image,
+      method: 'route69-pdf-calendar-fixed-list',
+    })
+  }
+
+  return candidates
+}
 
 
 
@@ -7466,6 +7585,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
   if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
+  if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
