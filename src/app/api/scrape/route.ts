@@ -372,6 +372,7 @@ const TBC_VENUE_BLACKLIST = [
   'swindon_swingers_swindon',
   'torture_garden_london_uk_events',
   'clubzeus_sauna_mansfield',
+  'number_52_newcastle_upon_tyne',
 ]
 
 const TBC_EVENT_NAME_BLACKLIST = [
@@ -4443,6 +4444,161 @@ function addDaysUtc(date: Date, days: number) {
   return next
 }
 
+
+function isNumber52Source(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('number_52_newcastle_upon_tyne') ||
+    combined.includes('number52sauna.co.uk')
+  )
+}
+
+function isNumber52AllowedPage(pageUrl: string) {
+  try {
+    const url = new URL(pageUrl)
+    const host = url.hostname.replace(/^www\./, '').toLowerCase()
+    const path = url.pathname.replace(/\/+$/, '') || '/'
+
+    if (host !== 'number52sauna.co.uk') return false
+    if (path === '/' || path === '/our-events') return true
+    if (path === '/event/dare-to-bare') return true
+    if (path === '/event/sports-chav-night') return true
+    if (path === '/event/blackout') return true
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+function discoverNumber52EventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+  const base = absoluteUrl(sourceUrl, '/') || 'https://www.number52sauna.co.uk/'
+
+  for (const path of [
+    '/our-events/',
+    '/event/dare-to-bare/',
+    '/event/sports-chav-night/',
+    '/event/blackout/',
+  ]) {
+    const url = absoluteUrl(base, path)
+    if (url) urls.add(url)
+  }
+
+  return [...urls].filter((url) => isNumber52AllowedPage(url) && !isJunkUrl(url))
+}
+
+function nthWeekdayOfMonthUtc(year: number, monthIndex: number, weekday: number, nth: number) {
+  const cursor = new Date(Date.UTC(year, monthIndex, 1))
+
+  while (cursor.getUTCDay() !== weekday) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+
+  cursor.setUTCDate(cursor.getUTCDate() + ((nth - 1) * 7))
+
+  if (cursor.getUTCMonth() !== monthIndex) return null
+  return datePartsToString(cursor)
+}
+
+function extractNumber52Events(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isNumber52AllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const hasNumber52Signals =
+    pageText.includes('number 52 sauna') ||
+    pageText.includes('monthly events') ||
+    pageText.includes('dare to bare') ||
+    pageText.includes('sports chav') ||
+    pageText.includes('blackout')
+
+  if (!hasNumber52Signals) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const year = today.getUTCFullYear()
+  const seen = new Set<string>()
+  const eventBase = 'https://www.number52sauna.co.uk'
+
+  const addCandidate = (title: string, eventDate: string | null, href: string, raw: string) => {
+    if (!eventDate || eventDate < todayString) return
+    if (eventDate.endsWith('-12-24') || eventDate.endsWith('-12-25')) return
+
+    const key = `${normalizeTitle(title)}|${eventDate}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: `Number 52: ${title}`,
+      event_date: eventDate,
+      start_time: '18:00',
+      raw,
+      image_url: null,
+      method: 'number52-official-schedule',
+    })
+  }
+
+  for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
+    const firstFriday = nthWeekdayOfMonthUtc(year, monthIndex, 5, 1)
+    const secondFriday = nthWeekdayOfMonthUtc(year, monthIndex, 5, 2)
+    const firstSaturday = nthWeekdayOfMonthUtc(year, monthIndex, 6, 1)
+    const thirdSaturday = nthWeekdayOfMonthUtc(year, monthIndex, 6, 3)
+    const fourthThursday = nthWeekdayOfMonthUtc(year, monthIndex, 4, 4)
+
+    addCandidate(
+      'Dare To Bare',
+      firstFriday,
+      `${eventBase}/event/dare-to-bare/#${firstFriday}`,
+      'Dare To Bare. Official Number 52 repeating event page describes this as the optional no-towels event, open to everyone. Time: 6:00pm - 10:00pm.'
+    )
+
+    addCandidate(
+      'Top/Vers/Bottom Night',
+      secondFriday,
+      `${eventBase}/our-events/#top-vers-bottom-${secondFriday}`,
+      'Top/Vers/Bottom Night. Official Number 52 monthly event calendar listing. Time: 6:00pm - 10:00pm.'
+    )
+
+    addCandidate(
+      'Blackout',
+      firstSaturday,
+      `${eventBase}/event/blackout/#${firstSaturday}`,
+      'Blackout. Official Number 52 repeating event page. Time: 6:00pm - 10:00pm.'
+    )
+
+    addCandidate(
+      'Dare To Bare',
+      thirdSaturday,
+      `${eventBase}/event/dare-to-bare/#${thirdSaturday}`,
+      'Dare To Bare. Official Number 52 monthly calendar listing also surfaces the Saturday Dare To Bare event. Time: 6:00pm - 10:00pm.'
+    )
+
+    addCandidate(
+      'Sports/Chav Night',
+      fourthThursday,
+      `${eventBase}/event/sports-chav-night/#${fourthThursday}`,
+      'Sports/Chav Night. Official Number 52 repeating event page. Time: 6:00pm - 10:00pm.'
+    )
+  }
+
+  return candidates
+}
+
 function ourPlace4FunEventForDate(eventDate: string) {
   const date = dateFromYmd(eventDate)
   const weekday = date.getUTCDay()
@@ -8458,6 +8614,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isTortureGardenSource(venueId, sourceUrl) ||
     isRiotPartySource(venueId, sourceUrl) ||
     isSaintsAndSinnersSource(venueId, sourceUrl) ||
+    isNumber52Source(venueId, sourceUrl) ||
     isClubZeusSource(venueId, sourceUrl) ||
     isOurPlace4FunSource(venueId, sourceUrl)
   )
@@ -8469,6 +8626,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isNumber52Source(source.venue_id, source.source_url)) {
+    return isNumber52AllowedPage(pageUrl)
+  }
+
   if (isOurPlace4FunSource(source.venue_id, source.source_url)) {
     return isOurPlace4FunAllowedPage(pageUrl)
   }
@@ -8547,6 +8708,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isNumber52Source(source.venue_id, source.source_url)) {
+    return discoverNumber52EventPages(source.source_url)
+  }
 
   if (isOurPlace4FunSource(source.venue_id, source.source_url)) {
     return discoverOurPlace4FunEventPages(source.source_url)
@@ -8714,6 +8879,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isNumber52Source(venueId, pageUrl)) return extractNumber52Events(html, pageUrl)
   if (isOurPlace4FunSource(venueId, pageUrl)) return extractOurPlace4FunEvents(html, pageUrl)
   if (isClubZeusSource(venueId, pageUrl)) return extractClubZeusEvents(html, pageUrl)
   if (isSaintsAndSinnersSource(venueId, pageUrl)) return extractSaintsAndSinnersEvents(html, pageUrl)
@@ -11372,6 +11538,8 @@ export async function GET(request: Request) {
           ? targetVenueDiscoveredUrls
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? targetVenueDiscoveredUrls
+            : isNumber52Source(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isOurPlace4FunSource(source.venue_id, source.source_url)
               ? targetVenueDiscoveredUrls
             : isSaintsAndSinnersSource(source.venue_id, source.source_url)
@@ -11398,6 +11566,8 @@ export async function GET(request: Request) {
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
+          : isNumber52Source(source.venue_id, source.source_url)
+            ? 4
           : isOurPlace4FunSource(source.venue_id, source.source_url)
             ? 2
           : isSaintsAndSinnersSource(source.venue_id, source.source_url)
@@ -11819,7 +11989,7 @@ ${hu9HydratedText}`, pageUrl)
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (!isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
+          if (!isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
             if (eventHtml) {
@@ -11845,6 +12015,10 @@ ${hu9HydratedText}`, pageUrl)
           }
 
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
+            imageUrl = null
+          }
+
+          if (isNumber52Source(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
             imageUrl = null
           }
 
@@ -12148,6 +12322,11 @@ ${hu9HydratedText}`, pageUrl)
             continue
           }
 
+          if (isNumber52Source(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isOurPlace4FunSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12209,6 +12388,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const calendarEvent of calendarLinks) {
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
+          if (isNumber52Source(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
@@ -12298,6 +12482,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const link of links) {
           if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
+          if (isNumber52Source(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
