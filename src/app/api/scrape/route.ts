@@ -3589,10 +3589,202 @@ function extractNo3ClubEvents(html: string, baseUrl: string) {
     })
   }
 
+
   return candidates
 }
 
 
+
+function isClubCollaredSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('club_collared_manchester_london') ||
+    combined.includes('clubcollared.com') ||
+    combined.includes('legacy.clubcollared.com') ||
+    combined.includes('club collared') ||
+    combined.includes('collared london') ||
+    combined.includes('collared manchester')
+  )
+}
+
+function isClubCollaredAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (host === 'legacy.clubcollared.com' && path === '/') return true
+    if (host !== 'clubcollared.com') return false
+    if (path === '/') return true
+    if (path === '/event-info') {
+      const eventName = normalizeTitle(parsed.searchParams.get('event') || '')
+      return eventName === 'collared london' || eventName === 'collared manchester'
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+function discoverClubCollaredEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/event-info?event=Collared%20London'),
+    absoluteUrl(sourceUrl, '/event-info?event=Collared%20Manchester'),
+    'https://legacy.clubcollared.com/',
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => isClubCollaredAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractClubCollaredEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isClubCollaredAllowedPage(baseUrl)) return candidates
+
+  const pageText = cleanText(html).toLowerCase()
+  const parsed = new URL(baseUrl)
+  const selectedEvent = normalizeTitle(parsed.searchParams.get('event') || '')
+  const isLegacyPage = parsed.hostname.replace(/^www\./, '').toLowerCase() === 'legacy.clubcollared.com'
+  const pageImage = (() => {
+    const image = extractBestImage(html, baseUrl)
+    if (!image || image.includes('${') || image.includes('%7b') || image.includes('%7D')) return null
+    return image
+  })()
+
+  const hasCollaredSchedule =
+    selectedEvent === 'collared london' ||
+    selectedEvent === 'collared manchester' ||
+    pageText.includes('london 2nd and 4th saturday') ||
+    pageText.includes('2nd and 4th saturday of the month') ||
+    pageText.includes('manchester 1st saturday') ||
+    pageText.includes('first saturday of the month') ||
+    pageText.includes('collared manchester') ||
+    pageText.includes('collared london')
+
+  if (!hasCollaredSchedule) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  const endDate = new Date(Date.UTC(now.getUTCFullYear(), 11, 31))
+
+  if (!todayString || endDate < today) return candidates
+
+  const seen = new Set<string>()
+
+  const pushCollaredCandidate = (input: {
+    title: string
+    eventDate: string | null
+    startTime: string | null
+    raw: string
+    href: string
+  }) => {
+    if (!input.eventDate || input.eventDate < todayString) return
+
+    let title = cleanEventName(input.title)
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isJunkTitle(title)) return
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const key = `${normalizeTitle(title)}|${input.eventDate}|${normalizeTicketUrl(input.href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href: input.href,
+      text: title,
+      event_date: input.eventDate,
+      start_time: input.startTime,
+      raw: cleanText(input.raw || title).slice(0, 500),
+      image_url: pageImage,
+      method: 'club-collared-recurring-schedule',
+    })
+  }
+
+  const addMonthlyWeekday = (input: {
+    title: string
+    weekday: number
+    nth: number
+    startTime: string
+    raw: string
+    href: string
+  }) => {
+    for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
+      const occurrence = nthWeekdayOfMonth(today.getUTCFullYear(), monthIndex, input.weekday, input.nth)
+      const eventDate = occurrence ? datePartsToString(occurrence) : null
+
+      pushCollaredCandidate({
+        title: input.title,
+        eventDate,
+        startTime: input.startTime,
+        raw: input.raw,
+        href: input.href,
+      })
+    }
+  }
+
+  const shouldEmitLondon =
+    selectedEvent === 'collared london' ||
+    isLegacyPage ||
+    pageText.includes('collared london') ||
+    pageText.includes('london 2nd and 4th saturday') ||
+    pageText.includes('central station') ||
+    pageText.includes('the underground')
+
+  const shouldEmitManchester =
+    selectedEvent === 'collared manchester' ||
+    isLegacyPage ||
+    pageText.includes('collared manchester') ||
+    pageText.includes('manchester 1st saturday') ||
+    pageText.includes('the eagle') ||
+    pageText.includes('eagle bar')
+
+  if (shouldEmitLondon) {
+    addMonthlyWeekday({
+      title: 'Collared London',
+      weekday: 6,
+      nth: 2,
+      startTime: '19:00',
+      raw: 'Collared London. 2nd and 4th Saturday of the month at Central Station / The Underground, 7pm-12am.',
+      href: 'https://clubcollared.com/event-info?event=Collared%20London',
+    })
+
+    addMonthlyWeekday({
+      title: 'Collared London',
+      weekday: 6,
+      nth: 4,
+      startTime: '19:00',
+      raw: 'Collared London. 2nd and 4th Saturday of the month at Central Station / The Underground, 7pm-12am.',
+      href: 'https://clubcollared.com/event-info?event=Collared%20London',
+    })
+  }
+
+  if (shouldEmitManchester) {
+    addMonthlyWeekday({
+      title: 'Collared Manchester',
+      weekday: 6,
+      nth: 1,
+      startTime: '18:00',
+      raw: 'Collared Manchester. 1st Saturday of the month at The Eagle / Eagle Bar Manchester, 6pm-11pm.',
+      href: 'https://clubcollared.com/event-info?event=Collared%20Manchester',
+    })
+  }
+
+  return candidates
+}
 
 
 
@@ -7475,7 +7667,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isMirageLincolnSource(venueId, sourceUrl) ||
     isCjsTownhouseSource(venueId, sourceUrl) ||
     isGgsLoungeSource(venueId, sourceUrl) ||
-    isNo3ClubSource(venueId, sourceUrl)
+    isNo3ClubSource(venueId, sourceUrl) ||
+    isClubCollaredSource(venueId, sourceUrl)
   )
 }
 
@@ -7485,6 +7678,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isClubCollaredSource(source.venue_id, source.source_url)) {
+    return isClubCollaredAllowedPage(pageUrl)
+  }
+
   if (isNo3ClubSource(source.venue_id, source.source_url)) {
     return isNo3ClubAllowedPage(pageUrl)
   }
@@ -7539,6 +7736,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isClubCollaredSource(source.venue_id, source.source_url)) {
+    return discoverClubCollaredEventPages(source.source_url)
+  }
 
   if (isNo3ClubSource(source.venue_id, source.source_url)) {
     return discoverNo3ClubEventPages(source.source_url)
@@ -7682,6 +7883,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isClubCollaredSource(venueId, pageUrl)) return extractClubCollaredEvents(html, pageUrl)
   if (isNo3ClubSource(venueId, pageUrl)) return extractNo3ClubEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
   if (isHu9Source(venueId, pageUrl)) return extractHu9Events(html, pageUrl)
@@ -10334,6 +10536,8 @@ export async function GET(request: Request) {
           ? targetVenueDiscoveredUrls
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? targetVenueDiscoveredUrls
+            : isClubCollaredSource(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isAcquaSource(source.venue_id, source.source_url)
               ? acquaDiscoveredUrls
               : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
@@ -10350,6 +10554,8 @@ export async function GET(request: Request) {
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
+          : isClubCollaredSource(source.venue_id, source.source_url)
+            ? 3
           : isNo3ClubSource(source.venue_id, source.source_url)
             ? 3
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
@@ -11178,6 +11384,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isClubCollaredSource(source.venue_id, source.source_url)) {
+            skipped++
+            continue
+          }
+
           if (isNo3ClubSource(source.venue_id, source.source_url)) {
             skipped++
             continue
