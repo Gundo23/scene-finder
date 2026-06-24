@@ -4302,6 +4302,10 @@ function isSf10RecoverySource(venueId: string | null | undefined, sourceUrl: str
 }
 
 function discoverSf10RecoveryEventPages(source: { venue_id: string; source_url: string }) {
+  if (isGatehouseBoltonSource(source.venue_id, source.source_url)) {
+    return discoverGatehouseBoltonEventPages(source.source_url)
+  }
+
   const urls = new Set<string>()
   urls.add(source.source_url)
 
@@ -4313,7 +4317,6 @@ function discoverSf10RecoveryEventPages(source: { venue_id: string; source_url: 
     ignite_west_drayton_heathrow: ['/events-new/', '/events-new', '/events/', '/events'],
     me1_sauna_rochester_kent: ['/events', '/events/'],
     the_annex_king_s_lynn: ['/events-2/', '/events-2', '/events/', '/events'],
-    the_new_gatehouse_bolton_bolton: ['/other-events', '/other-events/', '/events/', '/events'],
     riot_party_london_manchester_bristol: ['/upcoming-events/', '/upcoming-events', '/events/', '/events'],
     route69_weston_super_mare: ['/events', '/events/'],
   }
@@ -4397,6 +4400,147 @@ function cleanSf10RecoveryTitle(value: string) {
   }
 
   return title
+}
+
+
+
+function isGatehouseBoltonSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('the_new_gatehouse_bolton_bolton') ||
+    combined.includes('thenewgatehousebolton.co.uk') ||
+    combined.includes('the new gatehouse bolton') ||
+    combined.includes('gh events bolton')
+  )
+}
+
+function isGatehouseBoltonAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    return host === 'thenewgatehousebolton.co.uk' && path === '/what-s-on'
+  } catch {
+    return false
+  }
+}
+
+function discoverGatehouseBoltonEventPages(sourceUrl: string) {
+  const url = absoluteUrl(sourceUrl, '/what-s-on') || 'https://www.thenewgatehousebolton.co.uk/what-s-on'
+
+  return [url].filter((pageUrl) => isGatehouseBoltonAllowedPage(pageUrl) && !isJunkUrl(pageUrl))
+}
+
+function extractGatehouseBoltonEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isGatehouseBoltonAllowedPage(baseUrl)) return candidates
+
+  const pageText = cleanText(html).toLowerCase()
+
+  // The Gatehouse upcoming-events page is gallery/poster based. The reliable
+  // machine-readable source is the What's On weekly programme, so keep this
+  // parser deliberately fixed to that venue/page only.
+  const hasGatehouseSchedule =
+    pageText.includes('monday funday') ||
+    pageText.includes('men only day') ||
+    pageText.includes('tgirls and admirers') ||
+    pageText.includes('fetish fridays') ||
+    pageText.includes('super saturday')
+
+  if (!hasGatehouseSchedule) return candidates
+
+  const image = extractBestImage(html, baseUrl)
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const endDate = new Date(Date.UTC(now.getUTCFullYear(), 11, 31))
+  const todayString = datePartsToString(today)
+
+  if (!todayString || endDate < today) return candidates
+
+  const schedule = [
+    {
+      weekday: 1,
+      text: 'Monday Funday',
+      start_time: '12:00',
+      raw: 'Monday - Monday funday - 12 noon till 6pm',
+    },
+    {
+      weekday: 2,
+      text: 'Men Only Day',
+      start_time: '10:00',
+      raw: 'Tuesday - Men Only day - 10am till 4pm',
+    },
+    {
+      weekday: 3,
+      text: 'Tgirls and Admirers',
+      start_time: '11:00',
+      raw: 'Wednesday - Tgirls and admirers - 11am till midnight. Tgirls can gain access from 10am.',
+    },
+    {
+      weekday: 4,
+      text: 'Bisexual Day',
+      start_time: '10:00',
+      raw: 'Thursday - Bi sexual day - 10am till 4pm',
+    },
+    {
+      weekday: 5,
+      text: 'Fetish Friday',
+      start_time: '12:00',
+      raw: 'Friday - Fetish Fridays - 12 noon till 1am',
+    },
+    {
+      weekday: 6,
+      text: 'Super Saturday - Tgirl Friendly Mixed Event',
+      start_time: '12:00',
+      raw: 'Super Saturday 12 noon til late. Tgirl Friendly Mixed Event. Tgirls can gain access from 11am.',
+    },
+  ]
+
+  const seen = new Set<string>()
+
+  for (const item of schedule) {
+    const occurrence = new Date(today)
+    const daysUntil = (item.weekday - occurrence.getUTCDay() + 7) % 7
+    occurrence.setUTCDate(occurrence.getUTCDate() + daysUntil)
+
+    while (occurrence <= endDate) {
+      const eventDate = datePartsToString(occurrence)
+
+      if (eventDate && eventDate >= todayString) {
+        const href = eventUrlWithAnchor(baseUrl, item.text)
+        const key = `${normalizeTitle(item.text)}|${eventDate}`
+
+        if (!seen.has(key)) {
+          seen.add(key)
+
+          candidates.push({
+            href,
+            text: item.text,
+            event_date: eventDate,
+            start_time: item.start_time,
+            raw: item.raw,
+            image_url: image,
+            method: 'gatehouse-bolton-weekly-schedule',
+          })
+        }
+      }
+
+      occurrence.setUTCDate(occurrence.getUTCDate() + 7)
+    }
+  }
+
+  return candidates
 }
 
 
@@ -6946,6 +7090,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isGatehouseBoltonSource(source.venue_id, source.source_url)) {
+    return isGatehouseBoltonAllowedPage(pageUrl)
+  }
+
   if (isHu9Source(source.venue_id, source.source_url)) {
     try {
       const sourceOrigin = new URL(source.source_url).origin
@@ -6984,6 +7132,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isGatehouseBoltonSource(source.venue_id, source.source_url)) {
+    return discoverGatehouseBoltonEventPages(source.source_url)
+  }
 
   if (isHu9Source(source.venue_id, source.source_url)) {
     return discoverHu9EventPages(source.source_url)
@@ -7112,6 +7264,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
   if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
+  if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
   if (isHu9Source(venueId, pageUrl)) return extractHu9Events(html, pageUrl)
   if (isPlusciousPartiesSource(venueId, pageUrl)) return extractPlusciousPartiesEvents(html, pageUrl)
@@ -9759,7 +9912,9 @@ export async function GET(request: Request) {
       ? xtasiaDiscoveredUrls
       : isHu9Source(source.venue_id, source.source_url)
         ? targetVenueDiscoveredUrls
-        : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
+        : isGatehouseBoltonSource(source.venue_id, source.source_url)
+          ? targetVenueDiscoveredUrls
+          : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -9768,6 +9923,8 @@ export async function GET(request: Request) {
         : source.venue_id === 'xtasia_west_bromwich'
           ? 2
           : isHu9Source(source.venue_id, source.source_url)
+            ? 1
+          : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
