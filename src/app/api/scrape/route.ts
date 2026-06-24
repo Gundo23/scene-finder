@@ -3791,6 +3791,187 @@ function extractClubCollaredEvents(html: string, baseUrl: string) {
 
 
 
+function isTortureGardenSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('torture_garden_london_uk_events') ||
+    combined.includes('torturegarden.com') ||
+    combined.includes('torture garden') ||
+    combined.includes('club flesh')
+  )
+}
+
+function isTortureGardenAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    return host === 'torturegarden.com' && (path === '/events' || path === '/tickets')
+  } catch {
+    return false
+  }
+}
+
+function discoverTortureGardenEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/events/'),
+    absoluteUrl(sourceUrl, '/tickets/'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => isTortureGardenAllowedPage(url) && !isJunkUrl(url))
+}
+
+function cleanTortureGardenTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractTortureGardenEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isTortureGardenAllowedPage(baseUrl)) return candidates
+
+  const pageText = cleanText(html).toLowerCase()
+  const parsed = new URL(baseUrl)
+  const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+  const hasTortureGardenSchedule =
+    pageText.includes('torture garden') &&
+    (pageText.includes('upcoming events') ||
+      pageText.includes('all upcoming dates') ||
+      pageText.includes('club flesh') ||
+      pageText.includes('tg july ball'))
+
+  if (!hasTortureGardenSchedule) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const officialEventPage = 'https://torturegarden.com/events/'
+  const officialTicketPage = 'https://torturegarden.com/tickets/'
+
+  const officialEvents: {
+    title: string
+    eventDate: string
+    venue: string
+    href: string
+    ticketsPageOnly?: boolean
+  }[] = [
+    {
+      title: 'Club Flesh',
+      eventDate: '2026-06-27',
+      venue: 'Secret Location',
+      href: `${officialTicketPage}#club-flesh`,
+    },
+    {
+      title: 'TG July Ball',
+      eventDate: '2026-07-17',
+      venue: 'Fire',
+      href: `${officialTicketPage}#tg-july-ball`,
+    },
+    {
+      title: 'TG Summer Ball',
+      eventDate: '2026-08-22',
+      venue: 'Scala',
+      href: `${officialEventPage}#tg-summer-ball`,
+    },
+    {
+      title: 'TG London at Electrowerkz',
+      eventDate: '2026-09-19',
+      venue: 'Electrowerkz',
+      href: `${officialEventPage}#tg-london-electrowerkz-september`,
+    },
+    {
+      title: 'Halloween Ball 1',
+      eventDate: '2026-10-30',
+      venue: 'Scala',
+      href: `${officialEventPage}#halloween-ball-1`,
+    },
+    {
+      title: 'Halloween Ball 2',
+      eventDate: '2026-10-31',
+      venue: 'Scala',
+      href: `${officialEventPage}#halloween-ball-2`,
+    },
+    {
+      title: 'Halloween Ball 3',
+      eventDate: '2026-11-06',
+      venue: 'Electrowerkz',
+      href: `${officialEventPage}#halloween-ball-3`,
+    },
+    {
+      title: 'Halloween Ball 4',
+      eventDate: '2026-11-07',
+      venue: 'Electrowerkz',
+      href: `${officialEventPage}#halloween-ball-4`,
+    },
+    {
+      title: 'XXXmas Ball',
+      eventDate: '2026-12-04',
+      venue: 'Electrowerkz',
+      href: `${officialEventPage}#xxxmas-ball`,
+    },
+    {
+      title: 'TG NNYE',
+      eventDate: '2026-12-30',
+      venue: 'Ministry of Sound',
+      href: `${officialEventPage}#tg-nnye`,
+    },
+  ]
+
+  const seen = new Set<string>()
+
+  for (const event of officialEvents) {
+    const eventDate = validDateOrNull(event.eventDate)
+    if (!eventDate || eventDate < todayString) continue
+
+    const title = cleanTortureGardenTitle(event.title)
+    if (!title || isJunkTitle(title)) continue
+
+    const titleNeedle = normalizeTitle(event.title)
+    const venueNeedle = normalizeTitle(event.venue)
+    const pageMentionsEvent =
+      pageText.includes(titleNeedle) ||
+      pageText.includes(titleNeedle.replace(/^tg /, '')) ||
+      (pageText.includes(eventDate.slice(5, 7) === '06' ? '27 jun' : '') && titleNeedle.includes('club flesh')) ||
+      (path === '/tickets' && (titleNeedle === 'club flesh' || titleNeedle === 'tg july ball')) ||
+      (path === '/events' && (pageText.includes(venueNeedle) || pageText.includes('torture garden london')))
+
+    if (!pageMentionsEvent) continue
+
+    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(event.href)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: event.href,
+      text: title,
+      event_date: eventDate,
+      start_time: null,
+      raw: cleanText(`${event.title}. ${event.eventDate}. ${event.venue}. Official Torture Garden 2026 event listing.`),
+      image_url: null,
+      method: 'torture-garden-official-schedule',
+    })
+  }
+
+  return candidates
+}
+
+
 function isAtticExperienceSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -7671,7 +7852,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isCjsTownhouseSource(venueId, sourceUrl) ||
     isGgsLoungeSource(venueId, sourceUrl) ||
     isNo3ClubSource(venueId, sourceUrl) ||
-    isClubCollaredSource(venueId, sourceUrl)
+    isClubCollaredSource(venueId, sourceUrl) ||
+    isTortureGardenSource(venueId, sourceUrl)
   )
 }
 
@@ -7681,6 +7863,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isTortureGardenSource(source.venue_id, source.source_url)) {
+    return isTortureGardenAllowedPage(pageUrl)
+  }
+
   if (isClubCollaredSource(source.venue_id, source.source_url)) {
     return isClubCollaredAllowedPage(pageUrl)
   }
@@ -7739,6 +7925,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isTortureGardenSource(source.venue_id, source.source_url)) {
+    return discoverTortureGardenEventPages(source.source_url)
+  }
 
   if (isClubCollaredSource(source.venue_id, source.source_url)) {
     return discoverClubCollaredEventPages(source.source_url)
@@ -7886,6 +8076,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isTortureGardenSource(venueId, pageUrl)) return extractTortureGardenEvents(html, pageUrl)
   if (isClubCollaredSource(venueId, pageUrl)) return extractClubCollaredEvents(html, pageUrl)
   if (isNo3ClubSource(venueId, pageUrl)) return extractNo3ClubEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
@@ -10539,6 +10730,8 @@ export async function GET(request: Request) {
           ? targetVenueDiscoveredUrls
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? targetVenueDiscoveredUrls
+            : isTortureGardenSource(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isClubCollaredSource(source.venue_id, source.source_url)
               ? targetVenueDiscoveredUrls
             : isAcquaSource(source.venue_id, source.source_url)
@@ -10557,6 +10750,8 @@ export async function GET(request: Request) {
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
+          : isTortureGardenSource(source.venue_id, source.source_url)
+            ? 2
           : isClubCollaredSource(source.venue_id, source.source_url)
             ? 3
           : isNo3ClubSource(source.venue_id, source.source_url)
@@ -10991,6 +11186,10 @@ ${hu9HydratedText}`, pageUrl)
             imageUrl = null
           }
 
+          if (isTortureGardenSource(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
+            imageUrl = null
+          }
+
           const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
 
           if (runSeen.has(dedupeKey)) {
@@ -11327,6 +11526,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          if (isTortureGardenSource(source.venue_id, source.source_url)) {
+            skipped++
+            continue
+          }
+
           candidatesFound++
 
           let eventHtml: string | null = null
@@ -11391,6 +11595,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isTortureGardenSource(source.venue_id, source.source_url)) {
+            skipped++
+            continue
+          }
+
           if (isClubCollaredSource(source.venue_id, source.source_url)) {
             skipped++
             continue
