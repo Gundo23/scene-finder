@@ -2006,8 +2006,9 @@ async function cleanupExistingVenueJunk(venueId: string) {
   const isSheWorldVenue = isSheWorldSource(venueId)
   const isMirageVenue = isMirageLincolnSource(venueId)
   const isCjsVenue = isCjsTownhouseSource(venueId)
+  const isGgsVenue = isGgsLoungeSource(venueId)
 
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue && !isSheWorldVenue && !isMirageVenue && !isCjsVenue) return 0
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue && !isSheWorldVenue && !isMirageVenue && !isCjsVenue && !isGgsVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
@@ -2062,6 +2063,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
 
         if (isCjsVenue) {
           return isCjsTownhouseJunkExistingEvent({ ...event, venue_id: venueId })
+        }
+
+        if (isGgsVenue) {
+          return isGgsLoungeJunkExistingEvent({ ...event, venue_id: venueId })
         }
 
         return false
@@ -6426,6 +6431,245 @@ function extractSheWorldEvents(html: string, baseUrl: string) {
     }
   }
 
+
+  return candidates
+}
+
+
+function isGgsLoungeSource(venueId: string | null | undefined, sourceUrl?: string | null) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('ggs_lounge_runcorn') ||
+    combined.includes('ggsloungeadultlifestyle.co.uk') ||
+    combined.includes('ggs-lounge.com') ||
+    combined.includes('ggs lounge') ||
+    combined.includes("gg's lounge")
+  )
+}
+
+function discoverGgsLoungeEventPages(sourceUrl: string) {
+  const urls = [
+    'https://www.ggsloungeadultlifestyle.co.uk/blank-12',
+    sourceUrl,
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const parsed = new URL(url)
+      const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+      const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+      return host === 'ggsloungeadultlifestyle.co.uk' && path === '/blank-12' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isGgsLoungeJunkEventTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exactJunk = new Set([
+    'events',
+    'previous',
+    'next',
+    'close',
+    'ggs lounge',
+    'gg s lounge',
+    "gg's lounge",
+    'owner of ggs lounge',
+    'owners of ggs lounge',
+    'club rules',
+    'prices info',
+    'gallery',
+  ])
+
+  if (exactJunk.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  return false
+}
+
+function isGgsLoungeJunkEvent(input: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!isGgsLoungeSource(input.venue_id, input.ticket_url)) return false
+
+  const title = cleanEventName(input.event_name || '')
+
+  if (isGgsLoungeJunkEventTitle(title)) return true
+  if (!input.event_date) return true
+
+  return false
+}
+
+function isGgsLoungeJunkExistingEvent(event: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  return isGgsLoungeJunkEvent({
+    venue_id: event.venue_id,
+    event_name: event.event_name,
+    event_date: event.event_date,
+    description: event.description,
+    ticket_url: event.ticket_url,
+  })
+}
+
+function formatGgsLoungeDate(date: Date) {
+  return validDateOrNull(
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  )
+}
+
+function extractGgsLoungeImageUrl(html: string, mediaId: string) {
+  const fallback = `https://static.wixstatic.com/media/${mediaId}`
+  const staticMatches = html.match(/https?:\\?\/\\?\/static\.wixstatic\.com\/media\/[^"'\s<>\\]+/gi) || []
+
+  const found = staticMatches
+    .map((url) => decodeEscapedText(url).replace(/\\\//g, '/'))
+    .find((url) => url.includes(mediaId))
+
+  return found || fallback
+}
+
+function extractGgsLoungeEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isGgsLoungeSource('ggs_lounge_runcorn', baseUrl)) return candidates
+
+  try {
+    const parsed = new URL(baseUrl)
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (host !== 'ggsloungeadultlifestyle.co.uk' || path !== '/blank-12') return candidates
+  } catch {
+    return candidates
+  }
+
+  const htmlLower = html.toLowerCase()
+  const today = new Date()
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const end = new Date(start.getFullYear(), 11, 31)
+
+  if (end.getTime() - start.getTime() < 60 * 24 * 60 * 60 * 1000) {
+    end.setDate(start.getDate() + 180)
+  }
+
+  const seen = new Set<string>()
+  const pushGgsEvent = (input: {
+    title: string
+    eventDate: string | null
+    startTime: string | null
+    raw: string
+    imageUrl: string | null
+  }) => {
+    if (!input.eventDate) return
+    if (isGgsLoungeJunkEventTitle(input.title)) return
+
+    const key = `${normalizeTitle(input.title)}|${input.eventDate}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href: eventUrlWithAnchor(baseUrl, `${input.title}-${input.eventDate}`),
+      text: input.title,
+      event_date: input.eventDate,
+      start_time: input.startTime,
+      raw: cleanText(input.raw).slice(0, 700),
+      image_url: input.imageUrl,
+      method: 'ggs-lounge-poster-schedule',
+    })
+  }
+
+  const recurringPosterRules = [
+    {
+      mediaId: '8c46e8_f24c6a174bfa4885bd35c71aed839a99~mv2.png',
+      title: 'Sexy Midweek Fun',
+      weekday: 3,
+      weekOfMonth: null as number | null,
+      startTime: '19:00',
+      raw: 'GGS Lounge poster schedule: Sexy Midweek Fun, every Wednesday, 7pm-12am.',
+    },
+    {
+      mediaId: '8c46e8_8701f263a59940a2aa689da082db3c86~mv2.png',
+      title: 'Couples & Single Ladies Night',
+      weekday: 5,
+      weekOfMonth: 3,
+      startTime: '19:00',
+      raw: 'GGS Lounge poster schedule: Couples & Single Ladies Night, every third Friday of the month, 7pm-2am. Couples and single females only event.',
+    },
+    {
+      mediaId: '8c46e8_500979d800cf4c4a8364ba2fac79e674~mv2.png',
+      title: 'SOS Social Sunday',
+      weekday: 0,
+      weekOfMonth: 3,
+      startTime: '19:00',
+      raw: 'GGS Lounge poster schedule: SOS Social Sunday, every third Sunday, 7pm-12am. All welcome; photo ID required.',
+    },
+  ]
+
+  for (const rule of recurringPosterRules) {
+    if (!htmlLower.includes(rule.mediaId.toLowerCase())) continue
+
+    const imageUrl = extractGgsLoungeImageUrl(html, rule.mediaId)
+
+    for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+      if (date.getDay() !== rule.weekday) continue
+      if (rule.weekOfMonth === 3 && (date.getDate() < 15 || date.getDate() > 21)) continue
+
+      pushGgsEvent({
+        title: rule.title,
+        eventDate: formatGgsLoungeDate(date),
+        startTime: rule.startTime,
+        raw: rule.raw,
+        imageUrl,
+      })
+    }
+  }
+
+  const jagadooMediaId = '8c46e8_3817138e16ee425bbda1d9fc6f14fc0e~mv2.jpg'
+  if (htmlLower.includes(jagadooMediaId.toLowerCase())) {
+    const imageUrl = extractGgsLoungeImageUrl(html, jagadooMediaId)
+    const todayString = formatGgsLoungeDate(start)
+
+    for (const year of [start.getFullYear(), start.getFullYear() + 1]) {
+      const eventDateObject = new Date(year, 6, 10)
+      const eventDate = formatGgsLoungeDate(eventDateObject)
+
+      if (!eventDate || !todayString) continue
+      if (eventDate < todayString) continue
+      if (eventDateObject.getDay() !== 5) continue
+
+      pushGgsEvent({
+        title: "Mr and Miss Jagadoo's Shit Shirt Night",
+        eventDate,
+        startTime: null,
+        raw: "GGS Lounge poster schedule: Mr and Miss Jagadoo's Shit Shirt Night, Friday 10th July. Fancy dress encouraged; prizes for best shirt.",
+        imageUrl,
+      })
+      break
+    }
+  }
+
   return candidates
 }
 
@@ -6691,7 +6935,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isCarberrysEventsSource(venueId, sourceUrl) ||
     isSheWorldSource(venueId, sourceUrl) ||
     isMirageLincolnSource(venueId, sourceUrl) ||
-    isCjsTownhouseSource(venueId, sourceUrl)
+    isCjsTownhouseSource(venueId, sourceUrl) ||
+    isGgsLoungeSource(venueId, sourceUrl)
   )
 }
 
@@ -6708,6 +6953,15 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
       const targetPath = target.pathname.replace(/\/+$/, '') || '/'
 
       return target.origin === sourceOrigin && targetPath === '/events'
+    } catch {
+      return false
+    }
+  }
+
+  if (isGgsLoungeSource(source.venue_id, source.source_url)) {
+    try {
+      const host = new URL(pageUrl).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'ggsloungeadultlifestyle.co.uk'
     } catch {
       return false
     }
@@ -6833,6 +7087,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isGgsLoungeSource(source.venue_id, source.source_url)) {
+    for (const url of discoverGgsLoungeEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   if (isHu9Source(source.venue_id, source.source_url)) {
     for (const url of discoverHu9EventPages(source.source_url)) {
       urls.add(url)
@@ -6859,6 +7119,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isSheWorldSource(venueId, pageUrl)) return extractSheWorldEvents(html, pageUrl)
   if (isMirageLincolnSource(venueId, pageUrl)) return extractMirageLincolnEvents(html, pageUrl)
   if (isCjsTownhouseSource(venueId, pageUrl)) return extractCjsTownhouseEvents(html, pageUrl)
+  if (isGgsLoungeSource(venueId, pageUrl)) return extractGgsLoungeEvents(html, pageUrl)
 
   return [] as {
     href: string
@@ -8732,6 +8993,7 @@ function candidateRejectionReason(input: {
   if (isSheWorldJunkEvent({ ...input, event_name: eventName })) return 'rejected_she_world_junk'
   if (isMirageLincolnJunkEvent({ ...input, event_name: eventName })) return 'rejected_mirage_lincoln_junk'
   if (isCjsTownhouseJunkEvent({ ...input, event_name: eventName })) return 'rejected_cjs_townhouse_junk'
+  if (isGgsLoungeJunkEvent({ ...input, event_name: eventName })) return 'rejected_ggs_lounge_junk'
 
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
@@ -8811,6 +9073,7 @@ async function cleanupBadExistingEvents() {
       if (isSheWorldJunkExistingEvent(event)) return true
       if (isMirageLincolnJunkExistingEvent(event)) return true
       if (isCjsTownhouseJunkExistingEvent(event)) return true
+      if (isGgsLoungeJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
