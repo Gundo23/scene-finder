@@ -2002,8 +2002,9 @@ async function cleanupExistingVenueJunk(venueId: string) {
   const isLeBoudoirVenue = isLeBoudoirSource(venueId)
   const isMinistryVenue = isMinistryStudiosSource(venueId)
   const isChunkyMuffinsVenue = isChunkyMuffinsSource(venueId)
+  const isCarberrysVenue = isCarberrysEventsSource(venueId)
 
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue) return 0
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
@@ -2042,6 +2043,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
 
         if (isChunkyMuffinsVenue) {
           return isChunkyMuffinsJunkExistingEvent({ ...event, venue_id: venueId })
+        }
+
+        if (isCarberrysVenue) {
+          return isCarberrysJunkExistingEvent({ ...event, venue_id: venueId })
         }
 
         return false
@@ -4670,7 +4675,7 @@ function extractSf10RecoveryEvents(html: string, baseUrl: string, venueId: strin
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|section|article|tr|td)>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|section|article|tr|td|span)>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')
 
   const lines = lineText
@@ -5589,6 +5594,223 @@ function isChunkyMuffinsJunkExistingEvent(event: {
   })
 }
 
+
+function isCarberrysEventsSource(venueId: string | null | undefined, sourceUrl?: string | null) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('carberrys_events_great_yarmouth') ||
+    combined.includes('carberrysevents.com')
+  )
+}
+
+function discoverCarberrysEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/upcomingevents'),
+    absoluteUrl(sourceUrl, '/upcomingevents/'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'carberrysevents.com' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isCarberrysJunkEventTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exactJunk = new Set([
+    'private hire',
+    'special',
+    'to be advised',
+    'thank you',
+    'please contact me',
+    'for details etc',
+    'to hire facilities',
+    'contact me for details',
+    'stay in the loop',
+    'sign up',
+    'email address',
+    'how to find us',
+    'carberrys events',
+    'events',
+    'upcoming',
+  ])
+
+  if (exactJunk.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  const junkFragments = [
+    'contact me for details',
+    'to hire facilities',
+    'to be advised',
+    'private hire',
+    'stay in the loop',
+    'sign up with your email',
+    'email address',
+    'open menu close menu',
+    'skip to content',
+    'north drive',
+    'great yarmouth',
+    'nr30',
+  ]
+
+  return junkFragments.some((fragment) => cleaned.includes(fragment))
+}
+
+function cleanCarberrysTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\bcarberrys\b\s*/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isCarberrysJunkEvent(input: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!isCarberrysEventsSource(input.venue_id, input.ticket_url)) return false
+
+  const title = cleanCarberrysTitle(input.event_name || '')
+  const combined = normalizeTitle(
+    `${input.event_name || ''} ${input.description || ''} ${input.ticket_url || ''}`
+  )
+
+  if (isCarberrysJunkEventTitle(title)) return true
+  if (!input.event_date) return true
+  if (combined.includes('private hire')) return true
+  if (combined.includes('to be advised')) return true
+  if (combined.includes('contact me for details')) return true
+
+  return false
+}
+
+function isCarberrysJunkExistingEvent(event: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  return isCarberrysJunkEvent({
+    venue_id: event.venue_id,
+    event_name: event.event_name,
+    event_date: event.event_date,
+    description: event.description,
+    ticket_url: event.ticket_url,
+  })
+}
+
+function extractCarberrysEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isCarberrysEventsSource('carberrys_events_great_yarmouth', baseUrl)) return candidates
+
+  const pageImage = extractBestImage(html, baseUrl)
+  const seen = new Set<string>()
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|section|article|tr|td)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(decodeEscapedText(line)))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const dateLinePattern =
+    /^(?:(?:mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(20\d{2}))?\s*$/i
+
+  const isDateLine = (line: string) => dateLinePattern.test(line)
+
+  const today = new Date()
+  const todayString = validDateOrNull(
+    `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  )
+
+  for (let index = 0; index < lines.length; index++) {
+    const dateMatch = lines[index].match(dateLinePattern)
+    if (!dateMatch) continue
+
+    const month = monthNameToNumber(dateMatch[2])
+    if (!month) continue
+
+    const day = dateMatch[1].padStart(2, '0')
+    const year = futureSafeYear(month, day, dateMatch[3] || null)
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+    if (!eventDate) continue
+    if (todayString && eventDate < todayString) continue
+
+    const block: string[] = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (isDateLine(lines[next])) break
+      if (normalizeTitle(lines[next]) === 'stay in the loop') break
+      if (normalizeTitle(lines[next]) === 'how to find us') break
+      if (block.length > 1 && isCarberrysJunkEventTitle(lines[next])) break
+      block.push(lines[next])
+      if (block.length >= 8) break
+    }
+
+    const titleLine = block
+      .slice(1)
+      .map((line) => cleanText(line))
+      .find((line) => {
+        if (!line) return false
+        if (line.length > 120) return false
+        if (isCarberrysJunkEventTitle(line)) return false
+        if (/^\d{1,2}(:\d{2})?\s*(am|pm)?\s*(to|until|-)/i.test(line)) return false
+        if (/^carberrys\s+\d/i.test(line)) return false
+        return true
+      }) || ''
+
+    let title = cleanCarberrysTitle(titleLine)
+    if (!title || isCarberrysJunkEventTitle(title)) continue
+    if (title.length > 120) title = title.slice(0, 120).trim()
+
+    const raw = block.join(' ')
+    const href = eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: extractTime(raw),
+      raw: cleanText(raw).slice(0, 500),
+      image_url: pageImage,
+      method: 'carberrys-upcomingevents',
+    })
+  }
+
+  return candidates
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -5612,7 +5834,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isClubFSource(venueId, sourceUrl) ||
     isHu9Source(venueId, sourceUrl) ||
     isPlusciousPartiesSource(venueId, sourceUrl) ||
-    isChunkyMuffinsSource(venueId, sourceUrl)
+    isChunkyMuffinsSource(venueId, sourceUrl) ||
+    isCarberrysEventsSource(venueId, sourceUrl)
   )
 }
 
@@ -5730,6 +5953,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     urls.add(source.source_url)
   }
 
+  if (isCarberrysEventsSource(source.venue_id, source.source_url)) {
+    for (const url of discoverCarberrysEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   if (isHu9Source(source.venue_id, source.source_url)) {
     for (const url of discoverHu9EventPages(source.source_url)) {
       urls.add(url)
@@ -5752,6 +5981,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
   if (isHu9Source(venueId, pageUrl)) return extractHu9Events(html, pageUrl)
   if (isPlusciousPartiesSource(venueId, pageUrl)) return extractPlusciousPartiesEvents(html, pageUrl)
+  if (isCarberrysEventsSource(venueId, pageUrl)) return extractCarberrysEvents(html, pageUrl)
 
   return [] as {
     href: string
@@ -7621,6 +7851,7 @@ function candidateRejectionReason(input: {
 
   if (isMinistryStudiosJunkEvent({ ...input, event_name: eventName })) return 'rejected_ministry_studios_junk'
   if (isChunkyMuffinsJunkEvent({ ...input, event_name: eventName })) return 'rejected_chunky_muffins_junk'
+  if (isCarberrysJunkEvent({ ...input, event_name: eventName })) return 'rejected_carberrys_junk'
 
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
@@ -7696,6 +7927,7 @@ async function cleanupBadExistingEvents() {
       if (isLeBoudoirSource(event.venue_id) && isLeBoudoirJunkExistingEvent(event)) return true
       if (isMinistryStudiosJunkExistingEvent(event)) return true
       if (isChunkyMuffinsJunkExistingEvent(event)) return true
+      if (isCarberrysJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
@@ -7961,7 +8193,8 @@ export async function GET(request: Request) {
       isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`) ||
       isLeBoudoirSource(`${source.source_url} ${source.venue_id}`) ||
       isMinistryStudiosSource(source.venue_id, source.source_url) ||
-      isChunkyMuffinsSource(source.venue_id, source.source_url)
+      isChunkyMuffinsSource(source.venue_id, source.source_url) ||
+      isCarberrysEventsSource(source.venue_id, source.source_url)
     ) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
