@@ -4356,11 +4356,10 @@ function extractClubZeusEvents(html: string, baseUrl: string) {
     if (!eventDate || eventDate < todayString) continue
 
     const titleNeedle = normalizeTitle(event.title)
-    const dateNeedle = normalizeTitle(event.eventDate)
-    const pageMentionsEvent = pageText.includes(titleNeedle) || readableText.includes(event.eventDate)
-    const pageMentionsDate = pageText.includes(dateNeedle) || readableText.includes(event.eventDate)
+    const pageMentionsEvent = pageText.includes(titleNeedle)
+    const pageMentionsWeekendSection = pageText.includes('weekend events')
 
-    if (!pageMentionsEvent || !pageMentionsDate) continue
+    if (!pageMentionsEvent && !pageMentionsWeekendSection) continue
 
     const key = `${normalizeTitle(event.title)}|${eventDate}`
     if (seen.has(key)) continue
