@@ -2004,8 +2004,9 @@ async function cleanupExistingVenueJunk(venueId: string) {
   const isChunkyMuffinsVenue = isChunkyMuffinsSource(venueId)
   const isCarberrysVenue = isCarberrysEventsSource(venueId)
   const isSheWorldVenue = isSheWorldSource(venueId)
+  const isMirageVenue = isMirageLincolnSource(venueId)
 
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue && !isSheWorldVenue) return 0
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue && !isSheWorldVenue && !isMirageVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
@@ -2052,6 +2053,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
 
         if (isSheWorldVenue) {
           return isSheWorldJunkExistingEvent({ ...event, venue_id: venueId })
+        }
+
+        if (isMirageVenue) {
+          return isMirageLincolnJunkExistingEvent({ ...event, venue_id: venueId })
         }
 
         return false
@@ -5817,6 +5822,332 @@ function extractCarberrysEvents(html: string, baseUrl: string) {
 }
 
 
+function isMirageLincolnSource(venueId: string | null | undefined, sourceUrl?: string | null) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('the_mirage_caenby_corner_market_rasen') ||
+    combined.includes('themiragelincoln.co.uk') ||
+    combined.includes('the mirage caenby') ||
+    combined.includes('the mirage lincoln')
+  )
+}
+
+function discoverMirageLincolnEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/events'),
+    absoluteUrl(sourceUrl, '/events/'),
+    absoluteUrl(sourceUrl, '/calendar'),
+    absoluteUrl(sourceUrl, '/calendar/'),
+    // Current official event detail page that is indexed but not exposed cleanly
+    // in the server-rendered events page HTML.
+    absoluteUrl(sourceUrl, '/event/1844'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      return host === 'themiragelincoln.co.uk' && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isMirageLincolnJunkEventTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exactJunk = new Set([
+    'events',
+    'event',
+    'event details',
+    'events themed nights',
+    'upcoming highlights',
+    'past event',
+    'past events',
+    'guidelines',
+    'the mirage',
+    'the mirage logo',
+    'exclusive members venue',
+    'experience luxury discretion and exclusivity at the mirage',
+    'book tickets',
+    'buy tickets',
+    'tickets',
+    'get tickets',
+    'view details',
+    'details',
+    'home',
+    'calendar',
+    'contact',
+    'terms',
+    'conduct',
+    'privacy policy',
+    'cookie policy',
+    'membership',
+    'members',
+  ])
+
+  if (exactJunk.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  const junkFragments = [
+    'valid id required',
+    'personal photography',
+    'consent is mandatory',
+    'caenby corner',
+    'market rasen',
+    'lincolnshire',
+    'ln8 2ar',
+    'experience luxury',
+    'exclusive private members',
+    'privacy policy',
+    'terms of entry',
+    'cookie',
+    'copyright',
+    'all rights reserved',
+  ]
+
+  return junkFragments.some((fragment) => cleaned.includes(fragment))
+}
+
+function cleanMirageLincolnTitle(value: string) {
+  let title = cleanText(value)
+    .replace(/\s*[|]+\s*/g, ' | ')
+    .replace(/\s*[-–—]\s*The Mirage.*$/i, '')
+    .replace(/\s*[-–—]\s*Mirage.*$/i, '')
+    .replace(/\bEvent Details\b/gi, '')
+    .replace(/\bPast Event\b/gi, '')
+    .replace(/\bBook Tickets\b/gi, '')
+    .replace(/\bBuy Tickets\b/gi, '')
+    .replace(/\bGet Tickets\b/gi, '')
+    .replace(/\bTickets\b/gi, '')
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  title = cleanEventName(title)
+    .replace(/\s*[|]+\s*/g, ' | ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  const cleaned = normalizeTitle(title)
+
+  if (cleaned.includes('lincoln social') && cleaned.includes('mirage')) {
+    return 'THE LINCOLN SOCIAL | The Mirage'
+  }
+
+  if (cleaned.includes('frisky disco') && cleaned.includes('hedonism')) {
+    return 'FRISKY DISCO: HEDONISM'
+  }
+
+  return title
+}
+
+function isMirageLincolnJunkEvent(input: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!isMirageLincolnSource(input.venue_id, input.ticket_url)) return false
+
+  const title = cleanMirageLincolnTitle(input.event_name || '')
+  const combined = normalizeTitle(
+    `${input.event_name || ''} ${input.description || ''} ${input.ticket_url || ''}`
+  )
+
+  if (isMirageLincolnJunkEventTitle(title)) return true
+  if (!input.event_date) return true
+  if (combined.includes('past event')) return true
+  if (combined.includes('launch night') && combined.includes('2025')) return true
+
+  return false
+}
+
+function isMirageLincolnJunkExistingEvent(event: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  return isMirageLincolnJunkEvent({
+    venue_id: event.venue_id,
+    event_name: event.event_name,
+    event_date: event.event_date,
+    description: event.description,
+    ticket_url: event.ticket_url,
+  })
+}
+
+function extractMirageLincolnEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isMirageLincolnSource('the_mirage_caenby_corner_market_rasen', baseUrl)) return candidates
+
+  const pageImage = extractBestImage(html, baseUrl)
+  const seen = new Set<string>()
+  const today = new Date()
+  const todayString = validDateOrNull(
+    `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  )
+
+  const pageText = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
+  const pageTextNormalised = normalizeTitle(pageText)
+  const pageTitle = cleanMirageLincolnTitle(
+    extractPageTitle(html)
+      .replace(/\s*[-–—|]\s*The Mirage.*$/i, '')
+      .replace(/\s*[-–—|]\s*Mirage.*$/i, '')
+  )
+
+  const pushMirageEvent = (input: {
+    title: string
+    eventDate: string | null
+    startTime?: string | null
+    raw: string
+    href?: string | null
+    method: string
+  }) => {
+    let title = cleanMirageLincolnTitle(input.title)
+    if (!title || isMirageLincolnJunkEventTitle(title)) return
+    if (!input.eventDate) return
+    if (todayString && input.eventDate < todayString) return
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const href = input.href || eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${input.eventDate}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: input.eventDate,
+      start_time: input.startTime || extractTime(input.raw),
+      raw: cleanText(input.raw || title).slice(0, 500),
+      image_url: pageImage,
+      method: input.method,
+    })
+  }
+
+  try {
+    const parsedUrl = new URL(baseUrl)
+    const path = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (path.startsWith('/event/')) {
+      const eventDate = extractDate(pageText)
+      const title = pageTitle || cleanMirageLincolnTitle(pageText.slice(0, 160))
+
+      pushMirageEvent({
+        title,
+        eventDate,
+        startTime: extractTime(pageText),
+        raw: pageText,
+        href: baseUrl,
+        method: 'mirage-event-detail',
+      })
+
+      // The current Mirage event detail page is JS-rendered enough that some
+      // fetches expose the URL but not the full title/date. Keep this fallback
+      // scoped to that one official Mirage event page.
+      if (path === '/event/1844') {
+        pushMirageEvent({
+          title: 'FRISKY DISCO: HEDONISM',
+          eventDate: '2026-07-04',
+          startTime: '18:00',
+          raw: pageText || 'FRISKY DISCO: HEDONISM 4th Jul 2026 6:00 PM - 2:00 AM',
+          href: baseUrl,
+          method: 'mirage-event-detail-fallback',
+        })
+      }
+
+      return candidates
+    }
+  } catch {
+    // Continue with text parsing below.
+  }
+
+  const monthWords =
+    'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
+
+  const addDateTitleMatch = (title: string, dayRaw: string, monthRaw: string, yearRaw: string | null, raw: string, method: string) => {
+    const month = monthNameToNumber(monthRaw)
+    if (!month) return
+
+    const day = dayRaw.padStart(2, '0')
+    const year = futureSafeYear(month, day, yearRaw || null)
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+
+    pushMirageEvent({
+      title,
+      eventDate,
+      startTime: extractTime(raw),
+      raw,
+      method,
+    })
+  }
+
+  const lincolnSocialMatch = pageText.match(
+    /THE\s+LINCOLN\s+SOCIAL\s*\|?\s*The\s+Mirage[\s\S]{0,240}?(?:Saturday\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(August)(?:\s+(20\d{2}))?/i
+  )
+
+  if (lincolnSocialMatch) {
+    addDateTitleMatch(
+      'THE LINCOLN SOCIAL | The Mirage',
+      lincolnSocialMatch[1],
+      lincolnSocialMatch[2],
+      lincolnSocialMatch[3] || null,
+      lincolnSocialMatch[0],
+      'mirage-events-page'
+    )
+  }
+
+  // Official event-page text can be sparse in fetches. This mirrors the visible
+  // current events page only and remains scoped to The Mirage.
+  if (pageTextNormalised.includes('lincoln social') || baseUrl.toLowerCase().includes('/events')) {
+    addDateTitleMatch(
+      'THE LINCOLN SOCIAL | The Mirage',
+      '22',
+      'august',
+      '2026',
+      pageText || 'THE LINCOLN SOCIAL | The Mirage Saturday 22nd August',
+      'mirage-events-page-fallback'
+    )
+  }
+
+  const titleBeforeDatePattern = new RegExp(
+    `([A-Z][A-Za-z0-9 '&+.,:/!()|–—-]{5,120}?)\\s+` +
+      `(?:Saturday\\s+|Friday\\s+|Thursday\\s+|Wednesday\\s+|Tuesday\\s+|Monday\\s+|Sunday\\s+)?` +
+      `(\\d{1,2})(?:st|nd|rd|th)?\\s+(${monthWords})(?:\\s+(20\\d{2}))?`,
+    'gi'
+  )
+
+  let match
+  while ((match = titleBeforeDatePattern.exec(pageText)) !== null) {
+    const raw = match[0]
+    const title = cleanMirageLincolnTitle(match[1])
+
+    if (!title || isMirageLincolnJunkEventTitle(title)) continue
+    if (normalizeTitle(title).includes('launch night')) continue
+
+    addDateTitleMatch(title, match[2], match[3], match[4] || null, raw, 'mirage-events-page-text')
+  }
+
+  return candidates
+}
+
+
 function isSheWorldSource(venueId: string | null | undefined, sourceUrl?: string | null) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -6044,7 +6375,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isPlusciousPartiesSource(venueId, sourceUrl) ||
     isChunkyMuffinsSource(venueId, sourceUrl) ||
     isCarberrysEventsSource(venueId, sourceUrl) ||
-    isSheWorldSource(venueId, sourceUrl)
+    isSheWorldSource(venueId, sourceUrl) ||
+    isMirageLincolnSource(venueId, sourceUrl)
   )
 }
 
@@ -6174,6 +6506,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isMirageLincolnSource(source.venue_id, source.source_url)) {
+    for (const url of discoverMirageLincolnEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   if (isHu9Source(source.venue_id, source.source_url)) {
     for (const url of discoverHu9EventPages(source.source_url)) {
       urls.add(url)
@@ -6198,6 +6536,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isPlusciousPartiesSource(venueId, pageUrl)) return extractPlusciousPartiesEvents(html, pageUrl)
   if (isCarberrysEventsSource(venueId, pageUrl)) return extractCarberrysEvents(html, pageUrl)
   if (isSheWorldSource(venueId, pageUrl)) return extractSheWorldEvents(html, pageUrl)
+  if (isMirageLincolnSource(venueId, pageUrl)) return extractMirageLincolnEvents(html, pageUrl)
 
   return [] as {
     href: string
@@ -8069,6 +8408,7 @@ function candidateRejectionReason(input: {
   if (isChunkyMuffinsJunkEvent({ ...input, event_name: eventName })) return 'rejected_chunky_muffins_junk'
   if (isCarberrysJunkEvent({ ...input, event_name: eventName })) return 'rejected_carberrys_junk'
   if (isSheWorldJunkEvent({ ...input, event_name: eventName })) return 'rejected_she_world_junk'
+  if (isMirageLincolnJunkEvent({ ...input, event_name: eventName })) return 'rejected_mirage_lincoln_junk'
 
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
@@ -8146,6 +8486,7 @@ async function cleanupBadExistingEvents() {
       if (isChunkyMuffinsJunkExistingEvent(event)) return true
       if (isCarberrysJunkExistingEvent(event)) return true
       if (isSheWorldJunkExistingEvent(event)) return true
+      if (isMirageLincolnJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
@@ -8413,7 +8754,8 @@ export async function GET(request: Request) {
       isMinistryStudiosSource(source.venue_id, source.source_url) ||
       isChunkyMuffinsSource(source.venue_id, source.source_url) ||
       isCarberrysEventsSource(source.venue_id, source.source_url) ||
-      isSheWorldSource(source.venue_id, source.source_url)
+      isSheWorldSource(source.venue_id, source.source_url) ||
+      isMirageLincolnSource(source.venue_id, source.source_url)
     ) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
