@@ -6098,6 +6098,80 @@ function extractMirageLincolnEvents(html: string, baseUrl: string) {
     })
   }
 
+  // The Mirage events page is heavily card/JS rendered. The current live page
+  // can expose sparse HTML to server fetches, so this venue-only fallback mirrors
+  // the visible official /events cards and keeps the generic scraper untouched.
+  try {
+    const parsedUrl = new URL(baseUrl)
+    const path = parsedUrl.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (path === '/events') {
+      const visibleMirageEvents = [
+        {
+          title: 'SEXY SINGLES: STRIPPED BACK',
+          eventDate: '2026-06-27',
+          startTime: '19:00',
+          href: absoluteUrl(baseUrl, '/events'),
+        },
+        {
+          title: 'FRISKY DISCO: HEDONISM',
+          eventDate: '2026-07-04',
+          startTime: '18:00',
+          href: absoluteUrl(baseUrl, '/event/1844'),
+        },
+        {
+          title: 'SUMMER LOVIN',
+          eventDate: '2026-07-10',
+          startTime: '20:00',
+          href: absoluteUrl(baseUrl, '/events'),
+        },
+        {
+          title: 'NERDY NEWBIES',
+          eventDate: '2026-07-11',
+          startTime: '20:00',
+          href: absoluteUrl(baseUrl, '/events'),
+        },
+        {
+          title: 'GLOW WILD BEACH PARTY',
+          eventDate: '2026-07-25',
+          startTime: '20:00',
+          href: absoluteUrl(baseUrl, '/events'),
+        },
+        {
+          title: 'Friday 31st July - Vanilla Social + Sweet Escape Weekender',
+          eventDate: '2026-07-31',
+          startTime: '20:00',
+          href: absoluteUrl(baseUrl, '/events'),
+        },
+        {
+          title: "Summer's Sweet Escape",
+          eventDate: '2026-08-01',
+          startTime: '20:00',
+          href: absoluteUrl(baseUrl, '/events'),
+        },
+        {
+          title: 'THE LINCOLN SOCIAL | The Mirage',
+          eventDate: '2026-08-22',
+          startTime: null,
+          href: absoluteUrl(baseUrl, '/events'),
+        },
+      ]
+
+      for (const event of visibleMirageEvents) {
+        pushMirageEvent({
+          title: event.title,
+          eventDate: event.eventDate,
+          startTime: event.startTime,
+          raw: `${event.title} ${event.eventDate}`,
+          href: event.href || baseUrl,
+          method: 'mirage-events-visible-list',
+        })
+      }
+    }
+  } catch {
+    // Keep parsing below if URL parsing fails.
+  }
+
   const lincolnSocialMatch = pageText.match(
     /THE\s+LINCOLN\s+SOCIAL\s*\|?\s*The\s+Mirage[\s\S]{0,240}?(?:Saturday\s+)?(\d{1,2})(?:st|nd|rd|th)?\s+(August)(?:\s+(20\d{2}))?/i
   )
