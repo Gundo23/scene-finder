@@ -4446,6 +4446,197 @@ function addDaysUtc(date: Date, days: number) {
 
 
 
+function isSaunabarBournemouthSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('saunabar_bournemouth') ||
+    combined.includes('gaysaunabournemouth.co.uk') ||
+    combined.includes('outsavvy.com/organiser/saunabar-bournemouth') ||
+    (combined.includes('outsavvy.com/event/') && combined.includes('saunabar')) ||
+    combined.includes('saunabar bournemouth')
+  )
+}
+
+function isSaunabarBournemouthAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (host === 'gaysaunabournemouth.co.uk') {
+      return path === '/' || path === '/events' || path === '/faq-s'
+    }
+
+    if (host === 'outsavvy.com') {
+      return (
+        path === '/organiser/saunabar-bournemouth' ||
+        path === '/event/32704/xplore-open-to-all-fourth-sat-of-the-month-' ||
+        path === '/event/24051/spectrum-trans-xdresser-admirers-club-night' ||
+        path === '/event/37160/xquisite-couples-single-females-first-sat-of-the-month-' ||
+        path === '/event/33251/-naked-mates-saunabar-' ||
+        path === '/event/32703/xchange-couples-flirty-games-night-second-sat-of-the-month-' ||
+        path === '/event/36004/marvelus-social-play-bournemouth-swingers-club'
+      )
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+function discoverSaunabarBournemouthEventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+
+  urls.add('https://www.outsavvy.com/organiser/saunabar-bournemouth')
+
+  return [...urls].filter((url) => isSaunabarBournemouthAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractSaunabarBournemouthEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isSaunabarBournemouthAllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const hasSaunabarSignals =
+    pageText.includes('saunabar bournemouth') ||
+    pageText.includes('gaysaunabournemouth') ||
+    pageText.includes('xplore open to all') ||
+    pageText.includes('xquisite couples') ||
+    pageText.includes('xchange couples') ||
+    pageText.includes('naked mates') ||
+    pageText.includes('spectrum trans') ||
+    pageText.includes('140 commercial road')
+
+  if (!hasSaunabarSignals) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const endOfYear = new Date(Date.UTC(today.getUTCFullYear(), 11, 31))
+  const seen = new Set<string>()
+
+  const addCandidate = (
+    title: string,
+    eventDate: string | null,
+    startTime: string,
+    href: string,
+    raw: string
+  ) => {
+    if (!eventDate || eventDate < todayString) return
+    const key = `${normalizeTitle(title)}|${eventDate}|${startTime}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw,
+      image_url: null,
+      method: 'saunabar-outsavvy-schedule',
+    })
+  }
+
+  const officialPage = 'https://www.gaysaunabournemouth.co.uk/events/'
+
+  for (const eventDate of nextWeekdayDates(today, endOfYear, 3)) {
+    addCandidate(
+      'Saunabar: Naked Wednesday',
+      eventDate,
+      '12:00',
+      `${officialPage}#naked-wednesday-${eventDate}`,
+      'Official Saunabar site lists Naked Wednesdays every Wednesday from 12PM to 8PM.'
+    )
+  }
+
+  const addNthMonthly = (
+    title: string,
+    monthStart: number,
+    weekday: number,
+    nth: number,
+    href: string,
+    raw: string
+  ) => {
+    for (let monthIndex = monthStart; monthIndex <= 11; monthIndex++) {
+      const eventDate = nthWeekdayOfMonthUtc(today.getUTCFullYear(), monthIndex, weekday, nth)
+      addCandidate(title, eventDate, '20:00', `${href}#${eventDate}`, raw)
+    }
+  }
+
+  addNthMonthly(
+    'Saunabar: XPLORE',
+    5,
+    6,
+    4,
+    'https://www.outsavvy.com/event/32704/xplore-open-to-all-fourth-sat-of-the-month-',
+    'OutSavvy lists XPLORE at Saunabar as open to all on the fourth Saturday of the month, 8PM to 2AM.'
+  )
+
+  addNthMonthly(
+    'Saunabar: Spectrum Trans, Xdresser & Admirers Club Night',
+    6,
+    5,
+    1,
+    'https://www.outsavvy.com/event/24051/spectrum-trans-xdresser-admirers-club-night',
+    'OutSavvy lists Spectrum Trans, Xdresser & Admirers Club Night at Saunabar with monthly Friday dates from July to December 2026, 8PM to 2AM.'
+  )
+
+  addNthMonthly(
+    'Saunabar: XQUISITE',
+    6,
+    6,
+    1,
+    'https://www.outsavvy.com/event/37160/xquisite-couples-single-females-first-sat-of-the-month-',
+    'OutSavvy lists XQUISITE as a couples and single females first Saturday event at Saunabar, 8PM to 2AM.'
+  )
+
+  addNthMonthly(
+    'Saunabar: XCHANGE',
+    6,
+    6,
+    2,
+    'https://www.outsavvy.com/event/32703/xchange-couples-flirty-games-night-second-sat-of-the-month-',
+    'OutSavvy lists XCHANGE as a couples flirty games night on the second Saturday of the month at Saunabar, 8PM to 2AM.'
+  )
+
+  for (const eventDate of ['2026-07-10', '2026-08-14']) {
+    addCandidate(
+      'Saunabar: Naked Mates',
+      eventDate,
+      '20:00',
+      `https://www.outsavvy.com/event/33251/-naked-mates-saunabar-#${eventDate}`,
+      'OutSavvy lists Naked Mates at Saunabar on Friday 10 July 2026 and Friday 14 August 2026, 8PM to midnight.'
+    )
+  }
+
+  for (const eventDate of ['2026-08-15', '2026-10-17']) {
+    addCandidate(
+      'Saunabar: MarvelUs - Social & Play',
+      eventDate,
+      '20:00',
+      `https://www.outsavvy.com/event/36004/marvelus-social-play-bournemouth-swingers-club#${eventDate}`,
+      'OutSavvy lists MarvelUs - Social & Play at Saunabar on Saturday 15 August 2026 and Saturday 17 October 2026, 8PM to 2AM.'
+    )
+  }
+
+  return candidates
+}
+
+
 function isBirminghamBizarreBazaarSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -8955,6 +9146,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isTortureGardenSource(venueId, sourceUrl) ||
     isRiotPartySource(venueId, sourceUrl) ||
     isSaintsAndSinnersSource(venueId, sourceUrl) ||
+    isSaunabarBournemouthSource(venueId, sourceUrl) ||
     isBirminghamBizarreBazaarSource(venueId, sourceUrl) ||
     isSteamerQuaySource(venueId, sourceUrl) ||
     isNumber52Source(venueId, sourceUrl) ||
@@ -8969,6 +9161,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
+    return isSaunabarBournemouthAllowedPage(pageUrl)
+  }
+
   if (isBirminghamBizarreBazaarSource(source.venue_id, source.source_url)) {
     return isBirminghamBizarreBazaarAllowedPage(pageUrl)
   }
@@ -9059,6 +9255,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
+    return discoverSaunabarBournemouthEventPages(source.source_url)
+  }
 
   if (isBirminghamBizarreBazaarSource(source.venue_id, source.source_url)) {
     return discoverBirminghamBizarreBazaarEventPages(source.source_url)
@@ -9238,6 +9438,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isSaunabarBournemouthSource(venueId, pageUrl)) return extractSaunabarBournemouthEvents(html, pageUrl)
   if (isBirminghamBizarreBazaarSource(venueId, pageUrl)) return extractBirminghamBizarreBazaarEvents(html, pageUrl)
   if (isSteamerQuaySource(venueId, pageUrl)) return extractSteamerQuayEvents(html, pageUrl)
   if (isNumber52Source(venueId, pageUrl)) return extractNumber52Events(html, pageUrl)
@@ -11899,6 +12100,8 @@ export async function GET(request: Request) {
           ? targetVenueDiscoveredUrls
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? targetVenueDiscoveredUrls
+            : isSaunabarBournemouthSource(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isNumber52Source(source.venue_id, source.source_url)
               ? targetVenueDiscoveredUrls
             : isOurPlace4FunSource(source.venue_id, source.source_url)
@@ -11926,6 +12129,8 @@ export async function GET(request: Request) {
           : isMe1SaunaSource(source.venue_id, source.source_url)
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
+            ? 1
+          : isSaunabarBournemouthSource(source.venue_id, source.source_url)
             ? 1
           : isNumber52Source(source.venue_id, source.source_url)
             ? 4
@@ -12692,6 +12897,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12772,6 +12982,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -12876,6 +13091,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
