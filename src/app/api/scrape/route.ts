@@ -2005,8 +2005,9 @@ async function cleanupExistingVenueJunk(venueId: string) {
   const isCarberrysVenue = isCarberrysEventsSource(venueId)
   const isSheWorldVenue = isSheWorldSource(venueId)
   const isMirageVenue = isMirageLincolnSource(venueId)
+  const isCjsVenue = isCjsTownhouseSource(venueId)
 
-  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue && !isSheWorldVenue && !isMirageVenue) return 0
+  if (venueId !== 'xtasia_west_bromwich' && !isVanillaVenue && !isLeBoudoirVenue && !isMinistryVenue && !isChunkyMuffinsVenue && !isCarberrysVenue && !isSheWorldVenue && !isMirageVenue && !isCjsVenue) return 0
 
   const { data } = await supabaseAdmin
     .from('events')
@@ -2057,6 +2058,10 @@ async function cleanupExistingVenueJunk(venueId: string) {
 
         if (isMirageVenue) {
           return isMirageLincolnJunkExistingEvent({ ...event, venue_id: venueId })
+        }
+
+        if (isCjsVenue) {
+          return isCjsTownhouseJunkExistingEvent({ ...event, venue_id: venueId })
         }
 
         return false
@@ -6424,6 +6429,251 @@ function extractSheWorldEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+
+function isCjsTownhouseSource(venueId: string | null | undefined, sourceUrl?: string | null) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('cjs_at_the_townhouse_glasgow') ||
+    combined.includes('cjsatthetownhouse.com') ||
+    combined.includes('cj s at the townhouse') ||
+    combined.includes('cjs at the townhouse')
+  )
+}
+
+function discoverCjsTownhouseEventPages(sourceUrl: string) {
+  const urls = [
+    sourceUrl,
+    absoluteUrl(sourceUrl, '/dates.html'),
+    absoluteUrl(sourceUrl, '/dates'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => {
+    try {
+      const parsed = new URL(url)
+      const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+      const path = parsed.pathname.replace(/\/+$/, '').toLowerCase()
+
+      return host === 'cjsatthetownhouse.com' && (path === '/dates' || path === '/dates.html') && !isJunkUrl(url)
+    } catch {
+      return false
+    }
+  })
+}
+
+function isCjsTownhouseJunkEventTitle(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+  if (!cleaned) return true
+
+  const exactJunk = new Set([
+    'party dates',
+    'dates',
+    'links',
+    'contact',
+    'info',
+    'home',
+    'june',
+    'july',
+    'august',
+    'june 2026',
+    'july 2026',
+    'august 2026',
+    'cjs',
+    'cj s',
+    'cjs at the townhouse',
+    'cj s at the townhouse',
+    'copyright',
+  ])
+
+  if (exactJunk.has(cleaned)) return true
+  if (isJunkTitle(value || '')) return true
+
+  const junkFragments = [
+    'hopefully you are interested',
+    'choose a date that suits',
+    'get in touch',
+    'full details',
+    'soft drinks',
+    'snacks provided',
+    'small buffet provided',
+    'regulars and novices',
+    'all welcome',
+    'limited number of spaces',
+    'please note',
+    'copyright',
+    'www cjsatthetownhouse com',
+    '2005 2026',
+  ]
+
+  return junkFragments.some((fragment) => cleaned.includes(fragment))
+}
+
+function cleanCjsTownhouseTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/^cj'?s\s*[-–—:|]+\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isCjsTownhouseJunkEvent(input: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  ticket_url?: string | null
+  description?: string | null
+}) {
+  if (!isCjsTownhouseSource(input.venue_id, input.ticket_url)) return false
+
+  const title = cleanCjsTownhouseTitle(input.event_name || '')
+  const combined = normalizeTitle(
+    `${input.event_name || ''} ${input.description || ''} ${input.ticket_url || ''}`
+  )
+
+  if (isCjsTownhouseJunkEventTitle(title)) return true
+  if (!input.event_date) return true
+  if (combined.includes('hopefully you are interested')) return true
+  if (combined.includes('choose a date that suits')) return true
+
+  return false
+}
+
+function isCjsTownhouseJunkExistingEvent(event: {
+  venue_id?: string | null
+  event_name?: string | null
+  event_date?: string | null
+  description?: string | null
+  ticket_url?: string | null
+}) {
+  return isCjsTownhouseJunkEvent({
+    venue_id: event.venue_id,
+    event_name: event.event_name,
+    event_date: event.event_date,
+    description: event.description,
+    ticket_url: event.ticket_url,
+  })
+}
+
+function extractCjsTownhouseEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isCjsTownhouseSource('cjs_at_the_townhouse_glasgow', baseUrl)) return candidates
+
+  try {
+    const path = new URL(baseUrl).pathname.replace(/\/+$/, '').toLowerCase() || '/'
+    if (path !== '/dates' && path !== '/dates.html') return candidates
+  } catch {
+    return candidates
+  }
+
+  const pageImage = extractBestImage(html, baseUrl)
+  const seen = new Set<string>()
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h1|h2|h3|h4|h5|h6|section|article|tr|td)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(decodeEscapedText(line)))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const monthWords = 'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
+  const weekdayWords = 'mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday'
+  const dateLinePattern = new RegExp(
+    `^(?:${weekdayWords})\\s+` +
+      `(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
+      `(${monthWords})\\s+` +
+      `(20\\d{2})\\s+` +
+      `(.+)$`,
+    'i'
+  )
+
+  const isDateLine = (line: string) => dateLinePattern.test(line)
+  const isMonthHeading = (line: string) => {
+    const compact = line.replace(/\s+/g, '').toLowerCase()
+    return /^(june|july|august)20\d{2}$/.test(compact)
+  }
+
+  const today = new Date()
+  const todayString = validDateOrNull(
+    `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  )
+
+  for (let index = 0; index < lines.length; index++) {
+    const dateMatch = lines[index].match(dateLinePattern)
+    if (!dateMatch) continue
+
+    const month = monthNameToNumber(dateMatch[2])
+    if (!month) continue
+
+    const day = dateMatch[1].padStart(2, '0')
+    const eventDate = validDateOrNull(`${dateMatch[3]}-${month}-${day}`)
+    if (!eventDate) continue
+    if (todayString && eventDate < todayString) continue
+
+    let titleLine = ''
+
+    for (let previous = index - 1; previous >= 0 && previous >= index - 5; previous--) {
+      const possibleTitle = cleanText(lines[previous])
+      if (!possibleTitle) continue
+      if (isDateLine(possibleTitle)) break
+      if (isMonthHeading(possibleTitle)) break
+      if (possibleTitle.length > 120) continue
+      if (isCjsTownhouseJunkEventTitle(possibleTitle)) continue
+      if (/^\d{1,2}(:\d{2})?\s*(am|pm)?\s*(to|until|-)/i.test(possibleTitle)) continue
+
+      titleLine = possibleTitle
+      break
+    }
+
+    let title = cleanCjsTownhouseTitle(titleLine)
+    if (!title || isCjsTownhouseJunkEventTitle(title)) continue
+    if (title.length > 120) title = title.slice(0, 120).trim()
+
+    const block: string[] = [title, lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (isDateLine(lines[next])) break
+      if (isMonthHeading(lines[next])) break
+      if (normalizeTitle(lines[next]).includes('copyright')) break
+      block.push(lines[next])
+      if (block.length >= 8) break
+    }
+
+    const raw = block.join(' ')
+    const href = eventUrlWithAnchor(baseUrl, title)
+    const key = `${normalizeTitle(title)}|${eventDate}`
+
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: extractTime(`${dateMatch[4]} ${raw}`),
+      raw: cleanText(raw).slice(0, 600),
+      image_url: pageImage,
+      method: 'cjs-townhouse-dates',
+    })
+  }
+
+  return candidates
+}
+
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -6450,7 +6700,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isChunkyMuffinsSource(venueId, sourceUrl) ||
     isCarberrysEventsSource(venueId, sourceUrl) ||
     isSheWorldSource(venueId, sourceUrl) ||
-    isMirageLincolnSource(venueId, sourceUrl)
+    isMirageLincolnSource(venueId, sourceUrl) ||
+    isCjsTownhouseSource(venueId, sourceUrl)
   )
 }
 
@@ -6586,6 +6837,12 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
+  if (isCjsTownhouseSource(source.venue_id, source.source_url)) {
+    for (const url of discoverCjsTownhouseEventPages(source.source_url)) {
+      urls.add(url)
+    }
+  }
+
   if (isHu9Source(source.venue_id, source.source_url)) {
     for (const url of discoverHu9EventPages(source.source_url)) {
       urls.add(url)
@@ -6611,6 +6868,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isCarberrysEventsSource(venueId, pageUrl)) return extractCarberrysEvents(html, pageUrl)
   if (isSheWorldSource(venueId, pageUrl)) return extractSheWorldEvents(html, pageUrl)
   if (isMirageLincolnSource(venueId, pageUrl)) return extractMirageLincolnEvents(html, pageUrl)
+  if (isCjsTownhouseSource(venueId, pageUrl)) return extractCjsTownhouseEvents(html, pageUrl)
 
   return [] as {
     href: string
@@ -8483,6 +8741,7 @@ function candidateRejectionReason(input: {
   if (isCarberrysJunkEvent({ ...input, event_name: eventName })) return 'rejected_carberrys_junk'
   if (isSheWorldJunkEvent({ ...input, event_name: eventName })) return 'rejected_she_world_junk'
   if (isMirageLincolnJunkEvent({ ...input, event_name: eventName })) return 'rejected_mirage_lincoln_junk'
+  if (isCjsTownhouseJunkEvent({ ...input, event_name: eventName })) return 'rejected_cjs_townhouse_junk'
 
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
@@ -8561,6 +8820,7 @@ async function cleanupBadExistingEvents() {
       if (isCarberrysJunkExistingEvent(event)) return true
       if (isSheWorldJunkExistingEvent(event)) return true
       if (isMirageLincolnJunkExistingEvent(event)) return true
+      if (isCjsTownhouseJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
@@ -8829,7 +9089,8 @@ export async function GET(request: Request) {
       isChunkyMuffinsSource(source.venue_id, source.source_url) ||
       isCarberrysEventsSource(source.venue_id, source.source_url) ||
       isSheWorldSource(source.venue_id, source.source_url) ||
-      isMirageLincolnSource(source.venue_id, source.source_url)
+      isMirageLincolnSource(source.venue_id, source.source_url) ||
+      isCjsTownhouseSource(source.venue_id, source.source_url)
     ) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
