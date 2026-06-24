@@ -4302,6 +4302,10 @@ function isSf10RecoverySource(venueId: string | null | undefined, sourceUrl: str
 }
 
 function discoverSf10RecoveryEventPages(source: { venue_id: string; source_url: string }) {
+  if (isMe1SaunaSource(source.venue_id, source.source_url)) {
+    return discoverMe1SaunaEventPages(source.source_url)
+  }
+
   if (isGatehouseBoltonSource(source.venue_id, source.source_url)) {
     return discoverGatehouseBoltonEventPages(source.source_url)
   }
@@ -4402,6 +4406,196 @@ function cleanSf10RecoveryTitle(value: string) {
   return title
 }
 
+
+
+
+function isMe1SaunaSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('me1_sauna_rochester_kent') ||
+    combined.includes('me1sauna.co.uk') ||
+    combined.includes('me1 sauna') ||
+    combined.includes('me1 sauna and steam')
+  )
+}
+
+function isMe1SaunaAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    return host === 'me1sauna.co.uk' && path === '/events'
+  } catch {
+    return false
+  }
+}
+
+function discoverMe1SaunaEventPages(sourceUrl: string) {
+  const url = absoluteUrl(sourceUrl, '/events') || 'https://www.me1sauna.co.uk/events'
+
+  return [url].filter((pageUrl) => isMe1SaunaAllowedPage(pageUrl) && !isJunkUrl(pageUrl))
+}
+
+function lastWeekdayOfMonth(year: number, monthIndex: number, weekday: number) {
+  const date = new Date(Date.UTC(year, monthIndex + 1, 0))
+
+  while (date.getUTCDay() !== weekday) {
+    date.setUTCDate(date.getUTCDate() - 1)
+  }
+
+  return date
+}
+
+function nthWeekdayOfMonth(year: number, monthIndex: number, weekday: number, nth: number) {
+  const date = new Date(Date.UTC(year, monthIndex, 1))
+
+  while (date.getUTCDay() !== weekday) {
+    date.setUTCDate(date.getUTCDate() + 1)
+  }
+
+  date.setUTCDate(date.getUTCDate() + 7 * Math.max(0, nth - 1))
+
+  if (date.getUTCMonth() !== monthIndex) return null
+
+  return date
+}
+
+function extractMe1SaunaEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isMe1SaunaAllowedPage(baseUrl)) return candidates
+
+  const pageText = cleanText(html).toLowerCase()
+
+  const hasMe1EventsPage =
+    pageText.includes('events for all tastes') ||
+    pageText.includes('furry friday') ||
+    pageText.includes('most tuesdays') ||
+    pageText.includes('t-girl') ||
+    pageText.includes('bi night') ||
+    pageText.includes('twice a month')
+
+  if (!hasMe1EventsPage) return candidates
+
+  const image = extractBestImage(html, baseUrl)
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  const endDate = new Date(Date.UTC(now.getUTCFullYear(), 11, 31))
+
+  if (!todayString || endDate < today) return candidates
+
+  const seen = new Set<string>()
+
+  const pushCandidate = (input: {
+    title: string
+    eventDate: string | null
+    startTime: string | null
+    raw: string
+    href?: string | null
+  }) => {
+    if (!input.eventDate || input.eventDate < todayString) return
+
+    let title = cleanSf10RecoveryTitle(input.title)
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isSf10RecoverySkipLine(title)) return
+    if (title.length > 120) title = title.slice(0, 120).trim()
+
+    const href = input.href || eventUrlWithAnchor(baseUrl, input.title)
+    const key = `${normalizeTitle(title)}|${input.eventDate}|${normalizeTicketUrl(href)}`
+
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: input.eventDate,
+      start_time: input.startTime,
+      raw: input.raw,
+      image_url: image,
+      method: 'me1-sauna-recurring-schedule',
+    })
+  }
+
+  const addWeekly = (input: {
+    weekday: number
+    title: string
+    startTime: string
+    raw: string
+  }) => {
+    const occurrence = new Date(today)
+    const daysUntil = (input.weekday - occurrence.getUTCDay() + 7) % 7
+    occurrence.setUTCDate(occurrence.getUTCDate() + daysUntil)
+
+    while (occurrence <= endDate) {
+      pushCandidate({
+        title: input.title,
+        eventDate: datePartsToString(occurrence),
+        startTime: input.startTime,
+        raw: input.raw,
+      })
+
+      occurrence.setUTCDate(occurrence.getUTCDate() + 7)
+    }
+  }
+
+  // Official ME1 events page: Furry Friday is every Friday; most Tuesdays are T-Girl.
+  // Keep Lads 4 Dads/Naked out here because the current page does not expose exact dates.
+  if (pageText.includes('furry friday')) {
+    addWeekly({
+      weekday: 5,
+      title: 'Furry Social',
+      startTime: '10:00',
+      raw: 'Furry Friday is now every Friday due to popular demand. Bears, Cubs and Admirers day at ME1 Sauna.',
+    })
+  }
+
+  if (pageText.includes('t-girl') || pageText.includes('tgirl') || pageText.includes('most tuesdays')) {
+    addWeekly({
+      weekday: 2,
+      title: 'T-Girl Social',
+      startTime: '10:00',
+      raw: 'Most Tuesdays ME1 hosts T-Girl, a social afternoon for T-Girls and admirers.',
+    })
+  }
+
+  // Official ME1 page says Bi Night is twice a month from 6pm.
+  // The dedicated Bi-Monthly site gives the exact rule: 2nd and last Saturday of the month.
+  if (pageText.includes('bi night') || pageText.includes('twice a month')) {
+    for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
+      const secondSaturday = nthWeekdayOfMonth(today.getUTCFullYear(), monthIndex, 6, 2)
+      const lastSaturday = lastWeekdayOfMonth(today.getUTCFullYear(), monthIndex, 6)
+
+      for (const date of [secondSaturday, lastSaturday]) {
+        const eventDate = date ? datePartsToString(date) : null
+
+        pushCandidate({
+          title: 'Bi-Monthly Social',
+          eventDate,
+          startTime: '18:00',
+          raw: 'Bi-Monthly / Bi Night at ME1 Sauna. Twice monthly social on the 2nd and last Saturday of the month, from 6pm till late.',
+          href: 'https://www.bimonthly.co.uk/',
+        })
+      }
+    }
+  }
+
+  return candidates
+}
 
 
 function isGatehouseBoltonSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
@@ -7090,6 +7284,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isMe1SaunaSource(source.venue_id, source.source_url)) {
+    return isMe1SaunaAllowedPage(pageUrl)
+  }
+
   if (isGatehouseBoltonSource(source.venue_id, source.source_url)) {
     return isGatehouseBoltonAllowedPage(pageUrl)
   }
@@ -7132,6 +7330,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isMe1SaunaSource(source.venue_id, source.source_url)) {
+    return discoverMe1SaunaEventPages(source.source_url)
+  }
 
   if (isGatehouseBoltonSource(source.venue_id, source.source_url)) {
     return discoverGatehouseBoltonEventPages(source.source_url)
@@ -7264,6 +7466,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
   if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
+  if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
   if (isHu9Source(venueId, pageUrl)) return extractHu9Events(html, pageUrl)
@@ -9912,9 +10115,11 @@ export async function GET(request: Request) {
       ? xtasiaDiscoveredUrls
       : isHu9Source(source.venue_id, source.source_url)
         ? targetVenueDiscoveredUrls
-        : isGatehouseBoltonSource(source.venue_id, source.source_url)
+        : isMe1SaunaSource(source.venue_id, source.source_url)
           ? targetVenueDiscoveredUrls
-          : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
+          : isGatehouseBoltonSource(source.venue_id, source.source_url)
+            ? targetVenueDiscoveredUrls
+            : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -9923,6 +10128,8 @@ export async function GET(request: Request) {
         : source.venue_id === 'xtasia_west_bromwich'
           ? 2
           : isHu9Source(source.venue_id, source.source_url)
+            ? 1
+          : isMe1SaunaSource(source.venue_id, source.source_url)
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
