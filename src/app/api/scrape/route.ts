@@ -3352,6 +3352,246 @@ function extractAcquaEvents(html: string, baseUrl: string) {
 
 
 
+function isNo3ClubSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('the_number_3_no3_club_chorley') ||
+    combined.includes('theno3club.co.uk') ||
+    combined.includes('the no3 club') ||
+    combined.includes('no3 club') ||
+    combined.includes('number 3')
+  )
+}
+
+function isNo3ClubAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    return host === 'theno3club.co.uk' && (path === '/' || path === '/all-the-latest' || path === '/information')
+  } catch {
+    return false
+  }
+}
+
+function discoverNo3ClubEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/'),
+    absoluteUrl(sourceUrl, '/all-the-latest/'),
+    absoluteUrl(sourceUrl, '/information/'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => isNo3ClubAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractNo3ClubEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isNo3ClubAllowedPage(baseUrl)) return candidates
+
+  const pageText = cleanText(html).toLowerCase()
+  const pageImage = extractBestImage(html, baseUrl)
+
+  const hasNo3Schedule =
+    pageText.includes('coming up at the no3 club') ||
+    pageText.includes('greedy girl') ||
+    pageText.includes('intro night') ||
+    pageText.includes('mixed night swing') ||
+    pageText.includes('saturday evening swing')
+
+  if (!hasNo3Schedule) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  const endDate = new Date(Date.UTC(now.getUTCFullYear(), 11, 31))
+
+  if (!todayString || endDate < today) return candidates
+
+  const seen = new Set<string>()
+
+  const pushNo3Candidate = (input: {
+    title: string
+    eventDate: string | null
+    startTime: string | null
+    raw: string
+    href?: string | null
+  }) => {
+    if (!input.eventDate || input.eventDate < todayString) return
+
+    let title = cleanEventName(input.title)
+      .replace(/^[-–—:|]+/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isJunkTitle(title)) return
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const href = input.href || eventUrlWithAnchor('https://theno3club.co.uk/', title)
+    const key = `${normalizeTitle(title)}|${input.eventDate}|${normalizeTicketUrl(href)}`
+
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: input.eventDate,
+      start_time: input.startTime,
+      raw: cleanText(input.raw || title).slice(0, 500),
+      image_url: pageImage,
+      method: 'no3-club-recurring-schedule',
+    })
+  }
+
+  const currentYear = today.getUTCFullYear()
+
+  // The live homepage carries a small dated June/July list. These are useful
+  // exact dates and also protect against any ambiguity in the recurring rules.
+  const listedEvents = [
+    { title: 'Mixed Swing Night', eventDate: `${currentYear}-06-27`, startTime: '20:30', raw: 'Saturday 27th June – Mixed Swing Night 8:30 – 1:30am.' },
+    { title: 'Super Sexy Sunday', eventDate: `${currentYear}-06-28`, startTime: '16:00', raw: 'Sunday 28th June – Super Sexy Sunday from 4pm.' },
+    { title: 'Greedy Girls Day', eventDate: `${currentYear}-07-01`, startTime: '13:00', raw: 'Wednesday 1st July – Greedy Girls Day from 1pm.' },
+    { title: 'Mixed Swing Night', eventDate: `${currentYear}-07-04`, startTime: '20:30', raw: 'Saturday 4th July – Mixed Swing Night 8:30 – 1:30am.' },
+    { title: 'Super Sexy Sunday', eventDate: `${currentYear}-07-05`, startTime: '16:00', raw: 'Sunday 5th July – Super Sexy Sunday from 4pm.' },
+    { title: 'Intro Night', eventDate: `${currentYear}-07-10`, startTime: '20:30', raw: 'Friday 10th July – Intro night from 8:30pm.' },
+    { title: 'Mixed Swing Night', eventDate: `${currentYear}-07-11`, startTime: '20:30', raw: 'Saturday 11th July – Mixed Swing Night 8:30 – 1:30am.' },
+    { title: 'Greedy Girls Day', eventDate: `${currentYear}-07-15`, startTime: '13:00', raw: 'Wednesday 15th July – Greedy Girls Day from 1pm.' },
+    { title: 'Mixed Swing Night', eventDate: `${currentYear}-07-18`, startTime: '20:30', raw: 'Saturday 18th July – Mixed Swing Night 8:30 – 1:30am.' },
+    { title: 'Super Sexy Sunday', eventDate: `${currentYear}-07-19`, startTime: '16:00', raw: 'Sunday 19th July – Super Sexy Sunday from 4pm.' },
+    { title: 'Intro Night', eventDate: `${currentYear}-07-24`, startTime: '20:30', raw: 'Friday 24th July – Intro night from 8:30pm.' },
+    { title: 'Mixed Swing Night', eventDate: `${currentYear}-07-25`, startTime: '20:30', raw: 'Saturday 25th July – Mixed Swing Night 8:30 – 1:30am.' },
+  ]
+
+  for (const event of listedEvents) {
+    pushNo3Candidate({
+      ...event,
+      href: eventUrlWithAnchor('https://theno3club.co.uk/', event.title),
+    })
+  }
+
+  const addMonthlyWeekday = (input: {
+    title: string
+    weekday: number
+    nth: number
+    startTime: string
+    raw: string
+  }) => {
+    for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
+      const eventDate = datePartsToString(nthWeekdayOfMonth(currentYear, monthIndex, input.weekday, input.nth))
+
+      pushNo3Candidate({
+        title: input.title,
+        eventDate,
+        startTime: input.startTime,
+        raw: input.raw,
+        href: eventUrlWithAnchor('https://theno3club.co.uk/', input.title),
+      })
+    }
+  }
+
+  const addWeekly = (input: {
+    title: string
+    weekday: number
+    startTime: string
+    raw: string
+    skipSecondAndFourthFriday?: boolean
+  }) => {
+    const occurrence = new Date(today)
+    const daysUntil = (input.weekday - occurrence.getUTCDay() + 7) % 7
+    occurrence.setUTCDate(occurrence.getUTCDate() + daysUntil)
+
+    while (occurrence <= endDate) {
+      if (input.skipSecondAndFourthFriday && occurrence.getUTCDay() === 5) {
+        const dayOfMonth = occurrence.getUTCDate()
+        const fridayNumber = Math.floor((dayOfMonth - 1) / 7) + 1
+        if (fridayNumber === 2 || fridayNumber === 4) {
+          occurrence.setUTCDate(occurrence.getUTCDate() + 7)
+          continue
+        }
+      }
+
+      pushNo3Candidate({
+        title: input.title,
+        eventDate: datePartsToString(occurrence),
+        startTime: input.startTime,
+        raw: input.raw,
+        href: eventUrlWithAnchor('https://theno3club.co.uk/', input.title),
+      })
+
+      occurrence.setUTCDate(occurrence.getUTCDate() + 7)
+    }
+  }
+
+  if (pageText.includes('1st & 3rd wednesday') || pageText.includes('first & third wednesday') || pageText.includes('greedy girls day')) {
+    addMonthlyWeekday({
+      title: 'Greedy Girls Day',
+      weekday: 3,
+      nth: 1,
+      startTime: '13:00',
+      raw: 'Greedy Girls Day. 1st and 3rd Wednesday of each month, open from 1pm.',
+    })
+
+    addMonthlyWeekday({
+      title: 'Greedy Girls Day',
+      weekday: 3,
+      nth: 3,
+      startTime: '13:00',
+      raw: 'Greedy Girls Day. 1st and 3rd Wednesday of each month, open from 1pm.',
+    })
+  }
+
+  if (pageText.includes('2nd & 4th friday') || pageText.includes('2nd and 4th friday') || pageText.includes('intro night')) {
+    addMonthlyWeekday({
+      title: 'Intro Night',
+      weekday: 5,
+      nth: 2,
+      startTime: '20:30',
+      raw: 'Intro Night. Every 2nd and 4th Friday of the month from 8:30pm.',
+    })
+
+    addMonthlyWeekday({
+      title: 'Intro Night',
+      weekday: 5,
+      nth: 4,
+      startTime: '20:30',
+      raw: 'Intro Night. Every 2nd and 4th Friday of the month from 8:30pm.',
+    })
+  }
+
+  if (pageText.includes('all other friday') || pageText.includes('mixed night swing')) {
+    addWeekly({
+      title: 'Mixed Swing Night',
+      weekday: 5,
+      startTime: '20:30',
+      raw: 'Mixed Swing Night. All other Fridays, excluding Intro Night Fridays, from 8:30pm.',
+      skipSecondAndFourthFriday: true,
+    })
+  }
+
+  if (pageText.includes('saturday evening swing') || pageText.includes('mixed swing night')) {
+    addWeekly({
+      title: 'Mixed Swing Night',
+      weekday: 6,
+      startTime: '20:30',
+      raw: 'Saturday Evening Swing / Mixed Swing Night from 8:30pm.',
+    })
+  }
+
+  return candidates
+}
+
+
 
 
 
@@ -7233,7 +7473,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isSheWorldSource(venueId, sourceUrl) ||
     isMirageLincolnSource(venueId, sourceUrl) ||
     isCjsTownhouseSource(venueId, sourceUrl) ||
-    isGgsLoungeSource(venueId, sourceUrl)
+    isGgsLoungeSource(venueId, sourceUrl) ||
+    isNo3ClubSource(venueId, sourceUrl)
   )
 }
 
@@ -7243,6 +7484,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isNo3ClubSource(source.venue_id, source.source_url)) {
+    return isNo3ClubAllowedPage(pageUrl)
+  }
+
   if (isAcquaSource(source.venue_id, source.source_url)) {
     return isAcquaAllowedPage(pageUrl)
   }
@@ -7293,6 +7538,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isNo3ClubSource(source.venue_id, source.source_url)) {
+    return discoverNo3ClubEventPages(source.source_url)
+  }
 
   if (isMe1SaunaSource(source.venue_id, source.source_url)) {
     return discoverMe1SaunaEventPages(source.source_url)
@@ -7432,6 +7681,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isNo3ClubSource(venueId, pageUrl)) return extractNo3ClubEvents(html, pageUrl)
   if (isSf10RecoverySource(venueId, pageUrl)) return extractSf10RecoveryEvents(html, pageUrl, venueId)
   if (isHu9Source(venueId, pageUrl)) return extractHu9Events(html, pageUrl)
   if (isPlusciousPartiesSource(venueId, pageUrl)) return extractPlusciousPartiesEvents(html, pageUrl)
@@ -10099,6 +10349,8 @@ export async function GET(request: Request) {
             ? 1
           : isGatehouseBoltonSource(source.venue_id, source.source_url)
             ? 1
+          : isNo3ClubSource(source.venue_id, source.source_url)
+            ? 3
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
             : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
@@ -10925,6 +11177,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isNo3ClubSource(source.venue_id, source.source_url)) {
+            skipped++
+            continue
+          }
+
           if (isPlusciousPartiesSource(source.venue_id, source.source_url)) {
             skipped++
             continue
