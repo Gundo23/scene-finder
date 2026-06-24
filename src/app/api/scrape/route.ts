@@ -6445,7 +6445,6 @@ function discoverCjsTownhouseEventPages(sourceUrl: string) {
   const urls = [
     sourceUrl,
     absoluteUrl(sourceUrl, '/dates.html'),
-    absoluteUrl(sourceUrl, '/dates'),
   ].filter(Boolean) as string[]
 
   return [...new Set(urls)].filter((url) => {
@@ -6454,7 +6453,7 @@ function discoverCjsTownhouseEventPages(sourceUrl: string) {
       const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
       const path = parsed.pathname.replace(/\/+$/, '').toLowerCase()
 
-      return host === 'cjsatthetownhouse.com' && (path === '/dates' || path === '/dates.html') && !isJunkUrl(url)
+      return host === 'cjsatthetownhouse.com' && path === '/dates.html' && !isJunkUrl(url)
     } catch {
       return false
     }
@@ -6569,7 +6568,7 @@ function extractCjsTownhouseEvents(html: string, baseUrl: string) {
 
   try {
     const path = new URL(baseUrl).pathname.replace(/\/+$/, '').toLowerCase() || '/'
-    if (path !== '/dates' && path !== '/dates.html') return candidates
+    if (path !== '/dates.html') return candidates
   } catch {
     return candidates
   }
@@ -6590,16 +6589,7 @@ function extractCjsTownhouseEvents(html: string, baseUrl: string) {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
 
-  const monthWords = 'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
-  const weekdayWords = 'mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday'
-  const dateLinePattern = new RegExp(
-    `^(?:${weekdayWords})\\s+` +
-      `(\\d{1,2})(?:st|nd|rd|th)?\\s+` +
-      `(${monthWords})\\s+` +
-      `(20\\d{2})\\s+` +
-      `(.+)$`,
-    'i'
-  )
+  const dateLinePattern = /^(?:mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(20\d{2})\s+(.+)$/i
 
   const isDateLine = (line: string) => dateLinePattern.test(line)
   const isMonthHeading = (line: string) => {
