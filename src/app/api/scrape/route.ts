@@ -3632,7 +3632,6 @@ function discoverClubCollaredEventPages(sourceUrl: string) {
   const urls = [
     absoluteUrl(sourceUrl, '/event-info?event=Collared%20London'),
     absoluteUrl(sourceUrl, '/event-info?event=Collared%20Manchester'),
-    'https://legacy.clubcollared.com/',
   ].filter(Boolean) as string[]
 
   return [...new Set(urls)].filter((url) => isClubCollaredAllowedPage(url) && !isJunkUrl(url))
@@ -3657,7 +3656,18 @@ function extractClubCollaredEvents(html: string, baseUrl: string) {
   const isLegacyPage = parsed.hostname.replace(/^www\./, '').toLowerCase() === 'legacy.clubcollared.com'
   const pageImage = (() => {
     const image = extractBestImage(html, baseUrl)
-    if (!image || image.includes('${') || image.includes('%7b') || image.includes('%7D')) return null
+    if (!image) return null
+    const loweredImage = image.toLowerCase()
+    if (
+      image.includes('${') ||
+      loweredImage.includes('%24%7b') ||
+      loweredImage.includes('$%7b') ||
+      loweredImage.includes('%7b') ||
+      loweredImage.includes('%7d') ||
+      loweredImage.includes('eventdata.venue.url')
+    ) {
+      return null
+    }
     return image
   })()
 
