@@ -371,6 +371,7 @@ const TBC_VENUE_BLACKLIST = [
   'purple_mamba_club_nottingham_west_bridgford',
   'swindon_swingers_swindon',
   'torture_garden_london_uk_events',
+  'clubzeus_sauna_mansfield',
 ]
 
 const TBC_EVENT_NAME_BLACKLIST = [
@@ -4270,6 +4271,137 @@ function extractSaintsAndSinnersEvents(html: string, baseUrl: string) {
 }
 
 
+function isClubZeusSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('clubzeus_sauna_mansfield') ||
+    combined.includes('clubzeus.co.uk')
+  )
+}
+
+function isClubZeusAllowedPage(pageUrl: string) {
+  try {
+    const url = new URL(pageUrl)
+    const host = url.hostname.replace(/^www\./, '').toLowerCase()
+    const path = url.pathname.replace(/\/+$/, '') || '/'
+
+    return host === 'clubzeus.co.uk' && path === '/'
+  } catch {
+    return false
+  }
+}
+
+function discoverClubZeusEventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+  const home = absoluteUrl(sourceUrl, '/') || 'https://clubzeus.co.uk/'
+  urls.add(home)
+  return [...urls].filter(isClubZeusAllowedPage)
+}
+
+function nextWeekdayDates(startDate: Date, endDate: Date, weekday: number) {
+  const dates: string[] = []
+  const cursor = new Date(Date.UTC(
+    startDate.getUTCFullYear(),
+    startDate.getUTCMonth(),
+    startDate.getUTCDate()
+  ))
+
+  while (cursor.getUTCDay() !== weekday) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+
+  while (cursor <= endDate) {
+    const value = datePartsToString(cursor)
+    if (value) dates.push(value)
+    cursor.setUTCDate(cursor.getUTCDate() + 7)
+  }
+
+  return dates
+}
+
+function extractClubZeusEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+  const pageText = normalizeTitle(html)
+  const readableText = cleanText(html)
+  const today = new Date()
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const officialPage = 'https://clubzeus.co.uk/'
+  const fixedEvents = [
+    { title: 'A La Carte (Brand New)', eventDate: '2026-06-26', startTime: '18:00', anchor: 'a-la-carte-brand-new' },
+    { title: 'CumStruction', eventDate: '2026-06-27', startTime: '18:00', anchor: 'cumstruction' },
+    { title: 'CumCoded', eventDate: '2026-07-03', startTime: '18:00', anchor: 'cumcoded-2026-07-03' },
+    { title: 'CumFusion', eventDate: '2026-07-04', startTime: '18:00', anchor: 'cumfusion' },
+    { title: 'A La Carte', eventDate: '2026-07-10', startTime: '18:00', anchor: 'a-la-carte-2026-07-10' },
+    { title: 'Blackout', eventDate: '2026-07-11', startTime: '18:00', anchor: 'blackout' },
+    { title: 'CumCoded', eventDate: '2026-07-17', startTime: '18:00', anchor: 'cumcoded-2026-07-17' },
+    { title: 'Rawgy', eventDate: '2026-07-18', startTime: '18:00', anchor: 'rawgy' },
+    { title: 'A La Carte', eventDate: '2026-07-24', startTime: '18:00', anchor: 'a-la-carte-2026-07-24' },
+  ]
+
+  const seen = new Set<string>()
+
+  for (const event of fixedEvents) {
+    const eventDate = validDateOrNull(event.eventDate)
+    if (!eventDate || eventDate < todayString) continue
+
+    const titleNeedle = normalizeTitle(event.title)
+    const dateNeedle = normalizeTitle(event.eventDate)
+    const pageMentionsEvent = pageText.includes(titleNeedle) || readableText.includes(event.eventDate)
+    const pageMentionsDate = pageText.includes(dateNeedle) || readableText.includes(event.eventDate)
+
+    if (!pageMentionsEvent || !pageMentionsDate) continue
+
+    const key = `${normalizeTitle(event.title)}|${eventDate}`
+    if (seen.has(key)) continue
+    seen.add(key)
+
+    candidates.push({
+      href: `${officialPage}#${event.anchor}`,
+      text: `ClubZeus: ${event.title}`,
+      event_date: eventDate,
+      start_time: event.startTime,
+      raw: cleanText(`${event.title}. Date: ${event.eventDate}. Time: 6:00pm. Official ClubZeus weekend event listing.`),
+      image_url: null,
+      method: 'clubzeus-official-schedule',
+    })
+  }
+
+  if (pageText.includes('every wednesday') || pageText.includes('naked wednesday') || pageText.includes('let it all hang out')) {
+    const endDate = new Date(Date.UTC(today.getUTCFullYear(), 11, 31))
+
+    for (const eventDate of nextWeekdayDates(today, endDate, 3)) {
+      if (eventDate < todayString) continue
+      const key = `naked-wednesday|${eventDate}`
+      if (seen.has(key)) continue
+      seen.add(key)
+
+      candidates.push({
+        href: `${officialPage}#naked-wednesday`,
+        text: 'ClubZeus: Naked Wednesday',
+        event_date: eventDate,
+        start_time: '11:00',
+        raw: 'Naked Wednesday / Let It All Hang Out. Official ClubZeus weekly Wednesday listing.',
+        image_url: null,
+        method: 'clubzeus-weekly-schedule',
+      })
+    }
+  }
+
+  return candidates
+}
+
+
 function isAtticExperienceSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -8153,7 +8285,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isClubCollaredSource(venueId, sourceUrl) ||
     isTortureGardenSource(venueId, sourceUrl) ||
     isRiotPartySource(venueId, sourceUrl) ||
-    isSaintsAndSinnersSource(venueId, sourceUrl)
+    isSaintsAndSinnersSource(venueId, sourceUrl) ||
+    isClubZeusSource(venueId, sourceUrl)
   )
 }
 
@@ -8163,6 +8296,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isClubZeusSource(source.venue_id, source.source_url)) {
+    return isClubZeusAllowedPage(pageUrl)
+  }
+
   if (isSaintsAndSinnersSource(source.venue_id, source.source_url)) {
     return isSaintsAndSinnersAllowedPage(pageUrl)
   }
@@ -8233,6 +8370,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isClubZeusSource(source.venue_id, source.source_url)) {
+    return discoverClubZeusEventPages(source.source_url)
+  }
 
   if (isSaintsAndSinnersSource(source.venue_id, source.source_url)) {
     return discoverSaintsAndSinnersEventPages(source.source_url)
@@ -8392,6 +8533,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
+  if (isClubZeusSource(venueId, pageUrl)) return extractClubZeusEvents(html, pageUrl)
   if (isSaintsAndSinnersSource(venueId, pageUrl)) return extractSaintsAndSinnersEvents(html, pageUrl)
   if (isRiotPartySource(venueId, pageUrl)) return extractRiotPartyEvents(html, pageUrl)
   if (isTortureGardenSource(venueId, pageUrl)) return extractTortureGardenEvents(html, pageUrl)
@@ -11516,6 +11658,10 @@ ${hu9HydratedText}`, pageUrl)
             imageUrl = null
           }
 
+          if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
+            imageUrl = null
+          }
+
           const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
 
           if (runSeen.has(dedupeKey)) {
@@ -11807,6 +11953,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSaintsAndSinnersSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -11862,6 +12013,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSaintsAndSinnersSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -11941,6 +12097,11 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isClubZeusSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSaintsAndSinnersSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
