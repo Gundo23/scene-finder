@@ -4638,6 +4638,191 @@ function extractSaunabarBournemouthEvents(html: string, baseUrl: string) {
 }
 
 
+
+function isPleasuresInKentSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('pleasures_in_kent_wateringbury_maidstone') ||
+    combined.includes('pleasures-in-kent.co.uk') ||
+    combined.includes('pleasures in kent')
+  )
+}
+
+function isPleasuresInKentAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (host !== 'pleasures-in-kent.co.uk') return false
+
+    return path === '/' || path === '/events' || path === '/contact'
+  } catch {
+    return false
+  }
+}
+
+function discoverPleasuresInKentEventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+  const base = absoluteUrl(sourceUrl, '/') || 'https://pleasures-in-kent.co.uk/'
+
+  const eventsUrl = absoluteUrl(base, '/events/') || 'https://pleasures-in-kent.co.uk/events/'
+  urls.add(eventsUrl)
+
+  return [...urls].filter((url) => isPleasuresInKentAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractPleasuresInKentEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isPleasuresInKentAllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const hasPleasuresSignals =
+    pageText.includes('pleasures in kent') ||
+    pageText.includes('friday night party') ||
+    pageText.includes('theme nights and special events') ||
+    pageText.includes('326 red hill') ||
+    pageText.includes('wateringbury')
+
+  if (!hasPleasuresSignals) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const officialPage = 'https://pleasures-in-kent.co.uk/events/'
+  const endOfYear = new Date(Date.UTC(today.getUTCFullYear(), 11, 31))
+  const seen = new Set<string>()
+  const specialEventDates = new Set<string>()
+
+  const addCandidate = (
+    title: string,
+    eventDate: string | null,
+    startTime: string,
+    href: string,
+    raw: string
+  ) => {
+    if (!eventDate || eventDate < todayString) return
+    const key = `${normalizeTitle(title)}|${eventDate}|${startTime}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw,
+      image_url: null,
+      method: 'pleasures-in-kent-official-schedule',
+    })
+  }
+
+  const specials = [
+    {
+      title: 'Pleasures in Kent: Swinging 60s',
+      date: '2026-07-04',
+      anchor: 'swinging-60s',
+      raw: 'Official Pleasures in Kent events page lists Swinging 60s on 4th July 2026. Guest list only. Saturday party for male/female couples and single ladies only. Time: 8pm to 3am.',
+      signals: ['swinging 60', '4th july 2026'],
+    },
+    {
+      title: 'Pleasures in Kent: Movie Stars',
+      date: '2026-08-01',
+      anchor: 'movie-stars',
+      raw: 'Official Pleasures in Kent events page lists Movie Stars on 1st Aug 2026. Guest list only. Saturday party for male/female couples and single ladies only. Time: 8pm to 3am.',
+      signals: ['movie stars', '1st aug 2026'],
+    },
+    {
+      title: 'Pleasures in Kent: Ibiza Beach Party',
+      date: '2026-08-29',
+      anchor: 'ibiza-beach-party',
+      raw: 'Official Pleasures in Kent events page lists Ibiza Beach Party on 29th Aug 2026. Guest list only. Saturday party for male/female couples and single ladies only. Time: 8pm to 3am.',
+      signals: ['ibiza beach party', '29th aug 2026'],
+    },
+    {
+      title: 'Pleasures in Kent: UV Glow Party',
+      date: '2026-09-26',
+      anchor: 'uv-glow-party',
+      raw: 'Official Pleasures in Kent events page lists UV Glow Party on 26th Sept 2026. Guest list only. Saturday party for male/female couples and single ladies only. Time: 8pm to 3am.',
+      signals: ['uv glow party', '26th sept 2026'],
+    },
+    {
+      title: 'Pleasures in Kent: Halloween Party',
+      date: '2026-10-31',
+      anchor: 'halloween-party',
+      raw: 'Official Pleasures in Kent events page lists Halloween Party on 31st Oct 2026. Ticket only event. Time: 8pm to 3am.',
+      signals: ['halloween party', '31st oct 2026'],
+    },
+    {
+      title: 'Pleasures in Kent: Salute the Services',
+      date: '2026-11-21',
+      anchor: 'salute-the-services',
+      raw: 'Official Pleasures in Kent events page lists Salute the Services on 21st Nov 2026. Guest list only. Saturday party for male/female couples and single ladies only. Time: 8pm to 3am.',
+      signals: ['salute the services', '21st nov 2026'],
+    },
+    {
+      title: 'Pleasures in Kent: Christmas Party',
+      date: '2026-12-19',
+      anchor: 'christmas-party',
+      raw: 'Official Pleasures in Kent events page lists Christmas Party for 19th Dec 2026. Ticket only event. Time expected from party schedule: 8pm to 3am.',
+      signals: ['christmas party', '19th dec 2026'],
+    },
+    {
+      title: "Pleasures in Kent: New Year's Eve",
+      date: '2026-12-31',
+      anchor: 'new-years-eve',
+      raw: "Official Pleasures in Kent events page lists New Year's Eve on 31st December 2026. Ticket only event. Time: 8pm to 3am.",
+      signals: ['new year', '31st december 2026'],
+    },
+  ]
+
+  for (const event of specials) {
+    const pageMentionsEvent = event.signals.some((signal) => pageText.includes(signal))
+    if (!pageMentionsEvent) continue
+    specialEventDates.add(event.date)
+    addCandidate(event.title, event.date, '20:00', `${officialPage}#${event.anchor}`, event.raw)
+  }
+
+  if (pageText.includes('friday night party') || pageText.includes('hosted every friday')) {
+    for (const eventDate of nextWeekdayDates(today, endOfYear, 5)) {
+      addCandidate(
+        'Pleasures in Kent: Friday Night Party',
+        eventDate,
+        '20:00',
+        `${officialPage}#friday-night-party-${eventDate}`,
+        'Official Pleasures in Kent events page lists Friday Night Party hosted every Friday. Open to male/female couples, single gentlemen and single ladies. Time: 8pm.'
+      )
+    }
+  }
+
+  if (pageText.includes('saturday party night')) {
+    for (const eventDate of nextWeekdayDates(today, endOfYear, 6)) {
+      if (specialEventDates.has(eventDate)) continue
+      addCandidate(
+        'Pleasures in Kent: Saturday Party Night',
+        eventDate,
+        '20:00',
+        `${officialPage}#saturday-party-night-${eventDate}`,
+        'Official Pleasures in Kent events page lists Saturday Party Night. Theme nights and special events take precedence over regular Saturday events. Time: 8pm.'
+      )
+    }
+  }
+
+  return candidates
+}
+
 function isSweetWednesdaySource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -9241,6 +9426,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isRiotPartySource(venueId, sourceUrl) ||
     isSaintsAndSinnersSource(venueId, sourceUrl) ||
     isSaunabarBournemouthSource(venueId, sourceUrl) ||
+    isPleasuresInKentSource(venueId, sourceUrl) ||
     isSweetWednesdaySource(venueId, sourceUrl) ||
     isBirminghamBizarreBazaarSource(venueId, sourceUrl) ||
     isSteamerQuaySource(venueId, sourceUrl) ||
@@ -9258,6 +9444,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
   if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
     return isSaunabarBournemouthAllowedPage(pageUrl)
+  }
+
+  if (isPleasuresInKentSource(source.venue_id, source.source_url)) {
+    return isPleasuresInKentAllowedPage(pageUrl)
   }
 
   if (isSweetWednesdaySource(source.venue_id, source.source_url)) {
@@ -9357,6 +9547,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
     return discoverSaunabarBournemouthEventPages(source.source_url)
+  }
+
+  if (isPleasuresInKentSource(source.venue_id, source.source_url)) {
+    return discoverPleasuresInKentEventPages(source.source_url)
   }
 
   if (isSweetWednesdaySource(source.venue_id, source.source_url)) {
@@ -9542,6 +9736,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
   if (isSaunabarBournemouthSource(venueId, pageUrl)) return extractSaunabarBournemouthEvents(html, pageUrl)
+  if (isPleasuresInKentSource(venueId, pageUrl)) return extractPleasuresInKentEvents(html, pageUrl)
   if (isSweetWednesdaySource(venueId, pageUrl)) return extractSweetWednesdayEvents(html, pageUrl)
   if (isBirminghamBizarreBazaarSource(venueId, pageUrl)) return extractBirminghamBizarreBazaarEvents(html, pageUrl)
   if (isSteamerQuaySource(venueId, pageUrl)) return extractSteamerQuayEvents(html, pageUrl)
@@ -12700,6 +12895,10 @@ ${hu9HydratedText}`, pageUrl)
             imageUrl = null
           }
 
+          if (isPleasuresInKentSource(source.venue_id, `${source.source_url} ${pageUrl} ${ticketUrl}`)) {
+            imageUrl = null
+          }
+
           const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
 
           if (runSeen.has(dedupeKey)) {
@@ -13006,6 +13205,11 @@ ${hu9HydratedText}`, pageUrl)
             continue
           }
 
+          if (isPleasuresInKentSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -13087,6 +13291,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const calendarEvent of calendarLinks) {
           if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
+          if (isPleasuresInKentSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
@@ -13196,6 +13405,11 @@ ${hu9HydratedText}`, pageUrl)
 
         for (const link of links) {
           if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
+          if (isPleasuresInKentSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
           }
