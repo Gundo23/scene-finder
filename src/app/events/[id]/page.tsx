@@ -1,137 +1,186 @@
-import { supabase } from '@/lib/supabase'
-import Link from 'next/link'
-import { cleanText } from '@/lib/cleanText'
-import FallbackImage from '@/app/components/FallbackImage'
+import { supabase } from "@/lib/supabase";
+import Link from "next/link";
+import FallbackImage from "@/app/components/FallbackImage";
+
+function cleanDisplayText(value?: string | null) {
+  if (!value) return "";
+
+  return String(value)
+    .replace(/&amp;hellip;/gi, "…")
+    .replace(/&hellip;/gi, "…")
+    .replace(/&amp;nbsp;/gi, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;quot;/gi, '"')
+    .replace(/&quot;/gi, '"')
+    .replace(/&amp;#39;/gi, "'")
+    .replace(/&#39;/gi, "'")
+    .replace(/&amp;apos;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&rsquo;/gi, "'")
+    .replace(/&lsquo;/gi, "'")
+    .replace(/&rdquo;/gi, '"')
+    .replace(/&ldquo;/gi, '"')
+    .replace(/&amp;lt;/gi, "<")
+    .replace(/&lt;/gi, "<")
+    .replace(/&amp;gt;/gi, ">")
+    .replace(/&gt;/gi, ">")
+    .replace(/&amp;/gi, "&")
+    .replace(/\\r\\n|\\n|\\r/g, " ")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<\/p>/gi, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\[…\]|\[\.\.\.\]/g, "…")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanDisplayUrl(value?: string | null) {
+  const cleaned = cleanDisplayText(value);
+  return cleaned || null;
+}
 
 function formatDate(date: string | null) {
-  if (!date) return 'Date TBC'
+  if (!date) return "Date TBC";
 
-  return new Date(date).toLocaleDateString('en-GB', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
+  return new Date(date).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function formatTime(time: string | null) {
-  if (!time) return null
-  return time.slice(0, 5)
+  if (!time) return null;
+
+  const formatted = time.slice(0, 5);
+
+  // Most scraped 00:00 values mean the source gave no time.
+  // Show Time TBC instead of misleading users with midnight.
+  if (formatted === "00:00") return null;
+
+  return formatted;
 }
 
 function getTodayString() {
-  return new Date().toISOString().split('T')[0]
+  return new Date().toISOString().split("T")[0];
 }
 
 function formatEventTime(startTime: string | null, endTime: string | null) {
-  if (startTime && endTime) return `${startTime} - ${endTime}`
-  if (startTime) return startTime
-  return 'Time TBC'
+  if (startTime && endTime) return `${startTime} - ${endTime}`;
+  if (startTime) return startTime;
+  return "Time TBC";
 }
 
 function getEventTags(event: any) {
-  const text = cleanText(
-    `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`
-  ).toLowerCase()
+  const text = cleanDisplayText(
+    `${event.event_name || ""} ${event.description || ""} ${event.event_type || ""}`,
+  ).toLowerCase();
 
-  const compactText = text.replace(/[^a-z0-9]/g, '')
-  const tags = new Set<string>()
+  const compactText = text.replace(/[^a-z0-9]/g, "");
+  const tags = new Set<string>();
 
   if (
-    text.includes('newbie') ||
-    text.includes('newcomer') ||
-    text.includes('first time') ||
-    text.includes('beginner')
+    text.includes("newbie") ||
+    text.includes("newcomer") ||
+    text.includes("first time") ||
+    text.includes("beginner")
   ) {
-    tags.add('Newbie Friendly')
+    tags.add("Newbie Friendly");
   }
 
-  if (text.includes('couple')) tags.add('Couples')
+  if (text.includes("couple")) tags.add("Couples");
 
   if (
-    text.includes('single men') ||
-    text.includes('single man') ||
-    text.includes('single male') ||
-    text.includes('single guy') ||
-    text.includes('single gent')
+    text.includes("single men") ||
+    text.includes("single man") ||
+    text.includes("single male") ||
+    text.includes("single guy") ||
+    text.includes("single gent")
   ) {
-    tags.add('Single Men Welcome')
-  }
-
-  if (
-    text.includes('single women') ||
-    text.includes('single woman') ||
-    text.includes('single female') ||
-    text.includes('single ladies') ||
-    text.includes('single lady')
-  ) {
-    tags.add('Single Women Welcome')
-  }
-
-  if (text.includes('bbw') || text.includes('curvy')) tags.add('Curvy / BBW')
-  if (text.includes('interracial') || text.includes('black magic')) tags.add('Interracial')
-  if (text.includes('greedy girl')) tags.add('Greedy Girls')
-  if (text.includes('bi') || text.includes('bisexual')) tags.add('Bi')
-  if (text.includes('hotwife') || text.includes('hot wife')) tags.add('Hotwife')
-  if (text.includes('cuckold') || text.includes('cuck')) tags.add('Cuckold')
-  if (text.includes('fetish')) tags.add('Fetish')
-
-  if (
-    text.includes('kink') ||
-    text.includes('bdsm') ||
-    compactText.includes('bdsm') ||
-    text.includes('bondage') ||
-    text.includes('domination') ||
-    text.includes('dominance') ||
-    text.includes('submission') ||
-    text.includes('submissive') ||
-    text.includes('dom/sub') ||
-    text.includes('dom sub') ||
-    text.includes('d/s')
-  ) {
-    tags.add('Kink')
+    tags.add("Single Men Welcome");
   }
 
   if (
-    text.includes('bdsm') ||
-    compactText.includes('bdsm') ||
-    text.includes('bondage') ||
-    text.includes('discipline') ||
-    text.includes('dominance') ||
-    text.includes('domination') ||
-    text.includes('submission') ||
-    text.includes('submissive')
+    text.includes("single women") ||
+    text.includes("single woman") ||
+    text.includes("single female") ||
+    text.includes("single ladies") ||
+    text.includes("single lady")
   ) {
-    tags.add('BDSM')
+    tags.add("Single Women Welcome");
   }
 
-  if (text.includes('social')) tags.add('Social')
-  if (text.includes('munch')) tags.add('Munch')
-  if (text.includes('party')) tags.add('Party')
-  if (text.includes('club night')) tags.add('Club Night')
-  if (text.includes('play party')) tags.add('Play Party')
-  if (text.includes('sauna')) tags.add('Sauna')
-  if (text.includes('workshop')) tags.add('Workshop')
-  if (text.includes('weekender') || text.includes('weekend')) tags.add('Weekender')
-  if (text.includes('festival') || text.includes('fest')) tags.add('Festival')
+  if (text.includes("bbw") || text.includes("curvy")) tags.add("Curvy / BBW");
+  if (text.includes("interracial") || text.includes("black magic"))
+    tags.add("Interracial");
+  if (text.includes("greedy girl")) tags.add("Greedy Girls");
+  if (text.includes("bi") || text.includes("bisexual")) tags.add("Bi");
+  if (text.includes("hotwife") || text.includes("hot wife"))
+    tags.add("Hotwife");
+  if (text.includes("cuckold") || text.includes("cuck")) tags.add("Cuckold");
+  if (text.includes("fetish")) tags.add("Fetish");
 
-  if (tags.size === 0 && event.event_type) tags.add(cleanText(event.event_type))
-  if (tags.size === 0) tags.add('Event')
+  if (
+    text.includes("kink") ||
+    text.includes("bdsm") ||
+    compactText.includes("bdsm") ||
+    text.includes("bondage") ||
+    text.includes("domination") ||
+    text.includes("dominance") ||
+    text.includes("submission") ||
+    text.includes("submissive") ||
+    text.includes("dom/sub") ||
+    text.includes("dom sub") ||
+    text.includes("d/s")
+  ) {
+    tags.add("Kink");
+  }
 
-  return [...tags]
+  if (
+    text.includes("bdsm") ||
+    compactText.includes("bdsm") ||
+    text.includes("bondage") ||
+    text.includes("discipline") ||
+    text.includes("dominance") ||
+    text.includes("domination") ||
+    text.includes("submission") ||
+    text.includes("submissive")
+  ) {
+    tags.add("BDSM");
+  }
+
+  if (text.includes("social")) tags.add("Social");
+  if (text.includes("munch")) tags.add("Munch");
+  if (text.includes("party")) tags.add("Party");
+  if (text.includes("club night")) tags.add("Club Night");
+  if (text.includes("play party")) tags.add("Play Party");
+  if (text.includes("sauna")) tags.add("Sauna");
+  if (text.includes("workshop")) tags.add("Workshop");
+  if (text.includes("weekender") || text.includes("weekend"))
+    tags.add("Weekender");
+  if (text.includes("festival") || text.includes("fest")) tags.add("Festival");
+
+  if (tags.size === 0 && event.event_type)
+    tags.add(cleanDisplayText(event.event_type));
+  if (tags.size === 0) tags.add("Event");
+
+  return [...tags];
 }
 
 export default async function EventDetailPage({
   params,
 }: {
-  params: Promise<{ id: string }>
+  params: Promise<{ id: string }>;
 }) {
-  const { id } = await params
-  const today = getTodayString()
+  const { id } = await params;
+  const today = getTodayString();
 
   const { data: event, error } = await supabase
-    .from('events')
-    .select(`
+    .from("events")
+    .select(
+      `
       event_id,
       venue_id,
       event_name,
@@ -144,9 +193,10 @@ export default async function EventDetailPage({
       source_url,
       image_url,
       status
-    `)
-    .eq('event_id', id)
-    .single()
+    `,
+    )
+    .eq("event_id", id)
+    .single();
 
   if (error || !event) {
     return (
@@ -166,26 +216,32 @@ export default async function EventDetailPage({
           </div>
         </section>
       </main>
-    )
+    );
   }
 
   const { data: venue } = await supabase
-    .from('venues')
-    .select('venue_id, name, city_area, region, website')
-    .eq('venue_id', event.venue_id)
-    .single()
+    .from("venues")
+    .select("venue_id, name, city_area, region, website")
+    .eq("venue_id", event.venue_id)
+    .single();
 
-  const startTime = formatTime(event.start_time)
-  const endTime = formatTime(event.end_time)
-  const eventTime = formatEventTime(startTime, endTime)
-  const eventTags = getEventTags(event)
+  const startTime = formatTime(event.start_time);
+  const endTime = formatTime(event.end_time);
+  const eventTime = formatEventTime(startTime, endTime);
+  const eventTags = getEventTags(event);
 
-  const eventName = cleanText(event.event_name || 'Untitled event')
-  const eventDescription = event.description ? cleanText(event.description) : ''
-  const venueName = venue?.name ? cleanText(venue.name) : ''
-  const venueCity = venue?.city_area ? cleanText(venue.city_area) : ''
-  const venueRegion = venue?.region ? cleanText(venue.region) : ''
-  const locationText = [venueCity, venueRegion].filter(Boolean).join(' • ')
+  const eventName = cleanDisplayText(event.event_name || "Untitled event");
+  const eventDescription = event.description
+    ? cleanDisplayText(event.description)
+    : "";
+  const venueName = venue?.name ? cleanDisplayText(venue.name) : "";
+  const venueCity = venue?.city_area ? cleanDisplayText(venue.city_area) : "";
+  const venueRegion = venue?.region ? cleanDisplayText(venue.region) : "";
+  const locationText = [venueCity, venueRegion].filter(Boolean).join(" • ");
+  const ticketUrl = cleanDisplayUrl(event.ticket_url);
+  const sourceUrl = cleanDisplayUrl(event.source_url);
+  const venueWebsite = cleanDisplayUrl(venue?.website);
+  const eventImage = cleanDisplayUrl(event.image_url);
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-zinc-950 px-3 pb-28 pt-5 text-white sm:px-6 sm:py-10">
@@ -213,8 +269,8 @@ export default async function EventDetailPage({
         <article className="mt-6 overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-900 via-zinc-950 to-purple-950/30 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20">
           <div className="relative">
             <FallbackImage
-              src={event.image_url || '/images/venue-placeholder.jpg'}
-fallbackSrc="/images/venue-placeholder.jpg"
+              src={eventImage || "/images/venue-placeholder.jpg"}
+              fallbackSrc="/images/venue-placeholder.jpg"
               alt={eventName}
               className="h-64 w-full object-cover sm:h-80"
             />
@@ -249,7 +305,7 @@ fallbackSrc="/images/venue-placeholder.jpg"
                   Location
                 </p>
                 <p className="mt-2 font-semibold text-zinc-100">
-                  📍 {locationText || 'Location TBC'}
+                  📍 {locationText || "Location TBC"}
                 </p>
               </div>
 
@@ -280,17 +336,19 @@ fallbackSrc="/images/venue-placeholder.jpg"
               <div className="mt-3 grid gap-2 text-sm text-zinc-300 sm:grid-cols-2">
                 <p>✓ Listed from venue event data</p>
                 <p>
-                  ✓ Official source available:{' '}
-                  {event.source_url || event.ticket_url ? 'Yes' : 'Not listed'}
+                  ✓ Official source available:{" "}
+                  {sourceUrl || ticketUrl ? "Yes" : "Not listed"}
                 </p>
-                <p>✓ Venue page available: {venue ? 'Yes' : 'Not listed'}</p>
+                <p>✓ Venue page available: {venue ? "Yes" : "Not listed"}</p>
                 <p>🔄 Last Updated: {formatDate(today)}</p>
               </div>
             </div>
 
             {eventDescription && (
               <div className="mt-6 rounded-2xl border border-purple-500/20 bg-black/45 p-4 shadow-lg shadow-purple-950/10 sm:p-5">
-                <h2 className="text-xl font-black text-white">About this event</h2>
+                <h2 className="text-xl font-black text-white">
+                  About this event
+                </h2>
                 <p className="mt-4 whitespace-pre-line break-words leading-7 text-zinc-300">
                   {eventDescription}
                 </p>
@@ -298,9 +356,9 @@ fallbackSrc="/images/venue-placeholder.jpg"
             )}
 
             <div className="mt-6 flex flex-wrap gap-3">
-              {event.ticket_url && (
+              {ticketUrl && (
                 <a
-                  href={event.ticket_url}
+                  href={ticketUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center rounded-xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/40 transition hover:scale-[1.02] hover:from-blue-400 hover:to-purple-500"
@@ -309,9 +367,9 @@ fallbackSrc="/images/venue-placeholder.jpg"
                 </a>
               )}
 
-              {event.source_url && !event.ticket_url && (
+              {sourceUrl && !ticketUrl && (
                 <a
-                  href={event.source_url}
+                  href={sourceUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center rounded-xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/40 transition hover:scale-[1.02] hover:from-blue-400 hover:to-purple-500"
@@ -329,9 +387,9 @@ fallbackSrc="/images/venue-placeholder.jpg"
                 </Link>
               )}
 
-              {venue?.website && (
+              {venueWebsite && (
                 <a
-                  href={venue.website}
+                  href={venueWebsite}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center rounded-xl border border-purple-500/30 bg-zinc-950/80 px-5 py-3 text-sm font-bold text-zinc-200 transition hover:border-purple-400 hover:bg-purple-500/10 hover:text-purple-200"
@@ -340,9 +398,9 @@ fallbackSrc="/images/venue-placeholder.jpg"
                 </a>
               )}
 
-              {event.source_url && event.ticket_url && (
+              {sourceUrl && ticketUrl && (
                 <a
-                  href={event.source_url}
+                  href={sourceUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/80 px-5 py-3 text-sm font-bold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
@@ -353,11 +411,13 @@ fallbackSrc="/images/venue-placeholder.jpg"
             </div>
 
             <p className="mt-5 text-xs leading-5 text-zinc-500">
-              Scene Finder is an independent directory. Always check the official venue or event source before travelling, booking, or attending.
+              Scene Finder is an independent directory. Always check the
+              official venue or event source before travelling, booking, or
+              attending.
             </p>
           </div>
         </article>
       </section>
     </main>
-  )
+  );
 }
