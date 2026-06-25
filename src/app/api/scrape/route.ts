@@ -4633,6 +4633,100 @@ function extractSaunabarBournemouthEvents(html: string, baseUrl: string) {
     )
   }
 
+
+  return candidates
+}
+
+
+function isSweetWednesdaySource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('sweet_wednesday_london') ||
+    combined.includes('sweetwednesday.co.uk') ||
+    combined.includes('sweet wednesday')
+  )
+}
+
+function isSweetWednesdayAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (host !== 'sweetwednesday.co.uk') return false
+
+    return path === '/' || path === '/about' || path === '/find-us'
+  } catch {
+    return false
+  }
+}
+
+function discoverSweetWednesdayEventPages(sourceUrl: string) {
+  const urls = new Set<string>()
+  const base = absoluteUrl(sourceUrl, '/') || 'https://sweetwednesday.co.uk/'
+
+  const aboutUrl = absoluteUrl(base, '/about/') || 'https://sweetwednesday.co.uk/about/'
+  urls.add(aboutUrl)
+
+  return [...urls].filter((url) => isSweetWednesdayAllowedPage(url) && !isJunkUrl(url))
+}
+
+function extractSweetWednesdayEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isSweetWednesdayAllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const hasSweetWednesdaySignals =
+    pageText.includes('sweet wednesday') ||
+    pageText.includes('central station') ||
+    pageText.includes('37 wharfdale') ||
+    pageText.includes('1st and 3rd wednesday') ||
+    pageText.includes('1.00pm to 8.30pm')
+
+  if (!hasSweetWednesdaySignals) return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const seen = new Set<string>()
+  const officialPage = 'https://sweetwednesday.co.uk/about/'
+  const raw = 'Official Sweet Wednesday site lists parties every 1st and 3rd Wednesday from 1.00pm until 8.30pm at Central Station, 37 Wharfdale Road, London N1 9SD.'
+
+  const addCandidate = (eventDate: string | null) => {
+    if (!eventDate || eventDate < todayString) return
+
+    const key = `sweet-wednesday|${eventDate}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href: `${officialPage}#${eventDate}`,
+      text: 'Sweet Wednesday',
+      event_date: eventDate,
+      start_time: '13:00',
+      raw,
+      image_url: null,
+      method: 'sweet-wednesday-official-schedule',
+    })
+  }
+
+  for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
+    addCandidate(nthWeekdayOfMonthUtc(today.getUTCFullYear(), monthIndex, 3, 1))
+    addCandidate(nthWeekdayOfMonthUtc(today.getUTCFullYear(), monthIndex, 3, 3))
+  }
+
   return candidates
 }
 
@@ -9147,6 +9241,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isRiotPartySource(venueId, sourceUrl) ||
     isSaintsAndSinnersSource(venueId, sourceUrl) ||
     isSaunabarBournemouthSource(venueId, sourceUrl) ||
+    isSweetWednesdaySource(venueId, sourceUrl) ||
     isBirminghamBizarreBazaarSource(venueId, sourceUrl) ||
     isSteamerQuaySource(venueId, sourceUrl) ||
     isNumber52Source(venueId, sourceUrl) ||
@@ -9163,6 +9258,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
   if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
     return isSaunabarBournemouthAllowedPage(pageUrl)
+  }
+
+  if (isSweetWednesdaySource(source.venue_id, source.source_url)) {
+    return isSweetWednesdayAllowedPage(pageUrl)
   }
 
   if (isBirminghamBizarreBazaarSource(source.venue_id, source.source_url)) {
@@ -9258,6 +9357,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
     return discoverSaunabarBournemouthEventPages(source.source_url)
+  }
+
+  if (isSweetWednesdaySource(source.venue_id, source.source_url)) {
+    return discoverSweetWednesdayEventPages(source.source_url)
   }
 
   if (isBirminghamBizarreBazaarSource(source.venue_id, source.source_url)) {
@@ -9439,6 +9542,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
   if (isSaunabarBournemouthSource(venueId, pageUrl)) return extractSaunabarBournemouthEvents(html, pageUrl)
+  if (isSweetWednesdaySource(venueId, pageUrl)) return extractSweetWednesdayEvents(html, pageUrl)
   if (isBirminghamBizarreBazaarSource(venueId, pageUrl)) return extractBirminghamBizarreBazaarEvents(html, pageUrl)
   if (isSteamerQuaySource(venueId, pageUrl)) return extractSteamerQuayEvents(html, pageUrl)
   if (isNumber52Source(venueId, pageUrl)) return extractNumber52Events(html, pageUrl)
