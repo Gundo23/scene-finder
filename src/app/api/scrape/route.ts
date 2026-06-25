@@ -4639,6 +4639,204 @@ function extractSaunabarBournemouthEvents(html: string, baseUrl: string) {
 
 
 
+
+
+function isSteelCliffeSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('steel_cliffe_sheffield') ||
+    combined.includes('steelcliffe.com') ||
+    combined.includes('steel cliffe')
+  )
+}
+
+function isSteelCliffeAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    return host === 'steelcliffe.com' && path === '/'
+  } catch {
+    return false
+  }
+}
+
+function discoverSteelCliffeEventPages(sourceUrl: string) {
+  const urls = [
+    absoluteUrl(sourceUrl, '/'),
+  ].filter(Boolean) as string[]
+
+  return [...new Set(urls)].filter((url) => isSteelCliffeAllowedPage(url) && !isJunkUrl(url))
+}
+
+function parseSteelCliffeDate(value: string | null | undefined) {
+  const raw = cleanText(value || '')
+  const match = raw.match(/\b(\d{1,2})[-/](\d{1,2})[-/](20\d{2}|30\d{2})\b/)
+
+  if (!match) return null
+
+  const day = match[1].padStart(2, '0')
+  const month = match[2].padStart(2, '0')
+  let yearNumber = Number(match[3])
+
+  // Steel Cliffe currently has one visible source typo: 04-07-3026.
+  // Keep this correction scoped to Steel Cliffe only so the generic parser
+  // does not silently rewrite dates for other venues.
+  if (yearNumber >= 3000 && yearNumber < 3100) {
+    yearNumber -= 1000
+  }
+
+  return validDateOrNull(`${yearNumber}-${month}-${day}`)
+}
+
+function isSteelCliffeDateLine(value: string | null | undefined) {
+  return parseSteelCliffeDate(value) !== null
+}
+
+function isSteelCliffeSkipLine(value: string | null | undefined) {
+  const cleaned = normalizeTitle(value || '')
+
+  if (!cleaned) return true
+  if (isSteelCliffeDateLine(value)) return true
+  if (cleaned === '-') return true
+  if (cleaned === 'event details') return true
+  if (cleaned === 'more events') return true
+  if (cleaned === 'upcoming events') return true
+  if (cleaned === 'steelcliffe') return true
+  if (cleaned === 'steel cliffe') return true
+  if (cleaned.includes('attercliffe road')) return true
+  if (cleaned.includes('sheffield s9 3qn')) return true
+  if (/^\d{1,2}(?::|\.)?\d{0,2}\s*(am|pm)$/i.test(cleanText(value || ''))) return true
+
+  return false
+}
+
+function cleanSteelCliffeTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\b(?:event details|more events)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractSteelCliffeEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url?: string | null
+    method: string
+  }[] = []
+
+  if (!isSteelCliffeAllowedPage(baseUrl)) return candidates
+
+  const pageText = normalizeTitle(html)
+  const hasSteelCliffeSignals =
+    pageText.includes('steelcliffe') ||
+    pageText.includes('steel cliffe') ||
+    pageText.includes('380 attercliffe road')
+
+  if (!hasSteelCliffeSignals || !pageText.includes('upcoming events')) return candidates
+
+  const lineText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(h1|h2|h3|h4|h5|h6|p|div|li|section|article)>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+
+  const lines = lineText
+    .split(/\n+/)
+    .map((line) => cleanText(decodeEscapedText(line)))
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+
+  const seen = new Map<string, number>()
+
+  for (let index = 0; index < lines.length; index++) {
+    const eventDate = parseSteelCliffeDate(lines[index])
+    if (!eventDate) continue
+
+    const block: string[] = [lines[index]]
+
+    for (let next = index + 1; next < lines.length; next++) {
+      if (isSteelCliffeDateLine(lines[next])) break
+      if (normalizeTitle(lines[next]) === 'follow us on socials for updates') break
+      block.push(lines[next])
+    }
+
+    const titleLine = block
+      .slice(1, 10)
+      .find((line) => !isSteelCliffeSkipLine(line) && !isJunkTitle(line))
+
+    if (!titleLine) continue
+
+    let title = cleanSteelCliffeTitle(titleLine)
+
+    if (!title || isJunkTitle(title)) continue
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const startTime =
+      block
+        .slice(1, 12)
+        .map((line) => extractTime(line))
+        .find(Boolean) || null
+
+    const descriptionLines = block
+      .slice(1)
+      .filter((line) => normalizeTitle(line) !== normalizeTitle(titleLine))
+      .filter((line) => !isSteelCliffeSkipLine(line))
+      .filter((line) => !isJunkTitle(line))
+      .slice(0, 4)
+
+    const description =
+      descriptionLines.length > 0
+        ? `${title}. ${descriptionLines.join(' ')}`
+        : `${title}. ${lines[index]}. Steel Cliffe official website listing.`
+
+    const href = eventUrlWithAnchor(baseUrl, `${title}-${eventDate}`)
+    const key = `${normalizeTitle(title)}|${eventDate}`
+
+    const existingIndex = seen.get(key)
+    if (existingIndex !== undefined) {
+      // The page renders each event twice: a compact card and an expanded card.
+      // Keep the richer description if the second block contains more text.
+      if (description.length > candidates[existingIndex].raw.length) {
+        candidates[existingIndex] = {
+          href,
+          text: title,
+          event_date: eventDate,
+          start_time: startTime || candidates[existingIndex].start_time,
+          raw: cleanText(description).slice(0, 500),
+          image_url: null,
+          method: 'steel-cliffe-homepage',
+        }
+      }
+
+      continue
+    }
+
+    seen.set(key, candidates.length)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: cleanText(description).slice(0, 500),
+      image_url: null,
+      method: 'steel-cliffe-homepage',
+    })
+  }
+
+  return candidates
+}
+
+
 function isPleasuresInKentSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
@@ -9433,7 +9631,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isSteamerQuaySource(venueId, sourceUrl) ||
     isNumber52Source(venueId, sourceUrl) ||
     isClubZeusSource(venueId, sourceUrl) ||
-    isOurPlace4FunSource(venueId, sourceUrl)
+    isOurPlace4FunSource(venueId, sourceUrl) ||
+    isSteelCliffeSource(venueId, sourceUrl)
   )
 }
 
@@ -9443,6 +9642,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isSteelCliffeSource(source.venue_id, source.source_url)) {
+    return isSteelCliffeAllowedPage(pageUrl)
+  }
+
   if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
     return isSaunabarBournemouthAllowedPage(pageUrl)
   }
@@ -9545,6 +9748,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isSteelCliffeSource(source.venue_id, source.source_url)) {
+    return discoverSteelCliffeEventPages(source.source_url)
+  }
 
   if (isSaunabarBournemouthSource(source.venue_id, source.source_url)) {
     return discoverSaunabarBournemouthEventPages(source.source_url)
@@ -9724,6 +9931,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
   if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
   if (venueId === 'ecclesia_glasgow') return extractEcclesiaEvents(html, pageUrl)
