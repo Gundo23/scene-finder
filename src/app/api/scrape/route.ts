@@ -5142,7 +5142,8 @@ function extractSteamerQuayEvents(html: string, baseUrl: string) {
   if (!todayString) return candidates
 
   const year = today.getUTCFullYear()
-  const end = new Date(Date.UTC(year, 11, 31))
+  const endYear = Math.max(year, 2028)
+  const end = new Date(Date.UTC(endYear, 11, 31))
   const seen = new Set<string>()
   const eventBase = 'https://www.steamer-quay.co.uk'
 
