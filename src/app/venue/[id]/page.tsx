@@ -33,7 +33,15 @@ function getEventDateBadge(date: string | null) {
 
 function formatTime(time: string | null) {
   if (!time) return null
-  return time.slice(0, 5)
+
+  const normalizedTime = time.trim()
+  const displayTime = normalizedTime.slice(0, 5)
+
+  // Many scrapers/database rows use 00:00:00 as a placeholder when no
+  // real start time was confirmed. Do not show fake midnight times on cards.
+  if (displayTime === '00:00') return null
+
+  return displayTime
 }
 
 function decodeHtmlEntities(value: string) {
