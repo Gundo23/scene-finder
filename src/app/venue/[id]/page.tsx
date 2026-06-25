@@ -101,6 +101,8 @@ function getTodayString() {
   return new Date().toISOString().split('T')[0]
 }
 
+const MAX_VISIBLE_EVENTS = 40
+
 function getEventCategory(event: any) {
   const text = cleanDisplayText(
     `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`
@@ -217,6 +219,8 @@ export default async function VenuePage({
     .order('event_date', { ascending: true, nullsFirst: false })
 
   const sortedEvents = events || []
+  const visibleEvents = sortedEvents.slice(0, MAX_VISIBLE_EVENTS)
+  const hiddenEventCount = Math.max(sortedEvents.length - visibleEvents.length, 0)
 
   const venueName = cleanDisplayText(venue.name)
   const venueCity = cleanDisplayText(venue.city_area || '')
@@ -409,6 +413,11 @@ export default async function VenuePage({
             <p className="mt-2 text-sm text-zinc-400">
               {sortedEvents.length} upcoming event{sortedEvents.length === 1 ? '' : 's'} listed for this venue
             </p>
+            {hiddenEventCount > 0 && (
+              <p className="mt-1 text-xs font-semibold text-blue-300">
+                Showing the next {visibleEvents.length}. More dates are available on the official venue source.
+              </p>
+            )}
           </div>
 
           <Link
@@ -421,7 +430,7 @@ export default async function VenuePage({
 
         <div className="mt-4 grid gap-4 sm:mt-5 sm:gap-5">
           {sortedEvents.length > 0 ? (
-            sortedEvents.map((event) => {
+            visibleEvents.map((event) => {
               const startTime = formatTime(event.start_time)
               const category = getEventCategory(event)
               const eventName = cleanDisplayText(event.event_name)
