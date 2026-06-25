@@ -31,12 +31,12 @@ export default function Home() {
           </div>
 
           <div className="mb-8">
-            <p className="text-xl font-bold text-zinc-100">
-              Find clubs. Discover events.
-            </p>
+            <h1 className="text-2xl font-black leading-tight tracking-tight text-white sm:text-3xl">
+              Find UK swinging clubs, lifestyle venues, saunas, socials and kink nights.
+            </h1>
 
-            <p className="mt-2 text-xl font-bold text-zinc-100">
-              Explore the scene.
+            <p className="mx-auto mt-4 max-w-sm text-base font-bold leading-7 text-blue-200 sm:text-lg">
+              157 venues. 3,300+ events. Updated daily.
             </p>
           </div>
 
