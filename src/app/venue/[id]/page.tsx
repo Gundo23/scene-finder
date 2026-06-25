@@ -101,7 +101,7 @@ function getTodayString() {
   return new Date().toISOString().split('T')[0]
 }
 
-const MAX_VISIBLE_EVENTS = 40
+const EVENT_BATCH_SIZE = 40
 
 function getEventCategory(event: any) {
   const text = cleanDisplayText(
@@ -178,10 +178,14 @@ function cleanVenueNotes(notes: string | null | undefined) {
 
 export default async function VenuePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams?: Promise<{ show?: string }>
 }) {
   const { id } = await params
+  const resolvedSearchParams = searchParams ? await searchParams : {}
+  const requestedEventLimit = Number.parseInt(resolvedSearchParams.show || '', 10)
   const today = getTodayString()
 
   const { data: venue, error } = await supabase
@@ -219,8 +223,12 @@ export default async function VenuePage({
     .order('event_date', { ascending: true, nullsFirst: false })
 
   const sortedEvents = events || []
-  const visibleEvents = sortedEvents.slice(0, MAX_VISIBLE_EVENTS)
+  const visibleEventLimit = Number.isFinite(requestedEventLimit)
+    ? Math.min(Math.max(requestedEventLimit, EVENT_BATCH_SIZE), Math.max(sortedEvents.length, EVENT_BATCH_SIZE))
+    : EVENT_BATCH_SIZE
+  const visibleEvents = sortedEvents.slice(0, visibleEventLimit)
   const hiddenEventCount = Math.max(sortedEvents.length - visibleEvents.length, 0)
+  const nextEventDisplayLimit = Math.min(visibleEventLimit + EVENT_BATCH_SIZE, sortedEvents.length)
 
   const venueName = cleanDisplayText(venue.name)
   const venueCity = cleanDisplayText(venue.city_area || '')
@@ -407,7 +415,7 @@ export default async function VenuePage({
           </div>
         </div>
 
-        <div className="mt-7 flex flex-wrap items-end justify-between gap-4 sm:mt-10">
+        <div id="upcoming-events" className="mt-7 flex flex-wrap items-end justify-between gap-4 sm:mt-10">
           <div>
             <h2 className="text-2xl font-bold">Upcoming events</h2>
             <p className="mt-2 text-sm text-zinc-400">
@@ -415,7 +423,7 @@ export default async function VenuePage({
             </p>
             {hiddenEventCount > 0 && (
               <p className="mt-1 text-xs font-semibold text-blue-300">
-                Showing the next {visibleEvents.length}. More dates are available on the official venue source.
+                Showing {visibleEvents.length} of {sortedEvents.length} Scene Finder events for this venue.
               </p>
             )}
           </div>
@@ -522,6 +530,21 @@ export default async function VenuePage({
             </div>
           )}
         </div>
+
+        {hiddenEventCount > 0 && (
+          <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-blue-500/20 bg-zinc-950/70 p-4 text-center shadow-lg shadow-blue-950/20">
+            <p className="text-sm font-semibold text-zinc-300">
+              Showing {visibleEvents.length} of {sortedEvents.length} Scene Finder events for this venue.
+            </p>
+
+            <Link
+              href={`/venue/${encodeURIComponent(id)}?show=${nextEventDisplayLimit}#upcoming-events`}
+              className="inline-flex items-center justify-center rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40"
+            >
+              Show {Math.min(EVENT_BATCH_SIZE, hiddenEventCount)} more events
+            </Link>
+          </div>
+        )}
       </section>
     </main>
   )
