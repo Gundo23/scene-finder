@@ -76,6 +76,36 @@ function formatEventTimeRange(startTime: string | null, endTime: string | null) 
   return "Time TBC";
 }
 
+function cleanCardText(value?: string | null, maxLength = 260) {
+  if (!value) return "";
+
+  const text = cleanText(value)
+    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!text) return "";
+
+  const looksBroken =
+    text.length > maxLength ||
+    text.includes("wp-block") ||
+    text.includes("data-") ||
+    text.includes("font-") ||
+    text.includes("container") ||
+    text.includes("undefined") ||
+    text.includes("function") ||
+    text.includes("{ ") ||
+    text.includes(" }") ||
+    /^[A-Za-z0-9+/=]{80,}/.test(text);
+
+  if (looksBroken) return "";
+
+  return text;
+}
+
 function getEventTimingLabel(date: string | null) {
   if (!date) return null;
 
@@ -385,6 +415,7 @@ export default async function EventsPage({
   const { data: events } = await supabase
     .from("events")
     .select("*")
+    .eq("status", "active")
     .or(`event_date.gte.${queryStartDate},event_date.is.null`)
     .limit(1000);
 
@@ -698,6 +729,9 @@ export default async function EventsPage({
               const regionName = cleanText(venue?.region || "");
               const dateBadge = getEventDateBadge(event.event_date);
               const dateBadgeClass = getDateBadgeClass(tags);
+              const eventTitle = cleanCardText(event.event_name, 120) || "Untitled event";
+              const eventDescription = cleanCardText(event.description, 220);
+              const venueName = cleanCardText(venue?.name, 80);
 
               return (
                 <Link
@@ -718,96 +752,98 @@ export default async function EventsPage({
                     </div>
 
                     <div className="relative min-w-0 p-4 sm:p-5">
-                      <div className={dateBadge ? "grid grid-cols-[minmax(0,1fr)_5.25rem] gap-3 sm:grid-cols-[minmax(0,1fr)_5.5rem] sm:gap-4" : ""}>
-                        <div className="min-w-0">
-                          <div className="mb-3 flex min-w-0 flex-wrap gap-2">
-                            {timingLabel && (
-                              <p className="max-w-full truncate rounded-full border border-blue-500 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200">
-                                {timingLabel}
-                              </p>
-                            )}
+                      {dateBadge && (
+                        <div
+                          className={`pointer-events-none absolute right-4 top-4 z-10 flex h-28 w-[5.25rem] shrink-0 flex-col items-center justify-center rounded-2xl border bg-zinc-950/80 text-center shadow-[0_0_26px_rgba(168,85,247,0.18)] ring-1 backdrop-blur-sm transition group-hover:scale-[1.02] sm:h-32 sm:w-[5.5rem] ${dateBadgeClass}`}
+                          aria-hidden="true"
+                        >
+                          <span className="text-4xl font-black leading-none tracking-tight text-white sm:text-5xl">
+                            {dateBadge.day}
+                          </span>
+                          <span className="mt-2 text-sm font-black tracking-[0.24em] sm:text-base">
+                            {dateBadge.month}
+                          </span>
+                          <span className="my-3 h-px w-10 bg-current opacity-35" />
+                          <span className="text-xs font-black tracking-[0.22em] sm:text-sm">
+                            {dateBadge.weekday}
+                          </span>
+                        </div>
+                      )}
 
-                            {tags.slice(0, 4).map((tag) => (
-                              <p
-                                key={tag}
-                                className="max-w-full truncate rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-1 text-[11px] text-zinc-300"
-                              >
-                                {tag}
-                              </p>
-                            ))}
-                          </div>
-
-                          <h2 className="line-clamp-2 break-words text-xl font-extrabold leading-snug text-white transition group-hover:text-blue-200 sm:text-2xl">
-                            {cleanText(event.event_name || "Untitled event")}
-                          </h2>
-
-                          <div className="mt-3 space-y-1.5 text-sm text-zinc-300">
-                            <p className="flex min-w-0 items-center gap-2">
-                              <span aria-hidden="true">📍</span>
-                              <span className="truncate">
-                                {town || regionName || "Location TBC"}
-                              </span>
+                      <div className={dateBadge ? "min-w-0 pr-24 sm:pr-28" : "min-w-0"}>
+                        <div className="mb-3 flex min-w-0 flex-wrap gap-2">
+                          {timingLabel && (
+                            <p className="max-w-full truncate rounded-full border border-blue-500 bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold text-blue-200">
+                              {timingLabel}
                             </p>
+                          )}
 
-                            <p className="flex min-w-0 items-center gap-2">
-                              <span aria-hidden="true">📅</span>
-                              <span className="truncate">{formatDate(event.event_date)}</span>
+                          {tags.slice(0, 3).map((tag) => (
+                            <p
+                              key={tag}
+                              className="max-w-full truncate rounded-full border border-zinc-700 bg-zinc-950/50 px-2.5 py-1 text-[11px] text-zinc-300"
+                            >
+                              {tag}
                             </p>
-
-                            <p className="flex min-w-0 items-center gap-2">
-                              <span aria-hidden="true">🕘</span>
-                              <span className="truncate">{timeRange}</span>
-                            </p>
-
-                            {theme && (
-                              <p className="flex min-w-0 items-center gap-2">
-                                <span aria-hidden="true">🎭</span>
-                                <span className="truncate">{theme}</span>
-                              </p>
-                            )}
-
-                            {price && (
-                              <p className="flex min-w-0 items-center gap-2">
-                                <span aria-hidden="true">💷</span>
-                                <span className="truncate">{price}</span>
-                              </p>
-                            )}
-                          </div>
+                          ))}
                         </div>
 
-                        {dateBadge && (
-                          <div
-                            className={`pointer-events-none flex h-28 w-[5.25rem] shrink-0 flex-col items-center justify-center self-start rounded-2xl border bg-zinc-950/70 text-center shadow-[0_0_26px_rgba(168,85,247,0.18)] ring-1 backdrop-blur-sm transition group-hover:scale-[1.02] sm:h-32 sm:w-[5.5rem] ${dateBadgeClass}`}
-                            aria-hidden="true"
-                          >
-                            <span className="text-4xl font-black leading-none tracking-tight text-white sm:text-5xl">
-                              {dateBadge.day}
+                        <h2 className="line-clamp-2 min-w-0 break-words text-lg font-extrabold leading-snug text-white transition group-hover:text-blue-200 sm:text-2xl">
+                          {eventTitle}
+                        </h2>
+
+                        <div className="mt-3 space-y-1.5 text-sm text-zinc-300">
+                          <p className="flex min-w-0 items-center gap-2">
+                            <span className="shrink-0" aria-hidden="true">📍</span>
+                            <span className="min-w-0 truncate">
+                              {town || regionName || "Location TBC"}
                             </span>
-                            <span className="mt-2 text-sm font-black tracking-[0.24em] sm:text-base">
-                              {dateBadge.month}
-                            </span>
-                            <span className="my-3 h-px w-10 bg-current opacity-35" />
-                            <span className="text-xs font-black tracking-[0.22em] sm:text-sm">
-                              {dateBadge.weekday}
-                            </span>
-                          </div>
-                        )}
+                          </p>
+
+                          <p className="flex min-w-0 items-center gap-2">
+                            <span className="shrink-0" aria-hidden="true">📅</span>
+                            <span className="min-w-0 truncate">{formatDate(event.event_date)}</span>
+                          </p>
+
+                          <p className="flex min-w-0 items-center gap-2">
+                            <span className="shrink-0" aria-hidden="true">🕘</span>
+                            <span className="min-w-0 truncate">{timeRange}</span>
+                          </p>
+
+                          {theme && (
+                            <p className="flex min-w-0 items-center gap-2">
+                              <span className="shrink-0" aria-hidden="true">🎭</span>
+                              <span className="min-w-0 truncate">{theme}</span>
+                            </p>
+                          )}
+
+                          {price && (
+                            <p className="flex min-w-0 items-center gap-2">
+                              <span className="shrink-0" aria-hidden="true">💷</span>
+                              <span className="min-w-0 truncate">{price}</span>
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      {venue && (
+                      {venueName && (
                         <p className="mt-3 truncate text-sm font-medium text-blue-400">
-                          {cleanText(venue.name || "")}
+                          {venueName}
                         </p>
                       )}
 
-                      {event.description && (
-                        <p className="mt-2 line-clamp-2 break-words text-xs text-zinc-400 sm:text-sm">
-                          {cleanText(event.description)}
+                      {eventDescription ? (
+                        <p className="mt-2 line-clamp-2 min-w-0 break-words text-xs leading-relaxed text-zinc-400 sm:text-sm">
+                          {eventDescription}
+                        </p>
+                      ) : (
+                        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-zinc-500 sm:text-sm">
+                          Tap to view the official event source and venue details.
                         </p>
                       )}
 
-                      <div className="mt-4 flex items-center justify-between gap-3">
-                        <span className="text-sm font-semibold text-blue-300 transition group-hover:translate-x-1">
+                      <div className="mt-4 flex min-w-0 items-center justify-between gap-3">
+                        <span className="truncate text-sm font-semibold text-blue-300 transition group-hover:translate-x-1">
                           Tap anywhere on card →
                         </span>
                       </div>
