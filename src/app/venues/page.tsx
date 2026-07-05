@@ -7,7 +7,7 @@ import { cleanText } from '@/lib/cleanText'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
-const REGIONS = [
+const FALLBACK_REGIONS = [
   'North East',
   'North West',
   'Yorkshire and the Humber',
@@ -16,9 +16,13 @@ const REGIONS = [
   'East of England',
   'London',
   'South East',
+  'South West',
+  'Scotland',
+  'Wales',
+  'Northern Ireland',
 ]
 
-const CITIES = [
+const FALLBACK_CITIES = [
   'Bath',
   'Birmingham',
   'Bradford',
@@ -104,6 +108,16 @@ function formatPostcodeSearch(value: string) {
   }
 
   return `${compact.slice(0, -3)} ${compact.slice(-3)}`
+}
+
+function uniqueSorted(values: Array<string | null | undefined>) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => cleanText(value || ''))
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b))
 }
 
 async function fetchUpcomingEventCountByVenue(today: string) {
@@ -274,11 +288,15 @@ export default async function VenuesPage({
 
   const [
     { data: venues, error },
+    { data: filterOptionVenues, error: filterOptionsError },
     { count: venueCount },
     { count: eventCount },
     upcomingEventCountByVenue,
   ] = await Promise.all([
     query,
+    supabase
+      .from('venues')
+      .select('venue_id, name, city_area, region, category, status'),
     supabase.from('venues').select('*', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }),
     fetchUpcomingEventCountByVenue(today),
@@ -290,6 +308,10 @@ export default async function VenuesPage({
         Error loading venues: {error.message}
       </main>
     )
+  }
+
+  if (filterOptionsError) {
+    console.error('Error loading venue filter options:', filterOptionsError.message)
   }
 
   const hasFilters = Boolean(search || city || region)
@@ -310,6 +332,22 @@ export default async function VenuesPage({
 
     return cleanText(a.name || '').localeCompare(cleanText(b.name || ''))
   })
+
+  const optionVenues = [...(filterOptionVenues || [])].filter((venue) => {
+    const upcomingEventCount = upcomingEventCountByVenue.get(venue.venue_id) || 0
+
+    return shouldShowPublicVenue(venue, upcomingEventCount, true)
+  })
+
+  const cityOptions = uniqueSorted([
+    ...FALLBACK_CITIES,
+    ...optionVenues.map((venue) => venue.city_area),
+  ])
+
+  const regionOptions = uniqueSorted([
+    ...FALLBACK_REGIONS,
+    ...optionVenues.map((venue) => venue.region),
+  ])
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 pb-24 text-white sm:px-6 sm:py-10">
@@ -369,7 +407,7 @@ export default async function VenuesPage({
               className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
             >
               <option value="">Search by City</option>
-              {CITIES.map((cityName) => (
+              {cityOptions.map((cityName) => (
                 <option key={cityName} value={cityName}>
                   {cityName}
                 </option>
@@ -382,7 +420,7 @@ export default async function VenuesPage({
               className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
             >
               <option value="">Search by Region</option>
-              {REGIONS.map((regionName) => (
+              {regionOptions.map((regionName) => (
                 <option key={regionName} value={regionName}>
                   {regionName}
                 </option>
