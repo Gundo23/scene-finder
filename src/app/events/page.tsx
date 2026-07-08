@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import FallbackImage from "@/app/components/FallbackImage";
@@ -415,9 +418,10 @@ export default async function EventsPage({
   const { data: events } = await supabase
     .from("events")
     .select("*")
-    .eq("status", "active")
+    .in("status", ["active", "published"])
     .or(`event_date.gte.${queryStartDate},event_date.is.null`)
-    .limit(1000);
+    .order("event_date", { ascending: true, nullsFirst: false })
+    .limit(5000);
 
   const { data: venues } = await supabase
     .from("venues")
