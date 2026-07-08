@@ -438,19 +438,47 @@ function cleanText(value: string | null | undefined) {
   if (!value) return ''
 
   return value
-    .replace(/&amp;/g, '&')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#8211;/g, '-')
-    .replace(/&#8217;/g, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#160;/g, ' ')
+
     .replace(/&#038;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#x27;/g, "'")
-    .replace(/&#x2F;/g, '/')
-    .replace(/&laquo;/g, '')
-    .replace(/&raquo;/g, '')
+    .replace(/&amp;/gi, '&')
+
+    .replace(/&pound;/gi, '£')
+    .replace(/&#163;/g, '£')
+
+    .replace(/&euro;/gi, '€')
+    .replace(/&#8364;/g, '€')
+
+    .replace(/&dollar;/gi, '$')
+    .replace(/&#36;/g, '$')
+
+    .replace(/&#039;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#8217;/g, "'")
+    .replace(/&apos;/gi, "'")
+
+    .replace(/&quot;/gi, '"')
+    .replace(/&#8220;/g, '"')
+    .replace(/&#8221;/g, '"')
+
+    .replace(/&mdash;/gi, '—')
+    .replace(/&#8212;/g, '—')
+
+    .replace(/&ndash;/gi, '-')
+    .replace(/&#8211;/g, '-')
+
+    .replace(/&rarr;/gi, '→')
+    .replace(/&gt;/gi, '>')
+    .replace(/&lt;/gi, '<')
+    .replace(/&#x2F;/gi, '/')
+
+    .replace(/&laquo;/gi, '')
+    .replace(/&raquo;/gi, '')
     .replace(/&#171;/g, '')
     .replace(/&#187;/g, '')
-    .replace(/&#39;/g, "'")
+
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
@@ -573,6 +601,7 @@ function eventUrlWithAnchor(pageUrl: string, eventName: string) {
 }
 
 function isJunkTitle(title: string) {
+  const raw = cleanText(title).trim()
   const cleaned = normalizeTitle(title)
 
   if (!cleaned) return true
@@ -581,6 +610,19 @@ function isJunkTitle(title: string) {
   if (cleaned.includes('")')) return true
   if (/^\d+$/.test(cleaned)) return true
   if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)$/i.test(cleaned)) return true
+  if (/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i.test(raw)) return true
+
+  // Brand-safety guards from the database cleanup: these are page chrome,
+  // encoded junk, CSS/build artefacts, or non-event fragments.
+  if (/^[A-Za-z0-9+/]{80,}={0,2}$/.test(raw.replace(/\s+/g, ''))) return true
+  if (/(wp-|elementor|container|stylesheet|font-size|margin|padding|rgba|\.tb-|data-|class=|<[^>]+>)/i.test(raw)) return true
+  if (/^what('|’)?s on at\s+/i.test(raw)) return false
+  if (/^list your event on gay saunas/i.test(raw)) return true
+  if (/^before you arrive - prices vary by night and visitor type/i.test(raw)) return true
+  if (/^bocoran &$/i.test(raw)) return true
+  if (/s suck/i.test(raw)) return true
+  if (/motd>/i.test(raw)) return true
+  if (/^[a-z]/.test(raw) && /recommend|friendly|returning|looking forward|owner of a great club/i.test(raw)) return true
 
   if (cleaned.startsWith('add to ')) return true
   if (cleaned.startsWith('google calendar')) return true
@@ -595,6 +637,17 @@ function isJunkTitle(title: string) {
   if (cleaned === 'read more') return true
   if (cleaned === 'whats on') return true
   if (cleaned === 'what s on') return true
+  if (cleaned === 'upcoming events') return true
+  if (cleaned === 'event') return true
+  if (cleaned === 'events') return true
+  if (cleaned === 'tickets') return true
+  if (cleaned === 'ticket') return true
+  if (cleaned === 'get in touch') return true
+  if (cleaned === 'view all events') return true
+  if (cleaned === 'more info') return true
+  if (cleaned === 'book now') return true
+  if (cleaned === 'event partners') return true
+  if (cleaned === 'next') return true
 
   // Social share buttons, hashtags and internal post IDs are never events.
   if (cleaned.startsWith('share on ')) return true
@@ -606,9 +659,9 @@ function isJunkTitle(title: string) {
   if (cleaned.startsWith('whatsapp')) return true
   if (cleaned.startsWith('instagram')) return true
   if (cleaned.startsWith('telegram')) return true
-  if (cleanText(title).trim().startsWith('#')) return true
-  if (/^#?\d{4,}$/.test(cleanText(title).trim())) return true
-  if (/^\d+\s+days?\s+\d+\s+hours?\s+ago$/i.test(cleanText(title).trim())) return true
+  if (raw.startsWith('#')) return true
+  if (/^#?\d{4,}$/.test(raw)) return true
+  if (/^\d+\s+days?\s+\d+\s+hours?\s+ago$/i.test(raw)) return true
 
   if (JUNK_TITLES.some((junk) => cleaned === junk || cleaned.includes(junk))) return true
   if (BAD_EVENT_PATTERNS.some((junk) => cleaned.includes(junk))) return true
@@ -623,6 +676,22 @@ function cleanEventName(title: string) {
     .replace(/^\+\s*/g, '')
     .replace(/\s+»$/g, '')
     .replace(/^«\s+/g, '')
+    // Quest-style bad scrape prefixes: "y -Bi Tuesdays", "e – Red Light..."
+    .replace(/^\s*[ey]\s*[–—-]+\s*/i, '')
+    .replace(/^\s*[–—-]+\s*/g, '')
+    // Decadance-style bad scrape prefix: "/ What's on..."
+    .replace(/^\s*\/+\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  // Turn page headings into a presentable generic title instead of saving
+  // "What's on at ..." as the event name.
+  const whatsOnMatch = cleaned.match(/^what('|’)?s on at\s+(.+)$/i)
+  if (whatsOnMatch?.[2]) {
+    cleaned = `${cleanText(whatsOnMatch[2])} Club Night`.replace(/\s+/g, ' ').trim()
+  }
+
+  cleaned = cleaned
     .replace(/\b(mon|tue|wed|thu|fri|sat|sun)(day)?\b/gi, '')
     .replace(/\b\d{1,2}(st|nd|rd|th)?\b/gi, '')
     .replace(
@@ -660,7 +729,13 @@ function cleanEventName(title: string) {
     if (index > 4) cleaned = cleaned.slice(0, index).trim()
   }
 
-  cleaned = cleaned.replace(/\s+/g, ' ').trim()
+  cleaned = cleaned
+    // SHH repeated suffix
+    .replace(/\s*[—-]\s*Shhh\.\.\.$/i, '')
+    // trailing broken punctuation from bad scraper joins
+    .replace(/\s*[–—:-]+\s*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 
   const normalisedCleaned = normalizeTitle(cleaned)
 
@@ -673,12 +748,22 @@ function cleanEventName(title: string) {
     normalisedCleaned === 'click here' ||
     normalisedCleaned === 'read more' ||
     normalisedCleaned === 'whats on' ||
-    normalisedCleaned === 'what s on'
+    normalisedCleaned === 'what s on' ||
+    normalisedCleaned === 'events' ||
+    normalisedCleaned === 'event' ||
+    normalisedCleaned === 'tickets' ||
+    normalisedCleaned === 'ticket' ||
+    normalisedCleaned === 'get in touch' ||
+    normalisedCleaned === 'view all events' ||
+    normalisedCleaned === 'event partners' ||
+    normalisedCleaned === 'next'
   ) {
     return ''
   }
 
-  return cleaned || cleanText(title) || 'Untitled Event'
+  // Do not fall back to the raw title here. Returning the raw value is what
+  // let broken titles like day-only headings and encoded junk leak into events.
+  return cleaned
 }
 
 function extractDate(value: string) {
@@ -11822,6 +11907,14 @@ function candidateRejectionReason(input: {
   description: string | null
 }) {
   const eventName = cleanSf10RescueCandidateTitle(input.event_name, input.description)
+
+  // Final brand-safety guard before anything reaches Supabase.
+  // Keep this narrow so legitimate titles such as T-Girl Social and F-Society survive.
+  if (!eventName) return 'rejected_empty_after_cleaning'
+  if (/^[A-Za-z0-9+/]{80,}={0,2}$/.test(eventName.replace(/\s+/g, ''))) return 'rejected_encoded_garbage'
+  if (/(wp-|elementor|container|stylesheet|font-size|margin|padding|rgba|\.tb-|data-|class=|<[^>]+>)/i.test(eventName)) return 'rejected_css_html_garbage'
+  if (/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i.test(cleanText(input.event_name || ''))) return 'rejected_day_only_title'
+
   const safeRescueCandidate = isSf10SafeRescueCandidate({
     ...input,
     event_name: eventName,
