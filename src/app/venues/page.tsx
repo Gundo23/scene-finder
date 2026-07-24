@@ -120,6 +120,70 @@ function uniqueSorted(values: Array<string | null | undefined>) {
   ).sort((a, b) => a.localeCompare(b))
 }
 
+
+function normaliseFilterValue(value: string | null | undefined) {
+  return cleanText(value || '')
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function venueMatchesFilters(
+  venue: {
+    venue_id?: string | null
+    name?: string | null
+    city_area?: string | null
+    region?: string | null
+    postcode?: string | null
+    category?: string | null
+  },
+  filters: {
+    search: string
+    city: string
+    region: string
+    postcodeSearch: string
+  }
+) {
+  const searchTerm = normaliseFilterValue(filters.search)
+  const selectedCity = normaliseFilterValue(filters.city)
+  const selectedRegion = normaliseFilterValue(filters.region)
+  const postcodeSearch = normaliseFilterValue(filters.postcodeSearch)
+
+  const venueId = normaliseFilterValue(venue.venue_id)
+  const venueName = normaliseFilterValue(venue.name)
+  const venueCity = normaliseFilterValue(venue.city_area)
+  const venueRegion = normaliseFilterValue(venue.region)
+  const venuePostcode = normaliseFilterValue(venue.postcode)
+  const venueCategory = normaliseFilterValue(venue.category)
+
+  const searchMatch =
+    !searchTerm ||
+    venueName.includes(searchTerm) ||
+    venueId.includes(searchTerm) ||
+    venueCity.includes(searchTerm) ||
+    venueRegion.includes(searchTerm) ||
+    venueCategory.includes(searchTerm) ||
+    venuePostcode.includes(searchTerm) ||
+    (!!postcodeSearch && venuePostcode.includes(postcodeSearch))
+
+  const cityMatch =
+    !selectedCity ||
+    venueCity === selectedCity ||
+    venueCity.includes(selectedCity) ||
+    selectedCity.includes(venueCity)
+
+  const regionMatch =
+    !selectedRegion ||
+    venueRegion === selectedRegion ||
+    venueRegion.includes(selectedRegion) ||
+    selectedRegion.includes(venueRegion)
+
+  return searchMatch && cityMatch && regionMatch
+}
+
 async function fetchUpcomingEventCountByVenue(today: string) {
   const upcomingEventCountByVenue = new Map<string, number>()
   const pageSize = 1000
@@ -260,31 +324,14 @@ export default async function VenuesPage({
   const cleanedSearch = search.trim()
   const postcodeSearch = formatPostcodeSearch(cleanedSearch)
 
-  let query = supabase
+  const venueQuery = supabase
     .from('venues')
     .select(
       'venue_id, name, city_area, region, postcode, website, category, status, image_url, like_count'
     )
-
-  if (cleanedSearch) {
-    query = query.or(
-      [
-        `name.ilike.%${cleanedSearch}%`,
-        `city_area.ilike.%${cleanedSearch}%`,
-        `region.ilike.%${cleanedSearch}%`,
-        `postcode.ilike.%${cleanedSearch}%`,
-        `postcode.ilike.%${postcodeSearch}%`,
-      ].join(',')
-    )
-  }
-
-  if (city) {
-    query = query.ilike('city_area', `%${city}%`)
-  }
-
-  if (region) {
-    query = query.ilike('region', `%${region}%`)
-  }
+    .eq('status', 'published')
+    .order('name', { ascending: true })
+    .limit(5000)
 
   const [
     { data: venues, error },
@@ -293,10 +340,13 @@ export default async function VenuesPage({
     { count: eventCount },
     upcomingEventCountByVenue,
   ] = await Promise.all([
-    query,
+    venueQuery,
     supabase
       .from('venues')
-      .select('venue_id, name, city_area, region, category, status'),
+      .select('venue_id, name, city_area, region, category, status')
+      .eq('status', 'published')
+      .order('name', { ascending: true })
+      .limit(5000),
     supabase.from('venues').select('*', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }),
     fetchUpcomingEventCountByVenue(today),
@@ -319,7 +369,15 @@ export default async function VenuesPage({
   const publicVenues = [...(venues || [])].filter((venue) => {
     const upcomingEventCount = upcomingEventCountByVenue.get(venue.venue_id) || 0
 
-    return shouldShowPublicVenue(venue, upcomingEventCount, hasFilters)
+    return (
+      shouldShowPublicVenue(venue, upcomingEventCount, hasFilters) &&
+      venueMatchesFilters(venue, {
+        search: cleanedSearch,
+        city,
+        region,
+        postcodeSearch,
+      })
+    )
   })
 
   const sortedVenues = publicVenues.sort((a, b) => {
