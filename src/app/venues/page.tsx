@@ -242,17 +242,11 @@ function formatCategory(category: string | null | undefined) {
 }
 
 
-function shouldShowPublicVenue(
-  venue: {
-    venue_id?: string | null
-    name?: string | null
-    category?: string | null
-    status?: string | null
-  },
-  upcomingEventCount: number,
-  hasFilters: boolean
-) {
-  const venueId = cleanText(venue.venue_id || '').toLowerCase()
+function shouldShowPublicVenue(venue: {
+  name?: string | null
+  category?: string | null
+  status?: string | null
+}) {
   const name = cleanText(venue.name || '').toLowerCase()
   const category = cleanText(venue.category || '').toLowerCase()
   const status = cleanText(venue.status || '').toLowerCase()
@@ -267,10 +261,6 @@ function shouldShowPublicVenue(
     'permanent closed',
   ]
 
-  const allowedZeroEventVenueIds = new Set([
-    'jaydees_colmworth_bedfordshire',
-  ])
-
   if (blockedStatuses.includes(status)) return false
   if (category.includes('lead')) return false
   if (status.includes('lead')) return false
@@ -281,10 +271,6 @@ function shouldShowPublicVenue(
   if (name.includes('/ social lead')) return false
   if (name.includes('swingers club lead')) return false
   if (name.includes('kink munch / social lead')) return false
-
-  if (!hasFilters && upcomingEventCount <= 0 && !allowedZeroEventVenueIds.has(venueId)) {
-    return false
-  }
 
   return true
 }
@@ -329,7 +315,6 @@ export default async function VenuesPage({
     .select(
       'venue_id, name, city_area, region, postcode, website, category, status, image_url, like_count'
     )
-    .eq('status', 'published')
     .order('name', { ascending: true })
     .limit(5000)
 
@@ -344,7 +329,6 @@ export default async function VenuesPage({
     supabase
       .from('venues')
       .select('venue_id, name, city_area, region, category, status')
-      .eq('status', 'published')
       .order('name', { ascending: true })
       .limit(5000),
     supabase.from('venues').select('*', { count: 'exact', head: true }),
@@ -367,10 +351,8 @@ export default async function VenuesPage({
   const hasFilters = Boolean(search || city || region)
 
   const publicVenues = [...(venues || [])].filter((venue) => {
-    const upcomingEventCount = upcomingEventCountByVenue.get(venue.venue_id) || 0
-
     return (
-      shouldShowPublicVenue(venue, upcomingEventCount, hasFilters) &&
+      shouldShowPublicVenue(venue) &&
       venueMatchesFilters(venue, {
         search: cleanedSearch,
         city,
@@ -391,11 +373,7 @@ export default async function VenuesPage({
     return cleanText(a.name || '').localeCompare(cleanText(b.name || ''))
   })
 
-  const optionVenues = [...(filterOptionVenues || [])].filter((venue) => {
-    const upcomingEventCount = upcomingEventCountByVenue.get(venue.venue_id) || 0
-
-    return shouldShowPublicVenue(venue, upcomingEventCount, true)
-  })
+  const optionVenues = [...(filterOptionVenues || [])].filter((venue) => shouldShowPublicVenue(venue))
 
   const cityOptions = uniqueSorted([
     ...FALLBACK_CITIES,
