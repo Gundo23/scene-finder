@@ -12,13 +12,14 @@ export default function ContactPage() {
     event.preventDefault()
     setLoading(true)
 
-    const formData = new FormData(event.currentTarget)
+    const form = event.currentTarget
+    const formData = new FormData(form)
 
     const payload = {
-      type: String(formData.get('type') || ''),
-      name: String(formData.get('name') || ''),
-      email: String(formData.get('email') || ''),
-      message: String(formData.get('message') || ''),
+      type: String(formData.get('type') || '').trim(),
+      name: String(formData.get('name') || '').trim(),
+      email: String(formData.get('email') || '').trim(),
+      message: String(formData.get('message') || '').trim(),
       status: 'pending',
     }
 
@@ -26,14 +27,39 @@ export default function ContactPage() {
       .from('contact_requests')
       .insert(payload)
 
-    setLoading(false)
-
     if (error) {
+      setLoading(false)
       alert(error.message)
       return
     }
 
+    try {
+      await fetch('/api/admin-notify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          subject: 'New Scene Finder contact request',
+          heading: 'New Contact & Support Request',
+          replyTo: payload.email,
+          message: [
+            `Type: ${formatRequestType(payload.type)}`,
+            `Name: ${payload.name || 'Not provided'}`,
+            `Email: ${payload.email || 'Not provided'}`,
+            '',
+            'Message:',
+            payload.message || 'No message provided',
+          ].join('\n'),
+        }),
+      })
+    } catch (notificationError) {
+      console.error('Admin notification failed:', notificationError)
+    }
+
+    setLoading(false)
     setSuccess(true)
+    form.reset()
   }
 
   return (
@@ -154,4 +180,10 @@ export default function ContactPage() {
       </section>
     </main>
   )
+}
+
+function formatRequestType(type: string) {
+  return type
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
