@@ -11171,7 +11171,9 @@ function extractCupidsDate(value: string) {
     const day = match[2].padStart(2, '0')
 
     if (month) {
-      const year = futureSafeYear(month, day)
+      // Cupids' Squarespace archive keeps old month/day cards on /events.
+      // Do not roll past dates into a fake future year.
+      const year = String(new Date().getFullYear())
       return validDateOrNull(`${year}-${month}-${day}`)
     }
   }
@@ -11185,7 +11187,8 @@ function extractCupidsDate(value: string) {
     const day = match[1].padStart(2, '0')
 
     if (month) {
-      const year = futureSafeYear(month, day)
+      // Same rule for day-month text: treat undated archive cards as this calendar year.
+      const year = String(new Date().getFullYear())
       return validDateOrNull(`${year}-${month}-${day}`)
     }
   }
@@ -11216,6 +11219,10 @@ function extractCupidsEvents(html: string, baseUrl: string) {
 
   const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
   const seen = new Set<string>()
+  const now = new Date()
+  const todayString = validDateOrNull(
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  )
 
   const pushCandidate = (
     titleValue: string,
@@ -11229,9 +11236,12 @@ function extractCupidsEvents(html: string, baseUrl: string) {
 
     if (!title || isJunkTitle(title)) return
     if (!eventDate) return
+    if (todayString && eventDate < todayString) return
     if (title.length > 130) title = title.slice(0, 130).trim()
 
-    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(href)}`
+    // One Squarespace event URL is one event. The archive can render the same href
+    // more than once and expose both its start date and overnight end date.
+    const key = normalizeTicketUrl(href)
     if (seen.has(key)) return
     seen.add(key)
 
@@ -13960,6 +13970,13 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          // Cupids has a dedicated Squarespace parser. Generic JSON-LD creates
+          // alternate titles for the same event, so skip it for this venue.
+          if (isCupidsSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -14050,6 +14067,13 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          // Cupids event pages expose start/end dates through calendar markup.
+          // The generic calendar parser was saving the overnight end date as a second event.
+          if (isCupidsSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
@@ -14164,6 +14188,13 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          // Cupids is handled by extractCupidsEvents only. The generic scanner follows
+          // Previous/Next, shop and calendar links and was creating duplicates/junk.
+          if (isCupidsSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
+
           if (isSaunabarBournemouthSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
