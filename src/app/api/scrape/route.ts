@@ -10976,6 +10976,82 @@ function extractPandoraEmbeddedCalendarEvents(
     )
   }
 
+  // Pandora's current calendar API also exposes many entries as human-readable
+  // blocks (for example: "Wednesday 23 September ... Event night ...
+  // Bukkake Brunch ... Hosted by ...") rather than ISO-dated JSON objects.
+  // Parse those blocks directly so daytime/special events are not missed.
+  const humanDatePattern =
+    /\b(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:\s+(20\d{2}))?\b/gi
+
+  const humanMatches = [...decoded.matchAll(humanDatePattern)]
+
+  for (let index = 0; index < humanMatches.length; index++) {
+    const match = humanMatches[index]
+    const month = monthNameToNumber(match[3])
+    if (!month) continue
+
+    const day = match[2].padStart(2, '0')
+    const year = futureSafeYear(month, day, match[4] || null)
+    const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+    if (!eventDate) continue
+
+    const blockStart = (match.index || 0) + match[0].length
+    const nextMatch = humanMatches[index + 1]
+    const blockEnd = nextMatch?.index ?? Math.min(decoded.length, blockStart + 1800)
+    const block = cleanText(decoded.slice(blockStart, blockEnd))
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!block) continue
+
+    const eventNightMatch = block.match(
+      /\bevent\s*night\b[\s:–—-]*([\s\S]{3,180}?)(?=\b(?:hosted\s+by|open\s+to|open\s+from|guest\s*list|prices?|admission|members?|single\s+male|single\s+female|couples?|trans|before\s+\d|after\s+\d|\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*(?:-|–|—|to|till|until)|£)\b|$)/i
+    )
+
+    let title = cleanPandoraTitle(eventNightMatch?.[1] || '', '')
+
+    // Some API responses put the title immediately after the hours and before
+    // "Hosted by" without repeating the "Event night" label.
+    if (!title) {
+      const lines = block
+        .split(/(?=\b(?:event\s*night|hosted\s+by|open\s+to|guest\s*list|£)\b)|[|•]+/i)
+        .map((part) => cleanText(part).trim())
+        .filter(Boolean)
+
+      const eventNightIndex = lines.findIndex((line) => /\bevent\s*night\b/i.test(line))
+      const searchLines = eventNightIndex >= 0 ? lines.slice(eventNightIndex + 1, eventNightIndex + 5) : lines
+
+      const candidateLine = searchLines.find((line) => {
+        const cleaned = cleanText(line)
+          .replace(/^(?:event\s*night|[-–—:|])+\s*/i, '')
+          .replace(/\bhosted\s+by[\s\S]*$/i, '')
+          .trim()
+
+        if (!cleaned || cleaned.length < 4 || cleaned.length > 120) return false
+        if (/^\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(cleaned)) return false
+        if (/^hosted\s+by\b/i.test(cleaned)) return false
+        if (isPandoraSkipLine(cleaned) || isJunkTitle(cleaned)) return false
+        return true
+      })
+
+      title = cleanPandoraTitle(candidateLine || '', '')
+    }
+
+    if (!title) continue
+
+    const startTime =
+      extractTime(block) ||
+      validTimeOrNull(
+        block.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/)?.[0]?.padStart(5, '0') || null
+      )
+
+    const rawHref =
+      block.match(/https?:\/\/[^\s"'<>]+/i)?.[0] ||
+      null
+
+    pushCandidate(title, eventDate, startTime, rawHref)
+  }
+
   const isoDatePattern = /\b(20\d{2}-\d{2}-\d{2})\b/g
   let dateMatch
 
