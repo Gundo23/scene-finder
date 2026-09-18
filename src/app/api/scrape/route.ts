@@ -11106,6 +11106,106 @@ function extractPandoraEmbeddedCalendarEvents(
   return candidates
 }
 
+
+function extractPandoraScheduleConfigEvents(value: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  let parsed: any
+
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return candidates
+  }
+
+  if (!parsed || typeof parsed !== 'object') return candidates
+
+  const variants = parsed.wednesdayVariants
+  if (!variants || typeof variants !== 'object') return candidates
+
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayString = datePartsToString(today)
+  if (!todayString) return candidates
+
+  const horizon = new Date(today)
+  horizon.setUTCDate(horizon.getUTCDate() + 180)
+
+  const seen = new Set<string>()
+
+  const addScheduleEvent = (input: {
+    slot: any
+    nth: number
+    eventDate: string | null
+    period: 'day' | 'night'
+  }) => {
+    if (!input.eventDate || input.eventDate < todayString) return
+
+    const eventDateObj = dateFromYmd(input.eventDate)
+    if (eventDateObj > horizon) return
+
+    const slot = input.slot
+    if (!slot || typeof slot !== 'object') return
+    if (normalizeTitle(slot.status || '') !== 'open') return
+    if (normalizeTitle(slot.badge || '') !== 'event') return
+
+    const title = cleanPandoraTitle(String(slot.theme || ''), '')
+    if (!title || isPandoraSkipLine(title) || isJunkTitle(title)) return
+
+    const startTime = validTimeOrNull(String(slot.opens || '').slice(0, 5))
+    const host = cleanText(slot.host || '')
+    const audience = cleanText(slot.audience || '')
+    const note = cleanText(slot.note || '')
+    const detailParts = [
+      `${title}.`,
+      host ? `Hosted by ${host}.` : '',
+      audience ? `${audience}.` : '',
+      note ? `${note}.` : '',
+      `Pandora official recurring calendar schedule (${input.nth}${input.nth === 1 ? 'st' : input.nth === 2 ? 'nd' : input.nth === 3 ? 'rd' : 'th'} Wednesday, ${input.period}).`,
+    ].filter(Boolean)
+
+    const key = `${normalizeTitle(title)}|${input.eventDate}|${input.period}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href: `https://www.pandoraswingers.com/calendar#${input.eventDate}`,
+      text: title,
+      event_date: input.eventDate,
+      start_time: startTime,
+      raw: cleanText(detailParts.join(' ')).slice(0, 500),
+      image_url: null,
+      method: 'pandora-schedule-json',
+    })
+  }
+
+  for (let monthCursor = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)); monthCursor <= horizon; monthCursor.setUTCMonth(monthCursor.getUTCMonth() + 1)) {
+    const year = monthCursor.getUTCFullYear()
+    const monthIndex = monthCursor.getUTCMonth()
+
+    for (const [nthKey, variant] of Object.entries<any>(variants)) {
+      const nth = Number(nthKey)
+      if (!Number.isInteger(nth) || nth < 1 || nth > 5) continue
+
+      const eventDate = nthWeekdayOfMonthUtc(year, monthIndex, 3, nth)
+      if (!eventDate) continue
+
+      addScheduleEvent({ slot: variant?.day, nth, eventDate, period: 'day' })
+      addScheduleEvent({ slot: variant?.night, nth, eventDate, period: 'night' })
+    }
+  }
+
+  return candidates
+}
+
 async function extractPandoraDynamicCalendarEvents(html: string, baseUrl: string) {
   const candidates = [
     ...extractPandoraEmbeddedCalendarEvents(html, baseUrl, 'pandora-calendar-embedded'),
@@ -11134,12 +11234,15 @@ async function extractPandoraDynamicCalendarEvents(html: string, baseUrl: string
     })
     .slice(0, 6)
 
-  const endpointUrls = new Set<string>()
+  const endpointUrls = new Set<string>([
+    'https://www.pandoraswingers.com/events.json',
+    'https://www.pandoraswingers.com/schedule.json',
+  ])
   const decodedHtml = decodeEscapedText(html)
 
   for (const match of decodedHtml.matchAll(/fetch\s*\(\s*["'`]([^"'`]+)["'`]/gi)) {
     const raw = match[1]
-    if (!/(calendar|event)/i.test(raw)) continue
+    if (!/(calendar|event|schedule|\.json)/i.test(raw)) continue
 
     const url = absoluteUrl('https://www.pandoraswingers.com', raw)
     if (!url) continue
@@ -11160,7 +11263,7 @@ async function extractPandoraDynamicCalendarEvents(html: string, baseUrl: string
 
     for (const match of decodedJs.matchAll(/fetch\s*\(\s*["'`]([^"'`]+)["'`]/gi)) {
       const raw = match[1]
-      if (!/(calendar|event)/i.test(raw)) continue
+      if (!/(calendar|event|schedule|\.json)/i.test(raw)) continue
 
       const url = absoluteUrl('https://www.pandoraswingers.com', raw)
       if (!url) continue
@@ -11173,7 +11276,7 @@ async function extractPandoraDynamicCalendarEvents(html: string, baseUrl: string
       }
     }
 
-    for (const match of decodedJs.matchAll(/["'`](\/(?:api\/)?[^"'`]{0,100}(?:calendar|events?)[^"'`]{0,100})["'`]/gi)) {
+    for (const match of decodedJs.matchAll(/["'`](\/(?:api\/)?[^"'`]{0,100}(?:calendar|events?|schedule)[^"'`]{0,100})["'`]/gi)) {
       const url = absoluteUrl('https://www.pandoraswingers.com', match[1])
       if (url && !url.endsWith('/calendar')) endpointUrls.add(url)
     }
@@ -11184,6 +11287,7 @@ async function extractPandoraDynamicCalendarEvents(html: string, baseUrl: string
     if (!payload) continue
 
     add(extractPandoraEmbeddedCalendarEvents(payload, endpointUrl, 'pandora-calendar-api'))
+    add(extractPandoraScheduleConfigEvents(payload, endpointUrl))
   }
 
   return candidates
