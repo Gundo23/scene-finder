@@ -9692,6 +9692,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('ecclesiaglasgow.com') ||
     combined.includes('pandora') ||
     combined.includes('pandoraswingers.com') ||
+    isCupidsSource(venueId, sourceUrl) ||
     isAtticExperienceSource(venueId, sourceUrl) ||
     isPenthouseSource(venueId, sourceUrl) ||
     isSf10RecoverySource(venueId, sourceUrl) ||
@@ -9727,6 +9728,10 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (isCupidsSource(source.venue_id, source.source_url)) {
+    return isCupidsAllowedPage(pageUrl)
+  }
+
   if (isSteelCliffeSource(source.venue_id, source.source_url)) {
     return isSteelCliffeAllowedPage(pageUrl)
   }
@@ -9833,6 +9838,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (isCupidsSource(source.venue_id, source.source_url)) {
+    return discoverCupidsEventPages(source.source_url)
+  }
 
   if (isSteelCliffeSource(source.venue_id, source.source_url)) {
     return discoverSteelCliffeEventPages(source.source_url)
@@ -10016,6 +10025,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (isCupidsSource(venueId, pageUrl)) return extractCupidsEvents(html, pageUrl)
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
   if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
@@ -10591,18 +10601,17 @@ function isPandoraSource(venueId: string | null | undefined, sourceUrl: string |
 }
 
 function discoverPandoraEventPages(sourceUrl: string) {
-  // Pandora's server-side fetches are reliable on the www host.
-  // The non-www /event-diary paths can return empty/null on Vercel, so force
-  // the canonical www pages first while still allowing the supplied source URL.
+  // Pandora moved from the old /event-diary page to a JS-backed /calendar page.
+  // Put the current calendar first so the dedicated Pandora branch reaches it
+  // even when the source row still contains an older URL.
   const canonicalBase = 'https://www.pandoraswingers.com'
 
   const urls = [
-    `${canonicalBase}/event-diary`,
-    `${canonicalBase}/event-diary/`,
+    `${canonicalBase}/calendar`,
     canonicalBase,
-    absoluteUrl(sourceUrl, '/event-diary'),
-    absoluteUrl(sourceUrl, '/event-diary/'),
     sourceUrl,
+    absoluteUrl(sourceUrl, '/calendar'),
+    `${canonicalBase}/event-diary`,
   ].filter(Boolean) as string[]
 
   return [...new Set(urls)]
@@ -10619,6 +10628,18 @@ function discoverPandoraEventPages(sourceUrl: string) {
 function isPandoraSkipLine(value: string | null | undefined) {
   const cleaned = normalizeTitle(value || '')
   if (!cleaned) return true
+
+  const exact = new Set([
+    'calendar',
+    'loading calendar',
+    'this week at a glance',
+    'coming up',
+    'view full calendar',
+    'day and night at pandora',
+    'pandora',
+  ])
+
+  if (exact.has(cleaned)) return true
 
   const fragments = [
     'upcoming events',
@@ -10650,6 +10671,9 @@ function isPandoraSkipLine(value: string | null | undefined) {
     'members welcome to attend',
     'pandora swingers club',
     'adult lifestyle',
+    'gold outline marks',
+    'red outline is a regular open day',
+    'tap a date for hours and prices',
   ]
 
   if (/^£/.test(cleanText(value || '').trim())) return true
@@ -10675,6 +10699,8 @@ function cleanPandoraTitle(value: string, fallback: string) {
       .replace(/\s+/g, ' ')
       .trim()
   }
+
+  if (isPandoraSkipLine(title) || isJunkTitle(title)) return ''
 
   return title
 }
@@ -10806,7 +10832,7 @@ function extractPandoraEvents(html: string, baseUrl: string) {
     if (title.length > 120) title = title.slice(0, 120).trim()
 
     const startTime = extractTime(raw)
-    const href = eventUrlWithAnchor('https://www.pandoraswingers.com', title)
+    const href = `https://www.pandoraswingers.com/calendar#${eventDate}`
     const key = `${normalizeTitle(title)}|${eventDate}`
 
     if (seen.has(key)) return
@@ -10842,12 +10868,10 @@ function extractPandoraEvents(html: string, baseUrl: string) {
       explicitYear: dateMatch[4] || null,
       inlineTitle: dateMatch[5] || '',
       block,
-      method: 'pandora-event-diary',
+      method: 'pandora-calendar-lines',
     })
   }
 
-  // Fallback for Pandora's very compressed Duda/mobile HTML where date + content
-  // can be flattened into one long text run rather than clean line blocks.
   const compactText = cleanText(decodeEscapedText(html))
     .replace(/\s+/g, ' ')
     .trim()
@@ -10877,12 +10901,428 @@ function extractPandoraEvents(html: string, baseUrl: string) {
       explicitYear: compactMatch[4] || null,
       inlineTitle: blockText,
       block: syntheticLines,
-      method: 'pandora-event-diary-compact',
+      method: 'pandora-calendar-compact',
     })
   }
 
   return candidates
 }
+
+function extractPandoraEmbeddedCalendarEvents(
+  value: string,
+  baseUrl: string,
+  method: string
+) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  const decoded = decodeEscapedText(value)
+  const pageImage = extractBestImage(value, baseUrl)
+  const seen = new Set<string>()
+
+  const now = new Date()
+  const today = validDateOrNull(
+    `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`
+  )
+
+  const pushCandidate = (
+    titleValue: string,
+    eventDate: string | null,
+    startTime: string | null,
+    hrefValue?: string | null
+  ) => {
+    if (!eventDate) return
+    if (today && eventDate < today) return
+
+    let title = cleanPandoraTitle(titleValue, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!title || isPandoraSkipLine(title) || isJunkTitle(title)) return
+    if (title.length > 120) title = title.slice(0, 120).trim()
+
+    const href =
+      absoluteUrl(baseUrl, hrefValue || '') ||
+      `https://www.pandoraswingers.com/calendar#${eventDate}`
+
+    const key = `${normalizeTitle(title)}|${eventDate}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: `${title}. Pandora official calendar listing for ${eventDate}.`,
+      image_url: pageImage,
+      method,
+    })
+  }
+
+  for (const event of extractJsonLdEvents(value, baseUrl)) {
+    pushCandidate(
+      event.name,
+      validDateOrNull(event.date),
+      validTimeOrNull(event.start_time),
+      event.url
+    )
+  }
+
+  const isoDatePattern = /\b(20\d{2}-\d{2}-\d{2})\b/g
+  let dateMatch
+
+  while ((dateMatch = isoDatePattern.exec(decoded)) !== null) {
+    const eventDate = validDateOrNull(dateMatch[1])
+    if (!eventDate) continue
+
+    const center = dateMatch.index
+    const dateContext = decoded.slice(Math.max(0, center - 120), Math.min(decoded.length, center + 160))
+    if (!/(date|day|start|event|calendar)/i.test(dateContext)) continue
+
+    const windowStart = Math.max(0, center - 700)
+    const windowEnd = Math.min(decoded.length, center + 1000)
+    const windowText = decoded.slice(windowStart, windowEnd)
+    const relativeCenter = center - windowStart
+
+    const titleMatches = [
+      ...windowText.matchAll(
+        /["'](?:eventName|event_name|eventTitle|event_title|title|theme|summary|label|name)["']\s*:\s*["']([^"'<>]{3,140})["']/gi
+      ),
+    ]
+
+    const rankedTitles = titleMatches
+      .map((match) => ({
+        value: cleanText(match[1]),
+        distance: Math.abs((match.index || 0) - relativeCenter),
+      }))
+      .filter((item) => item.value && !isPandoraSkipLine(item.value) && !isJunkTitle(item.value))
+      .sort((a, b) => a.distance - b.distance)
+
+    const title = rankedTitles[0]?.value || ''
+    if (!title) continue
+
+    const keyedTime =
+      windowText.match(
+        /["'](?:startTime|start_time|time|opensAt)["']\s*:\s*["']([0-2]?\d(?::[0-5]\d)?\s*(?:am|pm)?)[^"']*["']/i
+      )?.[1] || ''
+
+    const startTime =
+      extractTime(keyedTime) ||
+      validTimeOrNull(keyedTime.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/)?.[0]?.padStart(5, '0') || null) ||
+      extractTime(windowText)
+
+    const rawHref =
+      windowText.match(
+        /["'](?:url|href|link)["']\s*:\s*["']([^"']{1,240})["']/i
+      )?.[1] || null
+
+    pushCandidate(title, eventDate, startTime, rawHref)
+  }
+
+  return candidates
+}
+
+async function extractPandoraDynamicCalendarEvents(html: string, baseUrl: string) {
+  const candidates = [
+    ...extractPandoraEmbeddedCalendarEvents(html, baseUrl, 'pandora-calendar-embedded'),
+  ]
+
+  const seen = new Set(
+    candidates.map((event) => `${normalizeTitle(event.text)}|${event.event_date || ''}`)
+  )
+
+  const add = (events: ReturnType<typeof extractPandoraEmbeddedCalendarEvents>) => {
+    for (const event of events) {
+      const key = `${normalizeTitle(event.text)}|${event.event_date || ''}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      candidates.push(event)
+    }
+  }
+
+  const scriptUrls = extractScriptUrls(html, baseUrl)
+    .filter((url) => {
+      try {
+        return new URL(url).hostname.replace(/^www\./, '').toLowerCase() === 'pandoraswingers.com'
+      } catch {
+        return false
+      }
+    })
+    .slice(0, 6)
+
+  const endpointUrls = new Set<string>()
+  const decodedHtml = decodeEscapedText(html)
+
+  for (const match of decodedHtml.matchAll(/fetch\s*\(\s*["'`]([^"'`]+)["'`]/gi)) {
+    const raw = match[1]
+    if (!/(calendar|event)/i.test(raw)) continue
+
+    const url = absoluteUrl('https://www.pandoraswingers.com', raw)
+    if (!url) continue
+
+    try {
+      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+      if (host === 'pandoraswingers.com') endpointUrls.add(url)
+    } catch {
+      continue
+    }
+  }
+
+  for (const scriptUrl of scriptUrls) {
+    const js = await fetchText(scriptUrl, 'application/javascript,text/javascript,text/plain,*/*')
+    if (!js) continue
+
+    const decodedJs = decodeEscapedText(js)
+
+    for (const match of decodedJs.matchAll(/fetch\s*\(\s*["'`]([^"'`]+)["'`]/gi)) {
+      const raw = match[1]
+      if (!/(calendar|event)/i.test(raw)) continue
+
+      const url = absoluteUrl('https://www.pandoraswingers.com', raw)
+      if (!url) continue
+
+      try {
+        const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
+        if (host === 'pandoraswingers.com') endpointUrls.add(url)
+      } catch {
+        continue
+      }
+    }
+
+    for (const match of decodedJs.matchAll(/["'`](\/(?:api\/)?[^"'`]{0,100}(?:calendar|events?)[^"'`]{0,100})["'`]/gi)) {
+      const url = absoluteUrl('https://www.pandoraswingers.com', match[1])
+      if (url && !url.endsWith('/calendar')) endpointUrls.add(url)
+    }
+  }
+
+  for (const endpointUrl of [...endpointUrls].slice(0, 4)) {
+    const payload = await fetchText(endpointUrl, 'application/json,text/plain,*/*')
+    if (!payload) continue
+
+    add(extractPandoraEmbeddedCalendarEvents(payload, endpointUrl, 'pandora-calendar-api'))
+  }
+
+  return candidates
+}
+
+
+function isCupidsSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
+
+  return (
+    combined.includes('cupids_health_club_swinton_manchester') ||
+    combined.includes('cupids_swinton') ||
+    combined.includes('cupidsswingersclub.co.uk') ||
+    combined.includes('cupidshealthclub') ||
+    combined.includes('cupids swingers club')
+  )
+}
+
+function isCupidsAllowedPage(pageUrl: string | null | undefined) {
+  try {
+    const parsed = new URL(String(pageUrl || ''))
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
+    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+
+    if (host !== 'cupidsswingersclub.co.uk') return false
+
+    return path === '/' || path === '/events' || path.startsWith('/events/')
+  } catch {
+    return false
+  }
+}
+
+function discoverCupidsEventPages(_sourceUrl: string) {
+  return [
+    'https://www.cupidsswingersclub.co.uk/',
+    'https://www.cupidsswingersclub.co.uk/events',
+  ]
+}
+
+function cleanCupidsTitle(value: string) {
+  return cleanEventName(value)
+    .replace(/\s+[—–-]\s+[•·]?\s*Cupids\s+Swingers?\s+Club.*$/i, '')
+    .replace(/\s+[|]\s+Cupids\s+Swingers?\s+Club.*$/i, '')
+    .replace(/^[-–—:|]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractCupidsDate(value: string) {
+  const text = cleanText(value)
+
+  const explicit = extractDate(text)
+  if (explicit && /\b20\d{2}\b/.test(text)) return explicit
+
+  let match = text.match(
+    /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i
+  )
+
+  if (match) {
+    const month = monthNameToNumber(match[1])
+    const day = match[2].padStart(2, '0')
+
+    if (month) {
+      const year = futureSafeYear(month, day)
+      return validDateOrNull(`${year}-${month}-${day}`)
+    }
+  }
+
+  match = text.match(
+    /\b(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b/i
+  )
+
+  if (match) {
+    const month = monthNameToNumber(match[2])
+    const day = match[1].padStart(2, '0')
+
+    if (month) {
+      const year = futureSafeYear(month, day)
+      return validDateOrNull(`${year}-${month}-${day}`)
+    }
+  }
+
+  return explicit
+}
+
+function extractCupidsEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+
+  if (!isCupidsAllowedPage(baseUrl)) return candidates
+
+  let parsed: URL
+
+  try {
+    parsed = new URL(baseUrl)
+  } catch {
+    return candidates
+  }
+
+  const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+  const seen = new Set<string>()
+
+  const pushCandidate = (
+    titleValue: string,
+    eventDate: string | null,
+    startTime: string | null,
+    href: string,
+    imageUrl: string | null,
+    method: string
+  ) => {
+    let title = cleanCupidsTitle(titleValue)
+
+    if (!title || isJunkTitle(title)) return
+    if (!eventDate) return
+    if (title.length > 130) title = title.slice(0, 130).trim()
+
+    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(href)}`
+    if (seen.has(key)) return
+    seen.add(key)
+
+    candidates.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: `${title}. Official Cupids Swingers Club event listing for ${eventDate}.`,
+      image_url: imageUrl,
+      method,
+    })
+  }
+
+  if (path.startsWith('/events/')) {
+    const pageText = cleanText(html)
+    const pageTitle = extractPageTitle(html)
+    const eventDate = extractDateFromHtml(html) || extractCupidsDate(pageText.slice(0, 7000))
+
+    const twelveHourTime = extractTime(pageText.slice(0, 3500))
+    const twentyFourHourMatch = pageText
+      .slice(0, 3500)
+      .match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/)
+    const twentyFourHourTime = twentyFourHourMatch
+      ? validTimeOrNull(
+          `${String(Number(twentyFourHourMatch[1])).padStart(2, '0')}:${twentyFourHourMatch[2]}`
+        )
+      : null
+
+    pushCandidate(
+      pageTitle,
+      eventDate,
+      twelveHourTime || twentyFourHourTime,
+      baseUrl,
+      extractBestImage(html, baseUrl),
+      'cupids-official-event-page'
+    )
+
+    return candidates
+  }
+
+  // Squarespace summary blocks on the current Cupids home/events pages link to
+  // /events/<slug>. Read the text around each link so we can save the listing
+  // without depending on dozens of detail-page requests.
+  const anchorPattern = /<a[^>]+href=["']([^"']*\/events\/[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi
+  let anchorMatch
+
+  while ((anchorMatch = anchorPattern.exec(html)) !== null) {
+    const href = absoluteUrl(baseUrl, anchorMatch[1])
+    if (!href || !isCupidsAllowedPage(href)) continue
+
+    const anchorText = cleanText(anchorMatch[2])
+    const contextStart = Math.max(0, (anchorMatch.index || 0) - 700)
+    const contextEnd = Math.min(html.length, (anchorMatch.index || 0) + anchorMatch[0].length + 900)
+    const contextHtml = html.slice(contextStart, contextEnd)
+    const contextText = cleanText(contextHtml)
+
+    const nearbyHeading =
+      cleanText(contextHtml.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i)?.[1]) ||
+      cleanText(contextHtml.match(/class=["'][^"']*(?:event|summary)[^"']*title[^"']*["'][^>]*>([\s\S]*?)<\//i)?.[1])
+
+    const titleValue =
+      anchorText && !/^(read more|more info|view event|details|tickets?)\b/i.test(anchorText)
+        ? anchorText
+        : nearbyHeading
+
+    const eventDate = extractCupidsDate(contextText)
+    if (!eventDate) continue
+
+    const startTime =
+      extractTime(contextText) ||
+      (() => {
+        const timeMatch = contextText.match(/\b([01]?\d|2[0-3]):([0-5]\d)\b/)
+        return timeMatch
+          ? validTimeOrNull(`${String(Number(timeMatch[1])).padStart(2, '0')}:${timeMatch[2]}`)
+          : null
+      })()
+
+    pushCandidate(
+      titleValue,
+      eventDate,
+      startTime,
+      href,
+      extractBestImage(contextHtml, baseUrl),
+      'cupids-events-listing'
+    )
+  }
+
+  return candidates
+}
+
 
 function isTownhouseEventOnJunkTitle(value: string | null | undefined) {
   const cleaned = normalizeTitle(value || '')
@@ -12383,7 +12823,7 @@ export async function GET(request: Request) {
 
 
     if (isPandoraSource(source.venue_id, source.source_url)) {
-      const pandoraUrls = discoverPandoraEventPages(source.source_url).slice(0, 3)
+      const pandoraUrls = discoverPandoraEventPages(source.source_url).slice(0, 4)
 
       for (const pageUrl of pandoraUrls) {
         checkedPages++
@@ -12405,9 +12845,25 @@ export async function GET(request: Request) {
           continue
         }
 
-        const pandoraEvents = extractPandoraEvents(html, pageUrl)
+        const pandoraStaticEvents = extractPandoraEvents(html, pageUrl)
+        const pandoraDynamicEvents = pageUrl.toLowerCase().includes('/calendar')
+          ? await extractPandoraDynamicCalendarEvents(html, pageUrl)
+          : []
+
+        const pandoraEvents = [
+          ...pandoraStaticEvents,
+          ...pandoraDynamicEvents,
+        ]
+
+        const pandoraPageSeen = new Set<string>()
 
         for (const pandoraEvent of pandoraEvents) {
+          const pageKey = `${normalizeTitle(pandoraEvent.text)}|${pandoraEvent.event_date || ''}`
+          if (pandoraPageSeen.has(pageKey)) {
+            skipped++
+            continue
+          }
+          pandoraPageSeen.add(pageKey)
           candidatesFound++
 
           const title = pandoraEvent.text
@@ -12747,6 +13203,8 @@ export async function GET(request: Request) {
             ? 3
           : isNo3ClubSource(source.venue_id, source.source_url)
             ? 3
+          : isCupidsSource(source.venue_id, source.source_url)
+            ? 12
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
             : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
