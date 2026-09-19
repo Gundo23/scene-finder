@@ -349,6 +349,7 @@ const JUNK_TITLES = [
   'book an event',
   'book event via timetable',
   'see our whats on page',
+  'see our what s on page',
   'full calendar',
   'view this event',
   'view this event click here',
@@ -2414,6 +2415,16 @@ function isWixLikeSource(value: string | null | undefined) {
   )
 }
 
+function isPurpleMambaSource(
+  venueId: string | null | undefined,
+  value: string | null | undefined = ''
+) {
+  return (
+    String(venueId || '').trim() === 'purple_mamba_club_nottingham_west_bridgford' ||
+    String(value || '').toLowerCase().includes('purplemambaclub.com')
+  )
+}
+
 function discoverWixEventPages(sourceUrl: string) {
   const urls = [
     absoluteUrl(sourceUrl, '/events'),
@@ -2421,6 +2432,7 @@ function discoverWixEventPages(sourceUrl: string) {
     absoluteUrl(sourceUrl, '/event'),
     absoluteUrl(sourceUrl, '/calendar'),
     absoluteUrl(sourceUrl, '/what-s-on'),
+    absoluteUrl(sourceUrl, '/what-s-on-tickets'),
   ].filter(Boolean) as string[]
 
   return [...new Set(urls)].filter((url) => sameDomain(sourceUrl, url) && !isJunkUrl(url))
@@ -12709,6 +12721,13 @@ function candidateRejectionReason(input: {
   if (isCjsTownhouseJunkEvent({ ...input, event_name: eventName })) return 'rejected_cjs_townhouse_junk'
   if (isGgsLoungeJunkEvent({ ...input, event_name: eventName })) return 'rejected_ggs_lounge_junk'
 
+  if (
+    isPurpleMambaSource(input.venue_id, input.ticket_url) &&
+    ['see our whats on page', 'see our what s on page'].includes(normalizeTitle(eventName))
+  ) {
+    return 'rejected_purple_mamba_navigation_cta'
+  }
+
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return 'rejected_blacklisted_tbc'
@@ -14245,6 +14264,14 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const wixEvent of wixTileEvents) {
+          if (
+            isPurpleMambaSource(source.venue_id, `${source.source_url} ${pageUrl}`) &&
+            !/\/what-s-on-tickets(?:[/?#]|$)|\/events-1\//i.test(pageUrl)
+          ) {
+            skipped++
+            continue
+          }
+
           if (isBirminghamBizarreBazaarSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
