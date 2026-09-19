@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { randomUUID } from 'node:crypto'
+
+export const runtime = 'nodejs'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,6 +14,27 @@ const MAX_SOURCES = 80
 const MAX_PAGES_PER_SOURCE = 8
 const MAX_EVENTS_RETURNED = 150
 const FETCH_TIMEOUT_MS = 20000
+
+type StagedEventRecord = {
+  venue_id: string
+  event_name: string
+  event_date: string | null
+  start_time: string | null
+  description: string | null
+  ticket_url: string
+  image_url: string | null
+  source_url: string
+  tags: string[]
+}
+
+type ScrapeSafetyContext = {
+  batchId: string
+  stagedByVenue: Map<string, Map<string, StagedEventRecord>>
+  candidateAttemptsByVenue: Map<string, number>
+  rejectedByVenue: Map<string, number>
+}
+
+const scrapeSafetyContext = new AsyncLocalStorage<ScrapeSafetyContext>()
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 const ZERO_EVENT_ALERT_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'info@scenefinder.co.uk'
@@ -2166,6 +2191,7 @@ function cleanIcsEventTitleForVenue(venueId: string, title: string) {
 
 
 async function cleanupExistingVenueJunk(venueId: string) {
+  if (scrapeSafetyContext.getStore()) return 0
   const isVanillaVenue = isVanillaAlternativeSource(venueId)
   const isLeBoudoirVenue = isLeBoudoirSource(venueId)
   const isMinistryVenue = isMinistryStudiosSource(venueId)
@@ -12784,6 +12810,7 @@ function looksLikeStrongUndatedEvent(value: string | null | undefined) {
 }
 
 async function cleanupBadExistingEvents() {
+  if (scrapeSafetyContext.getStore()) return { deleted: 0, error: null }
   const { data, error } = await supabaseAdmin
     .from('events')
     .select('event_id, venue_id, event_name, event_date, ticket_url, description')
@@ -12843,6 +12870,494 @@ function shouldSaveEvent(input: {
   return candidateRejectionReason(input) === null
 }
 
+
+function incrementSafetyCounter(map: Map<string, number>, venueId: string) {
+  map.set(venueId, (map.get(venueId) || 0) + 1)
+}
+
+function stageEventForCurrentRun(event: StagedEventRecord) {
+  const context = scrapeSafetyContext.getStore()
+  if (!context) return false
+
+  let venueStage = context.stagedByVenue.get(event.venue_id)
+
+  if (!venueStage) {
+    venueStage = new Map<string, StagedEventRecord>()
+    context.stagedByVenue.set(event.venue_id, venueStage)
+  }
+
+  const key = [
+    normalizeTitle(event.event_name),
+    event.event_date || 'tbc',
+    normalizeTicketUrl(event.ticket_url),
+  ].join('|')
+
+  venueStage.set(key, event)
+  return true
+}
+
+async function countFuturePublishedEvents(venueId: string) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const { count, error } = await supabaseAdmin
+    .from('events')
+    .select('event_id', { count: 'exact', head: true })
+    .eq('venue_id', venueId)
+    .eq('status', 'published')
+    .gte('event_date', today)
+
+  return { count: count || 0, error }
+}
+
+async function sendScrapeSafetyAlert(input: {
+  venueId: string
+  previousCount: number
+  stagedCount: number
+  reasons: string[]
+  status: string
+}) {
+  if (!resend) {
+    return { sent: false, error: 'RESEND_API_KEY is not configured' }
+  }
+
+  const subject =
+    input.status === 'quarantined'
+      ? `Scene Finder safety guard blocked ${input.venueId}`
+      : `Scene Finder scrape warning: ${input.venueId}`
+
+  const { error } = await resend.emails.send({
+    from: ZERO_EVENT_ALERT_FROM,
+    to: [ZERO_EVENT_ALERT_EMAIL],
+    subject,
+    html: `
+      <h2>Scene Finder scraper safety alert</h2>
+      <p><strong>${input.venueId}</strong></p>
+      <p>Status: <strong>${input.status}</strong></p>
+      <p>Previous future events: <strong>${input.previousCount}</strong></p>
+      <p>New staged future events: <strong>${input.stagedCount}</strong></p>
+      <p>Reason${input.reasons.length === 1 ? '' : 's'}:</p>
+      <ul>${input.reasons.map((reason) => `<li>${reason}</li>`).join('')}</ul>
+      <p>The live event set was preserved where possible.</p>
+      <p>Checked: ${new Date().toISOString()}</p>
+    `,
+  })
+
+  return { sent: !error, error: error?.message || null }
+}
+
+async function publishStagedEvent(input: StagedEventRecord, runId: string) {
+  const normalised = normalizeTitle(input.event_name)
+
+  const { data: existingByUrl } = await supabaseAdmin
+    .from('events')
+    .select('event_id, event_name, event_date')
+    .eq('venue_id', input.venue_id)
+    .eq('ticket_url', input.ticket_url)
+    .limit(50)
+
+  const matchingByUrl =
+    existingByUrl?.filter((event) => {
+      const sameTitle = normalizeTitle(event.event_name) === normalised
+
+      if (input.event_date) {
+        return sameTitle && event.event_date === input.event_date
+      }
+
+      return sameTitle && !event.event_date
+    }) || []
+
+  if (matchingByUrl.length > 0) {
+    const keeper = matchingByUrl[0]
+    const duplicates = matchingByUrl.slice(1)
+
+    if (duplicates.length > 0) {
+      await supabaseAdmin
+        .from('events')
+        .delete()
+        .in('event_id', duplicates.map((event) => event.event_id))
+    }
+
+    const { error } = await supabaseAdmin
+      .from('events')
+      .update({
+        event_name: input.event_name,
+        event_date: input.event_date,
+        start_time: input.start_time,
+        description: input.description,
+        ticket_url: input.ticket_url,
+        image_url: input.image_url,
+        source_url: input.source_url,
+        tags: input.tags,
+        status: 'published',
+        last_seen_at: new Date().toISOString(),
+        last_seen_run_id: runId,
+        missed_successful_scrapes: 0,
+        archived_at: null,
+      })
+      .eq('event_id', keeper.event_id)
+
+    return { action: error ? 'error' : 'updated', event_id: keeper.event_id, error }
+  }
+
+  if (input.event_date) {
+    const { data: existingByTitleDate } = await supabaseAdmin
+      .from('events')
+      .select('event_id, event_name')
+      .eq('venue_id', input.venue_id)
+      .eq('event_date', input.event_date)
+
+    const matches =
+      existingByTitleDate?.filter(
+        (event) => normalizeTitle(event.event_name) === normalised
+      ) || []
+
+    if (matches.length > 0) {
+      const keeper = matches[0]
+      const extras = matches.slice(1)
+
+      if (extras.length > 0) {
+        await supabaseAdmin
+          .from('events')
+          .delete()
+          .in('event_id', extras.map((event) => event.event_id))
+      }
+
+      const { error } = await supabaseAdmin
+        .from('events')
+        .update({
+          event_name: input.event_name,
+          start_time: input.start_time,
+          ticket_url: input.ticket_url,
+          description: input.description,
+          image_url: input.image_url,
+          source_url: input.source_url,
+          tags: input.tags,
+          status: 'published',
+          last_seen_at: new Date().toISOString(),
+          last_seen_run_id: runId,
+          missed_successful_scrapes: 0,
+          archived_at: null,
+        })
+        .eq('event_id', keeper.event_id)
+
+      return { action: error ? 'error' : 'updated', event_id: keeper.event_id, error }
+    }
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from('events')
+    .insert({
+      venue_id: input.venue_id,
+      event_name: input.event_name,
+      event_date: input.event_date,
+      start_time: input.start_time,
+      event_type: 'Club Night',
+      description: input.description,
+      ticket_url: input.ticket_url,
+      image_url: input.image_url,
+      source_url: input.source_url,
+      tags: input.tags,
+      status: 'published',
+      last_seen_at: new Date().toISOString(),
+      last_seen_run_id: runId,
+      missed_successful_scrapes: 0,
+      archived_at: null,
+    })
+    .select('event_id')
+    .single()
+
+  return { action: error ? 'error' : 'created', event_id: data?.event_id || null, error }
+}
+
+async function recordScrapeSafetyRun(input: {
+  batchId: string
+  venueId: string
+  status: string
+  previousCount: number
+  stagedCount: number
+  stagedTotal: number
+  publishedCreated: number
+  publishedUpdated: number
+  archived: number
+  candidateAttempts: number
+  rejectedAttempts: number
+  failedPages: number
+  errors: number
+  reasons: string[]
+  staleMissing?: number
+}) {
+  const { error } = await supabaseAdmin.from('venue_scrape_health_runs').insert({
+    batch_id: input.batchId,
+    venue_id: input.venueId,
+    status: input.status,
+    previous_future_event_count: input.previousCount,
+    staged_future_event_count: input.stagedCount,
+    staged_total_count: input.stagedTotal,
+    published_created: input.publishedCreated,
+    published_updated: input.publishedUpdated,
+    events_archived: input.archived,
+    candidate_attempts: input.candidateAttempts,
+    rejected_attempts: input.rejectedAttempts,
+    failed_pages: input.failedPages,
+    error_count: input.errors,
+    stale_missing_count: input.staleMissing || 0,
+    reasons: input.reasons,
+    finished_at: new Date().toISOString(),
+  })
+
+  return error
+}
+
+async function finalizeVenueSafety(input: {
+  venueId: string
+  failedPageCount: number
+  errorCount: number
+}) {
+  const context = scrapeSafetyContext.getStore()
+
+  if (!context) {
+    return {
+      venue_id: input.venueId,
+      status: 'safety_context_missing',
+      published_created: 0,
+      published_updated: 0,
+      archived: 0,
+      reasons: ['Scrape safety context was not available'],
+    }
+  }
+
+  const venueStage = context.stagedByVenue.get(input.venueId) || new Map<string, StagedEventRecord>()
+  const stagedEvents = [...venueStage.values()]
+  const today = new Date().toISOString().slice(0, 10)
+  const stagedFutureEvents = stagedEvents.filter(
+    (event) => Boolean(event.event_date) && String(event.event_date) >= today
+  )
+
+  const previous = await countFuturePublishedEvents(input.venueId)
+
+  if (previous.error) {
+    const reasons = [`Could not read previous live event count: ${previous.error.message}`]
+
+    await recordScrapeSafetyRun({
+      batchId: context.batchId,
+      venueId: input.venueId,
+      status: 'quarantined',
+      previousCount: 0,
+      stagedCount: stagedFutureEvents.length,
+      stagedTotal: stagedEvents.length,
+      publishedCreated: 0,
+      publishedUpdated: 0,
+      archived: 0,
+      candidateAttempts: context.candidateAttemptsByVenue.get(input.venueId) || 0,
+      rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+      failedPages: input.failedPageCount,
+      errors: input.errorCount,
+      reasons,
+    })
+
+    return {
+      venue_id: input.venueId,
+      status: 'quarantined',
+      previous_count: null,
+      staged_future_count: stagedFutureEvents.length,
+      published_created: 0,
+      published_updated: 0,
+      archived: 0,
+      reasons,
+    }
+  }
+
+  const previousCount = previous.count
+  const stagedCount = stagedFutureEvents.length
+  const reasons: string[] = []
+
+  if (previousCount > 0 && stagedCount === 0) {
+    reasons.push(`Future events dropped from ${previousCount} to 0`)
+  }
+
+  if (previousCount >= 5 && stagedCount > 0 && stagedCount < Math.ceil(previousCount * 0.4)) {
+    reasons.push(
+      `Future event count dropped by more than 60% (${previousCount} → ${stagedCount})`
+    )
+  }
+
+  if (
+    previousCount >= 5 &&
+    stagedCount > Math.max(previousCount * 3, previousCount + 50)
+  ) {
+    reasons.push(
+      `Future event count spiked unexpectedly (${previousCount} → ${stagedCount})`
+    )
+  }
+
+  if (stagedCount > 300) {
+    reasons.push(`Scrape produced an unusually large future event set (${stagedCount})`)
+  }
+
+  if (input.failedPageCount >= 3 && stagedCount < previousCount) {
+    reasons.push(`${input.failedPageCount} source pages failed during the scrape`)
+  }
+
+  if (reasons.length > 0) {
+    const logError = await recordScrapeSafetyRun({
+      batchId: context.batchId,
+      venueId: input.venueId,
+      status: 'quarantined',
+      previousCount,
+      stagedCount,
+      stagedTotal: stagedEvents.length,
+      publishedCreated: 0,
+      publishedUpdated: 0,
+      archived: 0,
+      candidateAttempts: context.candidateAttemptsByVenue.get(input.venueId) || 0,
+      rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+      failedPages: input.failedPageCount,
+      errors: input.errorCount,
+      reasons,
+    })
+
+    const alert = await sendScrapeSafetyAlert({
+      venueId: input.venueId,
+      previousCount,
+      stagedCount,
+      reasons,
+      status: 'quarantined',
+    })
+
+    return {
+      venue_id: input.venueId,
+      status: 'quarantined',
+      previous_count: previousCount,
+      staged_future_count: stagedCount,
+      live_events_preserved: true,
+      published_created: 0,
+      published_updated: 0,
+      archived: 0,
+      reasons,
+      alert_sent: alert.sent,
+      alert_error: alert.error,
+      log_error: logError?.message || null,
+    }
+  }
+
+  const runId = context.batchId
+  const seenEventIds = new Set<string>()
+  let publishedCreated = 0
+  let publishedUpdated = 0
+  let publishErrors = 0
+
+  for (const event of stagedEvents) {
+    const result = await publishStagedEvent(event, runId)
+
+    if (result.action === 'created') publishedCreated++
+    else if (result.action === 'updated') publishedUpdated++
+    else publishErrors++
+
+    if (result.event_id) seenEventIds.add(result.event_id)
+  }
+
+  let archived = 0
+  let staleMissing = 0
+
+  // Last-known-good policy: successful scrapes may mark an event as "missed",
+  // but they do NOT automatically hide/delete it. That prevents three parser
+  // glitches in a row from making a real future event disappear from Scene Finder.
+  // Once an event has been absent from 3 healthy scrapes we email for review.
+  if (publishErrors === 0) {
+    const { data: liveFutureEvents, error: liveFutureError } = await supabaseAdmin
+      .from('events')
+      .select('event_id, missed_successful_scrapes')
+      .eq('venue_id', input.venueId)
+      .eq('status', 'published')
+      .gte('event_date', today)
+      .limit(5000)
+
+    if (!liveFutureError && liveFutureEvents) {
+      for (const liveEvent of liveFutureEvents) {
+        if (seenEventIds.has(liveEvent.event_id)) continue
+
+        const nextMissed = Number(liveEvent.missed_successful_scrapes || 0) + 1
+
+        await supabaseAdmin
+          .from('events')
+          .update({ missed_successful_scrapes: nextMissed })
+          .eq('event_id', liveEvent.event_id)
+
+        if (nextMissed === 3) staleMissing++
+      }
+    }
+  }
+
+  const finalCount = await countFuturePublishedEvents(input.venueId)
+  const status =
+    publishErrors > 0
+      ? 'accepted_with_publish_errors'
+      : staleMissing > 0
+        ? 'accepted_stale_review'
+        : 'accepted'
+
+  const finalReasons: string[] = []
+
+  if (publishErrors > 0) {
+    finalReasons.push(
+      `${publishErrors} staged event${publishErrors === 1 ? '' : 's'} failed to publish; no old events were retired`
+    )
+  }
+
+  if (staleMissing > 0) {
+    finalReasons.push(
+      `${staleMissing} live future event${staleMissing === 1 ? ' has' : 's have'} now been absent from 3 healthy scrapes; the event${staleMissing === 1 ? ' was' : 's were'} preserved for review`
+    )
+  }
+
+  const logError = await recordScrapeSafetyRun({
+    batchId: context.batchId,
+    venueId: input.venueId,
+    status,
+    previousCount,
+    stagedCount,
+    stagedTotal: stagedEvents.length,
+    publishedCreated,
+    publishedUpdated,
+    archived,
+    candidateAttempts: context.candidateAttemptsByVenue.get(input.venueId) || 0,
+    rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+    failedPages: input.failedPageCount,
+    errors: input.errorCount + publishErrors,
+    reasons: finalReasons,
+    staleMissing,
+  })
+
+  let alert = { sent: false, error: null as string | null }
+
+  if (publishErrors > 0 || staleMissing > 0) {
+    alert = await sendScrapeSafetyAlert({
+      venueId: input.venueId,
+      previousCount,
+      stagedCount,
+      reasons: finalReasons,
+      status,
+    })
+  }
+
+  return {
+    venue_id: input.venueId,
+    status,
+    previous_count: previousCount,
+    staged_future_count: stagedCount,
+    live_future_count: finalCount.count,
+    published_created: publishedCreated,
+    published_updated: publishedUpdated,
+    archived,
+    stale_missing_review: staleMissing,
+    publish_errors: publishErrors,
+    reasons: finalReasons,
+    alert_sent: alert.sent,
+    alert_error: alert.error,
+    log_error: logError?.message || null,
+  }
+}
+
 async function upsertEvent(input: {
   venue_id: string
   event_name: string
@@ -12853,6 +13368,11 @@ async function upsertEvent(input: {
   image_url: string | null
   source_url: string
 }) {
+  const safetyContext = scrapeSafetyContext.getStore()
+  if (safetyContext) {
+    incrementSafetyCounter(safetyContext.candidateAttemptsByVenue, input.venue_id)
+  }
+
   const safeDescription = cleanDescription(input.description)
   const eventName = input.venue_id === 'xtasia_west_bromwich'
     ? cleanXtasiaCalendarTitle(input.event_name)
@@ -12869,6 +13389,10 @@ async function upsertEvent(input: {
   })
 
   if (rejectionReason) {
+    if (safetyContext) {
+      incrementSafetyCounter(safetyContext.rejectedByVenue, input.venue_id)
+    }
+
     await saveEventCandidate({
       venue_id: input.venue_id,
       source_url: input.source_url,
@@ -12889,6 +13413,25 @@ async function upsertEvent(input: {
     matched_text: safeDescription || input.description || eventName,
     status: 'approved',
   })
+
+  const stagedRecord: StagedEventRecord = {
+    venue_id: input.venue_id,
+    event_name: eventName,
+    event_date: input.event_date,
+    start_time: input.start_time,
+    description: safeDescription,
+    ticket_url: safeTicketUrl,
+    image_url: safeImageUrl,
+    source_url: input.source_url,
+    tags,
+  }
+
+  if (!stageEventForCurrentRun(stagedRecord)) {
+    return {
+      action: 'error',
+      error: new Error('Scrape safety staging context is not available'),
+    }
+  }
 
   // Important: do not treat a repeated ticket URL as the same event by itself.
   // Some venues, especially Quest, use the same page/anchor for recurring events.
@@ -12912,34 +13455,7 @@ async function upsertEvent(input: {
     }) || []
 
   if (matchingByUrl.length > 0) {
-    const keeper = matchingByUrl[0]
-    const duplicates = matchingByUrl.slice(1)
-
-    if (duplicates.length > 0) {
-      await supabaseAdmin
-        .from('events')
-        .delete()
-        .in(
-          'event_id',
-          duplicates.map((event) => event.event_id)
-        )
-    }
-
-    const { error } = await supabaseAdmin
-      .from('events')
-      .update({
-        event_name: eventName,
-        event_date: input.event_date,
-        start_time: input.start_time,
-        description: safeDescription,
-        image_url: safeImageUrl,
-        source_url: input.source_url,
-        tags,
-        status: 'published',
-      })
-      .eq('event_id', keeper.event_id)
-
-    return { action: error ? 'error' : 'updated', error }
+    return { action: 'updated', error: null }
   }
 
   if (input.event_date) {
@@ -12955,53 +13471,14 @@ async function upsertEvent(input: {
       ) || []
 
     if (duplicates.length > 0) {
-      const keeper = duplicates[0]
-      const extras = duplicates.slice(1)
-
-      if (extras.length > 0) {
-        await supabaseAdmin
-          .from('events')
-          .delete()
-          .in(
-            'event_id',
-            extras.map((event) => event.event_id)
-          )
-      }
-
-      const { error } = await supabaseAdmin
-        .from('events')
-        .update({
-          ticket_url: safeTicketUrl,
-          description: safeDescription,
-          image_url: safeImageUrl,
-          source_url: input.source_url,
-          tags,
-          status: 'published',
-        })
-        .eq('event_id', keeper.event_id)
-
-      return { action: error ? 'error' : 'updated', error }
+      return { action: 'updated', error: null }
     }
   }
 
-  const { error } = await supabaseAdmin.from('events').insert({
-    venue_id: input.venue_id,
-    event_name: eventName,
-    event_date: input.event_date,
-    start_time: input.start_time,
-    event_type: 'Club Night',
-    description: safeDescription,
-    ticket_url: safeTicketUrl,
-    image_url: safeImageUrl,
-    source_url: input.source_url,
-    tags,
-    status: 'published',
-  })
-
-  return { action: error ? 'error' : 'created', error }
+  return { action: 'created', error: null }
 }
 
-export async function GET(request: Request) {
+async function runScrapeRequest(request: Request) {
   const startedAt = Date.now()
   const { searchParams } = new URL(request.url)
   const targetVenueId = searchParams.get('venue_id')
@@ -14789,8 +15266,26 @@ ${hu9HydratedText}`, pageUrl)
     console.log('SOURCE DONE:', source.source_url)
   }
 
+  const processedVenueIds: string[] = [
+    ...new Set<string>(
+      (sources || [])
+        .map((source: any) => source.venue_id)
+        .filter((venueId: any): venueId is string => typeof venueId === 'string' && venueId.length > 0)
+    ),
+  ]
+  const scrapeSafety: any[] = []
+
+  for (const venueId of processedVenueIds) {
+    const safetyResult = await finalizeVenueSafety({
+      venueId,
+      failedPageCount: failedPages.filter((item: any) => item.venue_id === venueId).length,
+      errorCount: errors.filter((item: any) => item.venue_id === venueId).length,
+    })
+
+    scrapeSafety.push(safetyResult)
+  }
+
   const zeroEventMonitors: any[] = []
-  const processedVenueIds = [...new Set((sources || []).map((source: any) => source.venue_id).filter(Boolean))]
 
   for (const venueId of processedVenueIds) {
     const monitorResult = await monitorVenueFutureEventCount(venueId)
@@ -14823,7 +15318,19 @@ ${hu9HydratedText}`, pageUrl)
     failed_pages: failedPages,
     found,
     debug_skipped: debugSkipped,
+    scrape_safety: scrapeSafety,
     zero_event_monitors: zeroEventMonitors,
     errors,
   })
+}
+
+export async function GET(request: Request) {
+  const context: ScrapeSafetyContext = {
+    batchId: randomUUID(),
+    stagedByVenue: new Map<string, Map<string, StagedEventRecord>>(),
+    candidateAttemptsByVenue: new Map<string, number>(),
+    rejectedByVenue: new Map<string, number>(),
+  }
+
+  return scrapeSafetyContext.run(context, () => runScrapeRequest(request))
 }
