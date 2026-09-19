@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 export const runtime = 'nodejs'
 
@@ -32,6 +32,7 @@ type ScrapeSafetyContext = {
   stagedByVenue: Map<string, Map<string, StagedEventRecord>>
   candidateAttemptsByVenue: Map<string, number>
   rejectedByVenue: Map<string, number>
+  reviewedByVenue: Map<string, number>
 }
 
 const scrapeSafetyContext = new AsyncLocalStorage<ScrapeSafetyContext>()
@@ -12871,6 +12872,289 @@ function shouldSaveEvent(input: {
 }
 
 
+type DataQualityDecision = 'pass' | 'review' | 'reject'
+
+type DataQualityResult = {
+  decision: DataQualityDecision
+  reasons: string[]
+  warnings: string[]
+  imageUrl: string | null
+}
+
+const TRUSTED_EVENT_IMAGE_HOST_PATTERNS = [
+  /(^|\.)wixstatic\.com$/i,
+  /(^|\.)cloudfront\.net$/i,
+  /(^|\.)squarespace-cdn\.com$/i,
+  /(^|\.)wp\.com$/i,
+  /(^|\.)wordpress\.com$/i,
+  /(^|\.)cdn-website\.com$/i,
+  /(^|\.)cloudinary\.com$/i,
+  /(^|\.)imgix\.net$/i,
+  /(^|\.)eventbrite(?:cdn)?\.com$/i,
+  /(^|\.)tickettailor\.com$/i,
+  /(^|\.)dice\.fm$/i,
+]
+
+function safeHostname(value: string | null | undefined) {
+  if (!value) return ''
+
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
+function isTrustedEventImageHost(imageHost: string, sourceHost: string) {
+  if (!imageHost) return true
+  if (imageHost === sourceHost) return true
+  if (sourceHost && imageHost.endsWith(`.${sourceHost}`)) return true
+
+  return TRUSTED_EVENT_IMAGE_HOST_PATTERNS.some((pattern) => pattern.test(imageHost))
+}
+
+function countDateLikeTokens(value: string) {
+  const monthNames = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/gi
+  const isoDates = /\b20\d{2}-\d{2}-\d{2}\b/g
+  const dayMonthDates = /\b\d{1,2}(?:st|nd|rd|th)?\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/gi
+
+  return (
+    (value.match(isoDates) || []).length +
+    (value.match(dayMonthDates) || []).length +
+    Math.min(2, (value.match(monthNames) || []).length)
+  )
+}
+
+function hasStagedTitleDateDuplicate(input: {
+  venue_id: string
+  event_name: string
+  event_date: string | null
+  ticket_url: string
+}) {
+  if (!input.event_date) return false
+
+  const context = scrapeSafetyContext.getStore()
+  const venueStage = context?.stagedByVenue.get(input.venue_id)
+  if (!venueStage) return false
+
+  const title = normalizeTitle(input.event_name)
+  const url = normalizeTicketUrl(input.ticket_url)
+
+  for (const existing of venueStage.values()) {
+    if (
+      existing.event_date === input.event_date &&
+      normalizeTitle(existing.event_name) === title &&
+      normalizeTicketUrl(existing.ticket_url) !== url
+    ) {
+      return true
+    }
+  }
+
+  return false
+}
+
+function globalDataQualityCheck(input: {
+  venue_id: string
+  event_name: string
+  event_date: string | null
+  ticket_url: string
+  source_url: string
+  description: string | null
+  image_url: string | null
+}): DataQualityResult {
+  const reasons: string[] = []
+  const warnings: string[] = []
+  const title = cleanText(input.event_name || '')
+  const titleNorm = normalizeTitle(title)
+  const description = cleanText(input.description || '')
+  let imageUrl = validImageUrl(input.image_url)
+
+  if (!titleNorm) {
+    return { decision: 'reject', reasons: ['empty_title'], warnings, imageUrl: null }
+  }
+
+  if (title.length > 240) reasons.push('title_over_240_characters')
+  else if (title.length > 180) reasons.push('title_over_180_characters')
+
+  const obviousNavigation = [
+    'home',
+    'events',
+    'event',
+    'calendar',
+    'whats on',
+    'what s on',
+    'book now',
+    'buy tickets',
+    'read more',
+    'find out more',
+    'learn more',
+    'click here',
+    'event details',
+    'view event',
+    'view events',
+    'see our whats on page',
+    'see our what s on page',
+  ]
+
+  if (obviousNavigation.includes(titleNorm)) {
+    return { decision: 'reject', reasons: ['navigation_or_cta_title'], warnings, imageUrl }
+  }
+
+  if (/^(?:previous|next)$/i.test(title) || /^(previous|next)\s+\1\b/i.test(title)) {
+    return { decision: 'reject', reasons: ['previous_next_navigation_title'], warnings, imageUrl }
+  }
+
+  const testimonialSignals = [
+    /displayed on profile/i,
+    /\bwe had (?:an? )?(?:amazing|great|lovely|fantastic|brilliant)\b/i,
+    /\bi had (?:an? )?(?:amazing|great|lovely|fantastic|brilliant)\b/i,
+    /\bwould recommend\b/i,
+    /\bthanks? (?:to|for)\b/i,
+    /\btestimonial\b/i,
+    /\breviewed? by\b/i,
+  ]
+
+  if (testimonialSignals.some((pattern) => pattern.test(`${title} ${description}`))) {
+    reasons.push('testimonial_or_review_language')
+  }
+
+  if (input.event_date) {
+    const eventDay = new Date(`${input.event_date}T00:00:00Z`)
+    const now = new Date()
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+
+    if (Number.isNaN(eventDay.getTime())) {
+      return { decision: 'reject', reasons: ['invalid_event_date'], warnings, imageUrl }
+    }
+
+    const dayDiff = Math.floor((eventDay.getTime() - today.getTime()) / 86400000)
+
+    if (dayDiff < -14) {
+      return { decision: 'reject', reasons: ['event_is_more_than_14_days_in_the_past'], warnings, imageUrl }
+    }
+
+    if (dayDiff > 730) reasons.push('event_is_more_than_2_years_in_the_future')
+  }
+
+  if (
+    description.length > 700 &&
+    countDateLikeTokens(description) >= 4 &&
+    /\b(?:previous|next|upcoming|calendar|schedule)\b/i.test(description)
+  ) {
+    reasons.push('description_looks_like_multiple_event_cards')
+  }
+
+  if (hasStagedTitleDateDuplicate(input)) {
+    reasons.push('duplicate_title_and_date_with_different_url')
+  }
+
+  if (imageUrl) {
+    const imageHost = safeHostname(imageUrl)
+    const sourceHost = safeHostname(input.source_url || input.ticket_url)
+
+    if (imageHost && sourceHost && !isTrustedEventImageHost(imageHost, sourceHost)) {
+      warnings.push(`untrusted_image_domain:${imageHost}`)
+      imageUrl = null
+    }
+  }
+
+  if (title.length > 240) {
+    return { decision: 'reject', reasons, warnings, imageUrl }
+  }
+
+  if (reasons.length > 0) {
+    return { decision: 'review', reasons, warnings, imageUrl }
+  }
+
+  return { decision: 'pass', reasons: [], warnings, imageUrl }
+}
+
+async function queueEventReview(input: {
+  venue_id: string
+  event_name: string
+  event_date: string | null
+  ticket_url: string
+  source_url: string
+  description: string | null
+  image_url: string | null
+  decision: 'review' | 'rejected' | 'warning'
+  reasons: string[]
+}) {
+  const context = scrapeSafetyContext.getStore()
+  const batchId = context?.batchId || null
+  const fingerprint = createHash('sha256')
+    .update(
+      [
+        input.venue_id,
+        normalizeTitle(input.event_name),
+        input.event_date || 'tbc',
+        normalizeTicketUrl(input.ticket_url),
+        input.decision,
+        [...input.reasons].sort().join(','),
+      ].join('|')
+    )
+    .digest('hex')
+
+  try {
+    const { data: existing } = await supabaseAdmin
+      .from('event_review_queue')
+      .select('id, occurrences')
+      .eq('fingerprint', fingerprint)
+      .maybeSingle()
+
+    const payload = {
+      batch_id: batchId,
+      venue_id: input.venue_id,
+      event_name: input.event_name.slice(0, 300),
+      event_date: input.event_date,
+      ticket_url: input.ticket_url,
+      source_url: input.source_url,
+      description: input.description,
+      image_url: input.image_url,
+      decision: input.decision,
+      reasons: input.reasons,
+      raw_candidate: input,
+      last_seen_at: new Date().toISOString(),
+    }
+
+    if (existing?.id) {
+      await supabaseAdmin
+        .from('event_review_queue')
+        .update({
+          ...payload,
+          occurrences: Number(existing.occurrences || 0) + 1,
+        })
+        .eq('id', existing.id)
+    } else {
+      await supabaseAdmin.from('event_review_queue').insert({
+        ...payload,
+        fingerprint,
+        occurrences: 1,
+        status: input.decision === 'rejected' ? 'auto_rejected' : 'pending',
+      })
+    }
+  } catch (err: any) {
+    console.log('EVENT REVIEW QUEUE FAILED:', input.venue_id, input.event_name, err?.message || err)
+  }
+}
+
+async function createVenueRecoverySnapshot(
+  venueId: string,
+  batchId: string,
+  snapshotType: 'pre_publish' | 'post_publish'
+) {
+  const { data, error } = await supabaseAdmin.rpc('create_venue_event_snapshot', {
+    p_venue_id: venueId,
+    p_batch_id: batchId,
+    p_snapshot_type: snapshotType,
+  })
+
+  return {
+    snapshotId: typeof data === 'string' ? data : null,
+    error,
+  }
+}
+
 function incrementSafetyCounter(map: Map<string, number>, venueId: string) {
   map.set(venueId, (map.get(venueId) || 0) + 1)
 }
@@ -13081,6 +13365,7 @@ async function recordScrapeSafetyRun(input: {
   archived: number
   candidateAttempts: number
   rejectedAttempts: number
+  reviewedAttempts?: number
   failedPages: number
   errors: number
   reasons: string[]
@@ -13098,6 +13383,7 @@ async function recordScrapeSafetyRun(input: {
     events_archived: input.archived,
     candidate_attempts: input.candidateAttempts,
     rejected_attempts: input.rejectedAttempts,
+    quality_review_count: input.reviewedAttempts || 0,
     failed_pages: input.failedPages,
     error_count: input.errors,
     stale_missing_count: input.staleMissing || 0,
@@ -13150,6 +13436,7 @@ async function finalizeVenueSafety(input: {
       archived: 0,
       candidateAttempts: context.candidateAttemptsByVenue.get(input.venueId) || 0,
       rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+      reviewedAttempts: context.reviewedByVenue.get(input.venueId) || 0,
       failedPages: input.failedPageCount,
       errors: input.errorCount,
       reasons,
@@ -13198,6 +13485,19 @@ async function finalizeVenueSafety(input: {
     reasons.push(`${input.failedPageCount} source pages failed during the scrape`)
   }
 
+  const candidateAttempts = context.candidateAttemptsByVenue.get(input.venueId) || 0
+  const qualityReviewCount = context.reviewedByVenue.get(input.venueId) || 0
+
+  if (
+    candidateAttempts >= 8 &&
+    qualityReviewCount >= 3 &&
+    qualityReviewCount / candidateAttempts >= 0.35
+  ) {
+    reasons.push(
+      `Data quality guard held ${qualityReviewCount} of ${candidateAttempts} candidates for review`
+    )
+  }
+
   if (reasons.length > 0) {
     const logError = await recordScrapeSafetyRun({
       batchId: context.batchId,
@@ -13211,6 +13511,7 @@ async function finalizeVenueSafety(input: {
       archived: 0,
       candidateAttempts: context.candidateAttemptsByVenue.get(input.venueId) || 0,
       rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+      reviewedAttempts: context.reviewedByVenue.get(input.venueId) || 0,
       failedPages: input.failedPageCount,
       errors: input.errorCount,
       reasons,
@@ -13241,6 +13542,55 @@ async function finalizeVenueSafety(input: {
   }
 
   const runId = context.batchId
+  const preSnapshot = await createVenueRecoverySnapshot(input.venueId, runId, 'pre_publish')
+
+  if (preSnapshot.error || !preSnapshot.snapshotId) {
+    const snapshotReasons = [
+      `Recovery snapshot failed before publish: ${preSnapshot.error?.message || 'no snapshot id returned'}`,
+    ]
+
+    const logError = await recordScrapeSafetyRun({
+      batchId: context.batchId,
+      venueId: input.venueId,
+      status: 'quarantined_snapshot_failure',
+      previousCount,
+      stagedCount,
+      stagedTotal: stagedEvents.length,
+      publishedCreated: 0,
+      publishedUpdated: 0,
+      archived: 0,
+      candidateAttempts: context.candidateAttemptsByVenue.get(input.venueId) || 0,
+      rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+      reviewedAttempts: context.reviewedByVenue.get(input.venueId) || 0,
+      failedPages: input.failedPageCount,
+      errors: input.errorCount + 1,
+      reasons: snapshotReasons,
+    })
+
+    const alert = await sendScrapeSafetyAlert({
+      venueId: input.venueId,
+      previousCount,
+      stagedCount,
+      reasons: snapshotReasons,
+      status: 'quarantined',
+    })
+
+    return {
+      venue_id: input.venueId,
+      status: 'quarantined_snapshot_failure',
+      previous_count: previousCount,
+      staged_future_count: stagedCount,
+      live_events_preserved: true,
+      published_created: 0,
+      published_updated: 0,
+      archived: 0,
+      reasons: snapshotReasons,
+      alert_sent: alert.sent,
+      alert_error: alert.error,
+      log_error: logError?.message || null,
+    }
+  }
+
   const seenEventIds = new Set<string>()
   let publishedCreated = 0
   let publishedUpdated = 0
@@ -13289,6 +13639,11 @@ async function finalizeVenueSafety(input: {
   }
 
   const finalCount = await countFuturePublishedEvents(input.venueId)
+  const postSnapshot =
+    publishErrors === 0
+      ? await createVenueRecoverySnapshot(input.venueId, runId, 'post_publish')
+      : { snapshotId: null, error: null }
+
   const status =
     publishErrors > 0
       ? 'accepted_with_publish_errors'
@@ -13310,6 +13665,12 @@ async function finalizeVenueSafety(input: {
     )
   }
 
+  if (postSnapshot.error || (publishErrors === 0 && !postSnapshot.snapshotId)) {
+    finalReasons.push(
+      `Post-publish recovery snapshot failed: ${postSnapshot.error?.message || 'no snapshot id returned'}`
+    )
+  }
+
   const logError = await recordScrapeSafetyRun({
     batchId: context.batchId,
     venueId: input.venueId,
@@ -13322,6 +13683,7 @@ async function finalizeVenueSafety(input: {
     archived,
     candidateAttempts: context.candidateAttemptsByVenue.get(input.venueId) || 0,
     rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+    reviewedAttempts: context.reviewedByVenue.get(input.venueId) || 0,
     failedPages: input.failedPageCount,
     errors: input.errorCount + publishErrors,
     reasons: finalReasons,
@@ -13330,7 +13692,7 @@ async function finalizeVenueSafety(input: {
 
   let alert = { sent: false, error: null as string | null }
 
-  if (publishErrors > 0 || staleMissing > 0) {
+  if (publishErrors > 0 || staleMissing > 0 || Boolean(postSnapshot.error) || (publishErrors === 0 && !postSnapshot.snapshotId)) {
     alert = await sendScrapeSafetyAlert({
       venueId: input.venueId,
       previousCount,
@@ -13351,6 +13713,9 @@ async function finalizeVenueSafety(input: {
     archived,
     stale_missing_review: staleMissing,
     publish_errors: publishErrors,
+    quality_review_count: qualityReviewCount,
+    pre_publish_snapshot_id: preSnapshot.snapshotId,
+    post_publish_snapshot_id: postSnapshot.snapshotId,
     reasons: finalReasons,
     alert_sent: alert.sent,
     alert_error: alert.error,
@@ -13378,7 +13743,7 @@ async function upsertEvent(input: {
     ? cleanXtasiaCalendarTitle(input.event_name)
     : cleanSf10RescueCandidateTitle(input.event_name, safeDescription || input.description)
   const normalised = normalizeTitle(eventName)
-  const safeImageUrl = validImageUrl(input.image_url)
+  let safeImageUrl = validImageUrl(input.image_url)
   const safeTicketUrl = normalizeTicketUrl(input.ticket_url)
   const tags = inferEventTags(`${eventName} ${safeDescription || ''} ${safeTicketUrl}`)
 
@@ -13402,7 +13767,103 @@ async function upsertEvent(input: {
       status: rejectionReason,
     })
 
+    await queueEventReview({
+      venue_id: input.venue_id,
+      event_name: eventName,
+      event_date: input.event_date,
+      ticket_url: safeTicketUrl,
+      source_url: input.source_url,
+      description: safeDescription,
+      image_url: safeImageUrl,
+      decision: 'rejected',
+      reasons: [rejectionReason],
+    })
+
     return { action: 'skipped', error: null }
+  }
+
+  const quality = globalDataQualityCheck({
+    venue_id: input.venue_id,
+    event_name: eventName,
+    event_date: input.event_date,
+    ticket_url: safeTicketUrl,
+    source_url: input.source_url,
+    description: safeDescription,
+    image_url: safeImageUrl,
+  })
+
+  safeImageUrl = quality.imageUrl
+
+  if (quality.decision === 'reject') {
+    if (safetyContext) {
+      incrementSafetyCounter(safetyContext.rejectedByVenue, input.venue_id)
+    }
+
+    await saveEventCandidate({
+      venue_id: input.venue_id,
+      source_url: input.source_url,
+      candidate_url: safeTicketUrl,
+      candidate_title: eventName,
+      matched_text: safeDescription || input.description || eventName,
+      status: `quality_rejected:${quality.reasons.join(',')}`,
+    })
+
+    await queueEventReview({
+      venue_id: input.venue_id,
+      event_name: eventName,
+      event_date: input.event_date,
+      ticket_url: safeTicketUrl,
+      source_url: input.source_url,
+      description: safeDescription,
+      image_url: safeImageUrl,
+      decision: 'rejected',
+      reasons: quality.reasons,
+    })
+
+    return { action: 'skipped', error: null }
+  }
+
+  if (quality.decision === 'review') {
+    if (safetyContext) {
+      incrementSafetyCounter(safetyContext.reviewedByVenue, input.venue_id)
+    }
+
+    await saveEventCandidate({
+      venue_id: input.venue_id,
+      source_url: input.source_url,
+      candidate_url: safeTicketUrl,
+      candidate_title: eventName,
+      matched_text: safeDescription || input.description || eventName,
+      status: `quality_review:${quality.reasons.join(',')}`,
+    })
+
+    await queueEventReview({
+      venue_id: input.venue_id,
+      event_name: eventName,
+      event_date: input.event_date,
+      ticket_url: safeTicketUrl,
+      source_url: input.source_url,
+      description: safeDescription,
+      image_url: safeImageUrl,
+      decision: 'review',
+      reasons: quality.reasons,
+    })
+
+    return { action: 'skipped', error: null }
+  }
+
+  if (quality.warnings.length > 0) {
+    await queueEventReview({
+      venue_id: input.venue_id,
+      event_name: eventName,
+      event_date: input.event_date,
+      ticket_url: safeTicketUrl,
+      source_url: input.source_url,
+      description: safeDescription,
+      image_url: input.image_url,
+      decision: 'warning',
+      reasons: quality.warnings,
+    })
   }
 
   await saveEventCandidate({
@@ -15330,6 +15791,7 @@ export async function GET(request: Request) {
     stagedByVenue: new Map<string, Map<string, StagedEventRecord>>(),
     candidateAttemptsByVenue: new Map<string, number>(),
     rejectedByVenue: new Map<string, number>(),
+    reviewedByVenue: new Map<string, number>(),
   }
 
   return scrapeSafetyContext.run(context, () => runScrapeRequest(request))
