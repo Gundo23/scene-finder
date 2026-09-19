@@ -10421,16 +10421,6 @@ function extractEcclesiaEvents(html: string, baseUrl: string) {
   return candidates
 }
 
-function decodeIcsText(value: string) {
-  return value
-    .replace(/\\n/gi, ' ')
-    .replace(/\\,/g, ',')
-    .replace(/\\;/g, ';')
-    .replace(/\\\\/g, '\\')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
 function parseHellfireIcsDate(value: string) {
   const raw = value.trim()
   const match = raw.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?)?(Z)?$/)
