@@ -10499,7 +10499,11 @@ function extractHellfireEvents(html: string, baseUrl: string) {
         if (!fields.has(key)) fields.set(key, line.slice(colon + 1).trim())
       }
 
-      let title = cleanTargetVenueTitle(decodeIcsText(fields.get('SUMMARY') || ''))
+      const rawSummary = decodeIcsText(fields.get('SUMMARY') || '')
+      let title = rawSummary
+        .replace(/^Brief Encounter Every$/i, 'Brief Encounter')
+        .replace(/^AllBarNone Every Genre For Everyone\)$/i, 'AllBarNone (Every Genre For Everyone)')
+      title = cleanTargetVenueTitle(title)
       const startRaw = fields.get('DTSTART') || ''
       const parsedStart = parseHellfireIcsDate(startRaw)
       const description = decodeIcsText(fields.get('DESCRIPTION') || title)
@@ -10508,21 +10512,15 @@ function extractHellfireEvents(html: string, baseUrl: string) {
 
       if (!title || !parsedStart.date || isJunkTitle(title)) continue
 
-      // Tockify expands recurring Hellfire events a long way into the future.
-      // Keep a rolling 18-month window so Scene Finder does not create hundreds
-      // of speculative recurring rows or spend minutes upserting them.
+      // Tockify expands recurring Hellfire events very far into the future.
+      // Keep Hellfire to a rolling 6-month window. This is enough for discovery
+      // while preventing hundreds of repetitive recurring rows and very slow scrapes.
       const now = new Date()
       const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-      const horizon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 18, 1))
+      const horizon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 6, 1))
       const eventDay = new Date(`${parsedStart.date}T00:00:00Z`)
 
       if (Number.isNaN(eventDay.getTime()) || eventDay < today || eventDay >= horizon) continue
-
-      // Clean two recurring Tockify summaries that include schedule wording.
-      title = title
-        .replace(/\s+Every$/i, '')
-        .replace(/^AllBarNone\s+Every Genre For Everyone\)$/i, 'AllBarNone (Every Genre For Everyone)')
-        .trim()
 
       pushTargetCandidate(candidates, seen, {
         href: eventUrl || `https://tockify.com/hellfireclubuk/#${encodeURIComponent(uid || `${parsedStart.date}-${title}`)}`,
