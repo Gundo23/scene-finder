@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { Resend } from 'resend'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -9,6 +10,81 @@ const MAX_SOURCES = 80
 const MAX_PAGES_PER_SOURCE = 8
 const MAX_EVENTS_RETURNED = 150
 const FETCH_TIMEOUT_MS = 20000
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+const ZERO_EVENT_ALERT_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'info@scenefinder.co.uk'
+const ZERO_EVENT_ALERT_FROM = process.env.NOTIFY_FROM_EMAIL || 'Scene Finder <notifications@scenefinder.co.uk>'
+
+async function monitorVenueFutureEventCount(venueId: string) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const { count, error: countError } = await supabaseAdmin
+    .from('events')
+    .select('event_id', { count: 'exact', head: true })
+    .eq('venue_id', venueId)
+    .eq('status', 'published')
+    .gte('event_date', today)
+
+  if (countError) {
+    return { checked: false, alerted: false, error: `event count failed: ${countError.message}` }
+  }
+
+  const currentCount = count || 0
+
+  const { data: state, error: stateError } = await supabaseAdmin
+    .from('venue_event_monitor_state')
+    .select('venue_id, last_future_event_count, zero_alert_sent')
+    .eq('venue_id', venueId)
+    .maybeSingle()
+
+  if (stateError) {
+    return { checked: false, alerted: false, error: `monitor state read failed: ${stateError.message}` }
+  }
+
+  const previousCount = state?.last_future_event_count ?? null
+  const wasPreviouslyShowingEvents = typeof previousCount === 'number' && previousCount > 0
+  const shouldAlert = currentCount === 0 && wasPreviouslyShowingEvents && !state?.zero_alert_sent
+
+  if (shouldAlert) {
+    if (!resend) {
+      return { checked: true, alerted: false, current_count: currentCount, previous_count: previousCount, error: 'RESEND_API_KEY is not configured' }
+    }
+
+    const { error: emailError } = await resend.emails.send({
+      from: ZERO_EVENT_ALERT_FROM,
+      to: [ZERO_EVENT_ALERT_EMAIL],
+      subject: `Scene Finder alert: ${venueId} now has 0 future events`,
+      html: `
+        <h2>Venue event alert</h2>
+        <p><strong>${venueId}</strong> previously had ${previousCount} future published event${previousCount === 1 ? '' : 's'} and now has <strong>0</strong>.</p>
+        <p>This usually means the venue scraper/source needs checking, or the venue has removed/expired its listings.</p>
+        <p>Checked: ${new Date().toISOString()}</p>
+      `,
+    })
+
+    if (emailError) {
+      return { checked: true, alerted: false, current_count: currentCount, previous_count: previousCount, error: `alert email failed: ${emailError.message}` }
+    }
+  }
+
+  const { error: upsertError } = await supabaseAdmin
+    .from('venue_event_monitor_state')
+    .upsert(
+      {
+        venue_id: venueId,
+        last_future_event_count: currentCount,
+        zero_alert_sent: shouldAlert ? true : currentCount === 0 ? Boolean(state?.zero_alert_sent) : false,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'venue_id' }
+    )
+
+  if (upsertError) {
+    return { checked: true, alerted: shouldAlert, error: `monitor state write failed: ${upsertError.message}` }
+  }
+
+  return { checked: true, alerted: shouldAlert, current_count: currentCount, previous_count: previousCount, error: null }
+}
 
 const EVENT_KEYWORDS = [
   'event',
@@ -14606,6 +14682,18 @@ ${hu9HydratedText}`, pageUrl)
     console.log('SOURCE DONE:', source.source_url)
   }
 
+  const zeroEventMonitors: any[] = []
+  const processedVenueIds = [...new Set((sources || []).map((source: any) => source.venue_id).filter(Boolean))]
+
+  for (const venueId of processedVenueIds) {
+    const monitorResult = await monitorVenueFutureEventCount(venueId)
+    zeroEventMonitors.push({ venue_id: venueId, ...monitorResult })
+
+    if (monitorResult.error) {
+      console.log('ZERO EVENT MONITOR:', venueId, monitorResult.error)
+    }
+  }
+
   return Response.json({
     message: 'Scrape finished',
     runtime_seconds: Math.round((Date.now() - startedAt) / 1000),
@@ -14628,6 +14716,7 @@ ${hu9HydratedText}`, pageUrl)
     failed_pages: failedPages,
     found,
     debug_skipped: debugSkipped,
+    zero_event_monitors: zeroEventMonitors,
     errors,
   })
 }
