@@ -10500,10 +10500,14 @@ function extractHellfireEvents(html: string, baseUrl: string) {
       }
 
       const rawSummary = decodeIcsText(fields.get('SUMMARY') || '')
-      let title = rawSummary
-        .replace(/^Brief Encounter Every$/i, 'Brief Encounter')
-        .replace(/^AllBarNone Every Genre For Everyone\)$/i, 'AllBarNone (Every Genre For Everyone)')
-      title = cleanTargetVenueTitle(title)
+      let title = cleanTargetVenueTitle(rawSummary)
+
+      // Tockify summaries sometimes include recurrence wording that survives
+      // the generic title cleaner. Normalise the known Hellfire titles here.
+      title = title
+        .replace(/^Brief Encounter\s+Every(?:\s+\w+)?$/i, 'Brief Encounter')
+        .replace(/^AllBarNone\s+Every Genre For Everyone\)?$/i, 'AllBarNone (Every Genre For Everyone)')
+        .trim()
       const startRaw = fields.get('DTSTART') || ''
       const parsedStart = parseHellfireIcsDate(startRaw)
       const description = decodeIcsText(fields.get('DESCRIPTION') || title)
