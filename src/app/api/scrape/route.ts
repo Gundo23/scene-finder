@@ -11136,8 +11136,12 @@ function extractPandoraScheduleConfigEvents(value: string, baseUrl: string) {
   const todayString = datePartsToString(today)
   if (!todayString) return candidates
 
-  const horizon = new Date(today)
-  horizon.setUTCDate(horizon.getUTCDate() + 180)
+  // Pandora's schedule.json defines recurring themed events rather than a
+  // short fixed list. Keep a rolling 18-month window so future published
+  // recurring events remain visible well beyond the old 180-day cutoff.
+  const horizon = new Date(
+    Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 18, 1)
+  )
 
   const seen = new Set<string>()
 
