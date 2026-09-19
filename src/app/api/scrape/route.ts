@@ -10030,13 +10030,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
   }
 
   if (isHellfireSource(source.venue_id, source.source_url)) {
-    for (const url of [
-      'https://www.theold-hellfireclub.co.uk/Table_Matrix5_Icons.html',
-      'https://www.theold-hellfireclub.co.uk/HellfireCalendar2020.html',
-      'https://tockify.com/hellfireclubuk/',
-    ]) {
-      urls.add(url)
-    }
+    // Tockify exposes the calendar as an iCalendar feed. Use that structured
+    // feed only; the legacy Hellfire HTML pages contain testimonials/reviews
+    // with dates that can be mistaken for events by text parsers.
+    urls.add('https://tockify.com/api/feeds/ics/hellfireclubuk')
   }
 
   if (isAtticExperienceSource(source.venue_id, source.source_url)) {
@@ -10424,6 +10421,62 @@ function extractEcclesiaEvents(html: string, baseUrl: string) {
   return candidates
 }
 
+function decodeIcsText(value: string) {
+  return value
+    .replace(/\\n/gi, ' ')
+    .replace(/\\,/g, ',')
+    .replace(/\\;/g, ';')
+    .replace(/\\\\/g, '\\')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function parseHellfireIcsDate(value: string) {
+  const raw = value.trim()
+  const match = raw.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?)?(Z)?$/)
+  if (!match) return { date: null as string | null, time: null as string | null }
+
+  const [, year, month, day, hour, minute, second, utcFlag] = match
+  if (!hour || !minute) {
+    return {
+      date: validDateOrNull(`${year}-${month}-${day}`),
+      time: null,
+    }
+  }
+
+  if (utcFlag) {
+    const utc = new Date(Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second || '0')
+    ))
+
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(utc)
+
+    const get = (type: string) => parts.find((part) => part.type === type)?.value || ''
+    return {
+      date: validDateOrNull(`${get('year')}-${get('month')}-${get('day')}`),
+      time: validTimeOrNull(`${get('hour')}:${get('minute')}`),
+    }
+  }
+
+  return {
+    date: validDateOrNull(`${year}-${month}-${day}`),
+    time: validTimeOrNull(`${hour}:${minute}`),
+  }
+}
+
 function extractHellfireEvents(html: string, baseUrl: string) {
   const candidates: {
     href: string
@@ -10436,46 +10489,51 @@ function extractHellfireEvents(html: string, baseUrl: string) {
   }[] = []
 
   const seen = new Set<string>()
-  const image = extractBestImage(html, baseUrl)
-  const jsonEvents = extractJsonLdEvents(html, baseUrl)
 
-  for (const event of jsonEvents) {
-    pushTargetCandidate(candidates, seen, {
-      href: event.url || baseUrl,
-      text: event.name,
-      event_date: event.date || extractDate(`${event.name} ${event.description}`),
-      start_time: event.start_time || extractTime(`${event.name} ${event.description}`),
-      raw: event.description || event.name,
-      image_url: event.image_url || image,
-      method: 'hellfire-jsonld',
-    })
+  // The reliable Hellfire source is Tockify's public iCalendar feed.
+  // Never run a free-form date regex over the legacy site: testimonials and
+  // profile reviews contain dates and were previously being saved as events.
+  if (/BEGIN:VCALENDAR/i.test(html) || /BEGIN:VEVENT/i.test(html)) {
+    const unfolded = html.replace(/\r?\n[ \t]/g, '')
+    const blocks = unfolded.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) || []
+
+    for (const block of blocks) {
+      const lines = block.split(/\r?\n/)
+      const fields = new Map<string, string>()
+
+      for (const line of lines) {
+        const colon = line.indexOf(':')
+        if (colon <= 0) continue
+        const rawKey = line.slice(0, colon)
+        const key = rawKey.split(';')[0].toUpperCase()
+        if (!fields.has(key)) fields.set(key, line.slice(colon + 1).trim())
+      }
+
+      const title = cleanTargetVenueTitle(decodeIcsText(fields.get('SUMMARY') || ''))
+      const startRaw = fields.get('DTSTART') || ''
+      const parsedStart = parseHellfireIcsDate(startRaw)
+      const description = decodeIcsText(fields.get('DESCRIPTION') || title)
+      const eventUrl = decodeIcsText(fields.get('URL') || '')
+      const uid = decodeIcsText(fields.get('UID') || '')
+
+      if (!title || !parsedStart.date || isJunkTitle(title)) continue
+
+      pushTargetCandidate(candidates, seen, {
+        href: eventUrl || `https://tockify.com/hellfireclubuk/#${encodeURIComponent(uid || `${parsedStart.date}-${title}`)}`,
+        text: title,
+        event_date: parsedStart.date,
+        start_time: parsedStart.time,
+        raw: description || title,
+        image_url: null,
+        method: 'hellfire-tockify-ics',
+      })
+    }
+
+    return candidates
   }
 
-  const text = cleanText(decodeEscapedText(html))
-  const pattern =
-    /([A-Z][A-Za-z0-9 '&+.,:/!-]{5,90}?)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*(20\d{2})?/gi
-
-  let match
-
-  while ((match = pattern.exec(text)) !== null) {
-    const month = monthNameToNumber(match[3])
-    if (!month) continue
-
-    const year = futureSafeYear(month, match[2].padStart(2, '0'), match[4])
-    const eventDate = validDateOrNull(`${year}-${month}-${match[2].padStart(2, '0')}`)
-    const title = cleanTargetVenueTitle(match[1])
-
-    pushTargetCandidate(candidates, seen, {
-      href: eventUrlWithAnchor(baseUrl, title),
-      text: title,
-      event_date: eventDate,
-      start_time: extractTime(match[0]),
-      raw: match[0],
-      image_url: image,
-      method: 'hellfire-custom',
-    })
-  }
-
+  // Deliberately return no candidates for the old HTML pages. Structured
+  // calendar data is safer than trying to infer events from prose/reviews.
   return candidates
 }
 
@@ -13421,6 +13479,8 @@ export async function GET(request: Request) {
 
     const queue = source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
+      : isHellfireSource(source.venue_id, source.source_url)
+        ? targetVenueDiscoveredUrls
       : isHu9Source(source.venue_id, source.source_url)
         ? targetVenueDiscoveredUrls
         : isMe1SaunaSource(source.venue_id, source.source_url)
@@ -14230,6 +14290,10 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const event of jsonLdEvents) {
+          if (isHellfireSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
           // Cupids has a dedicated Squarespace parser. Generic JSON-LD creates
           // alternate titles for the same event, so skip it for this venue.
           if (isCupidsSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
@@ -14327,6 +14391,10 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const calendarEvent of calendarLinks) {
+          if (isHellfireSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
           // Cupids event pages expose start/end dates through calendar markup.
           // The generic calendar parser was saving the overnight end date as a second event.
           if (isCupidsSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
@@ -14448,6 +14516,10 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isHellfireSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
+            skipped++
+            continue
+          }
           // Cupids is handled by extractCupidsEvents only. The generic scanner follows
           // Previous/Next, shop and calendar links and was creating duplicates/junk.
           if (isCupidsSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
