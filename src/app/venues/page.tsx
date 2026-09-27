@@ -152,7 +152,7 @@ function formatPostcodeSearch(value: string) {
   return `${compact.slice(0, -3)} ${compact.slice(-3)}`
 }
 
-const POSTCODE_SEARCH_RADIUS_MILES = 50
+const POSTCODE_SEARCH_RADIUS_MILES = 30
 
 type GeoPoint = {
   latitude: number
