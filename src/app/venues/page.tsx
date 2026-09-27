@@ -790,7 +790,7 @@ export default async function VenuesPage({
               Quick find
             </p>
             <p className="mt-1 text-sm text-zinc-400">
-              Jump straight to what is happening now, this weekend, or the type of venue you want.
+              Find what is happening tonight, this weekend, or jump straight to clubs, saunas and kink venues.
             </p>
           </div>
 
@@ -825,27 +825,6 @@ export default async function VenuesPage({
             >
               Kink
             </Link>
-            <Link
-              href={makeFilterHref({ category: category === 'socials' ? '' : 'socials' })}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'socials')}`}
-            >
-              Socials
-            </Link>
-          </div>
-
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {['London', 'Birmingham', 'Manchester', 'Leeds'].map((quickCity) => (
-              <Link
-                key={quickCity}
-                href={makeFilterHref({
-                  city: city === quickCity ? '' : quickCity,
-                  region: '',
-                })}
-                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition ${quickChipClass(city === quickCity)}`}
-              >
-                {quickCity}
-              </Link>
-            ))}
           </div>
 
           <form className="mt-4">
@@ -853,8 +832,8 @@ export default async function VenuesPage({
               <input
                 name="search"
                 defaultValue={search}
-                placeholder="Venue, city or postcode..."
-                aria-label="Search venues by name, city or postcode"
+                placeholder="Venue or postcode..."
+                aria-label="Search venues by name or postcode"
                 className="min-w-0 w-full rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none sm:text-base"
               />
               <button
@@ -914,7 +893,6 @@ export default async function VenuesPage({
                   <option value="clubs">Clubs</option>
                   <option value="saunas">Saunas / spas</option>
                   <option value="kink">Kink / fetish</option>
-                  <option value="socials">Socials / munches</option>
                 </select>
 
                 <div className="sm:col-span-3 grid grid-cols-2 gap-2">
