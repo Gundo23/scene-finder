@@ -92,7 +92,57 @@ const FALLBACK_CITIES = [
   'Wrexham',
 ]
 function getTodayString() {
-  return new Date().toISOString().split('T')[0]
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+
+  if (!year || !month || !day) {
+    return new Date().toISOString().split('T')[0]
+  }
+
+  return `${year}-${month}-${day}`
+}
+
+function addDays(dateString: string, days: number) {
+  const [year, month, day] = dateString.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().split('T')[0]
+}
+
+function getWeekendRange(today: string) {
+  const [year, month, day] = today.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  const weekday = date.getUTCDay()
+
+  if (weekday === 0) {
+    return { start: today, end: today }
+  }
+
+  if (weekday === 6) {
+    return { start: today, end: addDays(today, 1) }
+  }
+
+  const daysUntilFriday = (5 - weekday + 7) % 7
+  const start = addDays(today, daysUntilFriday)
+  return { start, end: addDays(start, 2) }
+}
+
+function formatShortDate(date: string | null | undefined) {
+  if (!date) return 'TBC'
+
+  return new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
 }
 function formatPostcodeSearch(value: string) {
   const compact = value.toUpperCase().replace(/\s+/g, '')
@@ -370,35 +420,79 @@ function venueMatchesFilters(
   const regionMatch = !selectedRegion || venueRegion === selectedRegion
   return searchMatch && cityMatch && regionMatch
 }
-async function fetchUpcomingEventCountByVenue(today: string) {
+type VenueEventDiscovery = {
+  upcomingEventCountByVenue: Map<string, number>
+  nextEventDateByVenue: Map<string, string>
+  tonightVenueIds: Set<string>
+  weekendVenueIds: Set<string>
+}
+
+async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscovery> {
   const upcomingEventCountByVenue = new Map<string, number>()
+  const nextEventDateByVenue = new Map<string, string>()
+  const tonightVenueIds = new Set<string>()
+  const weekendVenueIds = new Set<string>()
+  const weekend = getWeekendRange(today)
   const pageSize = 1000
   let from = 0
+
   while (true) {
     const to = from + pageSize - 1
     const { data, error } = await supabase
       .from('events')
-      .select('venue_id')
+      .select('venue_id, event_date, start_time')
+      .eq('is_published', true)
       .or(`event_date.gte.${today},event_date.is.null`)
       .range(from, to)
+
     if (error) {
-      console.error('Error loading venue event counts:', error.message)
+      console.error('Error loading venue event discovery data:', error.message)
       break
     }
+
     data?.forEach((event) => {
       if (!event.venue_id) return
+
       upcomingEventCountByVenue.set(
         event.venue_id,
         (upcomingEventCountByVenue.get(event.venue_id) || 0) + 1
       )
+
+      if (!event.event_date) return
+
+      const existingNextDate = nextEventDateByVenue.get(event.venue_id)
+      if (!existingNextDate || event.event_date < existingNextDate) {
+        nextEventDateByVenue.set(event.venue_id, event.event_date)
+      }
+
+      const eventStartTime = String(event.start_time || '').slice(0, 5)
+      const isTonightTime =
+        !eventStartTime || eventStartTime === '00:00' || eventStartTime >= '17:00'
+
+      if (event.event_date === today && isTonightTime) {
+        tonightVenueIds.add(event.venue_id)
+      }
+
+      if (event.event_date >= weekend.start && event.event_date <= weekend.end) {
+        weekendVenueIds.add(event.venue_id)
+      }
     })
+
     if (!data || data.length < pageSize) {
       break
     }
+
     from += pageSize
   }
-  return upcomingEventCountByVenue
+
+  return {
+    upcomingEventCountByVenue,
+    nextEventDateByVenue,
+    tonightVenueIds,
+    weekendVenueIds,
+  }
 }
+
 function formatCategory(category: string | null | undefined) {
   const cleanedCategory = cleanText(category || '')
   if (!cleanedCategory) return null
@@ -458,15 +552,64 @@ function getVenueCategoryPillClass(category: string | null) {
   }
   return 'border-blue-400/40 bg-blue-500/15 text-blue-200 shadow-blue-500/10'
 }
+function venueMatchesQuickCategory(
+  venue: {
+    name?: string | null
+    category?: string | null
+  },
+  quickCategory: string
+) {
+  if (!quickCategory) return true
+
+  const text = normaliseFilterValue(`${venue.category || ''} ${venue.name || ''}`)
+
+  if (quickCategory === 'clubs') {
+    return (
+      text.includes('club') ||
+      text.includes('swing') ||
+      text.includes('lifestyle') ||
+      text.includes('playroom')
+    )
+  }
+
+  if (quickCategory === 'saunas') {
+    return text.includes('sauna') || text.includes('spa')
+  }
+
+  if (quickCategory === 'kink') {
+    return text.includes('kink') || text.includes('fetish') || text.includes('bdsm')
+  }
+
+  if (quickCategory === 'socials') {
+    return text.includes('social') || text.includes('munch') || text.includes('meet')
+  }
+
+  return true
+}
+
+function quickChipClass(active: boolean) {
+  return active
+    ? 'border-blue-300 bg-gradient-to-r from-blue-500 to-purple-600 text-white shadow-lg shadow-blue-500/25'
+    : 'border-zinc-700 bg-zinc-950/80 text-zinc-300 hover:border-blue-400/70 hover:bg-blue-500/10 hover:text-blue-100'
+}
+
 export default async function VenuesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ search?: string; city?: string; region?: string }>
+  searchParams: Promise<{
+    search?: string
+    city?: string
+    region?: string
+    category?: string
+    timing?: string
+  }>
 }) {
   const params = await searchParams
   const search = params.search || ''
   const city = params.city || ''
   const region = params.region || ''
+  const category = params.category || ''
+  const timing = params.timing || ''
   const today = getTodayString()
   const cleanedSearch = search.trim()
   const postcodeSearch = formatPostcodeSearch(cleanedSearch)
@@ -482,7 +625,7 @@ export default async function VenuesPage({
     { data: filterOptionVenues, error: filterOptionsError },
     { count: venueCount },
     { count: eventCount },
-    upcomingEventCountByVenue,
+    eventDiscovery,
   ] = await Promise.all([
     venueQuery,
     supabase
@@ -492,7 +635,7 @@ export default async function VenuesPage({
       .limit(5000),
     supabase.from('venues').select('*', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }),
-    fetchUpcomingEventCountByVenue(today),
+    fetchVenueEventDiscovery(today),
   ])
   if (error) {
     return (
@@ -504,26 +647,63 @@ export default async function VenuesPage({
   if (filterOptionsError) {
     console.error('Error loading venue filter options:', filterOptionsError.message)
   }
-  const hasFilters = Boolean(search || city || region)
+  const {
+    upcomingEventCountByVenue,
+    nextEventDateByVenue,
+    tonightVenueIds,
+    weekendVenueIds,
+  } = eventDiscovery
+
+  const hasFilters = Boolean(search || city || region || category || timing)
+  const hasAdvancedFilters = Boolean(city || region)
+
   const publicVenues = [...(venues || [])].filter((venue) => {
-    return (
-      shouldShowPublicVenue(venue) &&
-      venueMatchesFilters(venue, {
+    if (!shouldShowPublicVenue(venue)) return false
+
+    if (
+      !venueMatchesFilters(venue, {
         search: cleanedSearch,
         city,
         region,
         postcodeSearch,
       })
-    )
+    ) {
+      return false
+    }
+
+    if (!venueMatchesQuickCategory(venue, category)) {
+      return false
+    }
+
+    if (timing === 'tonight' && !tonightVenueIds.has(venue.venue_id)) {
+      return false
+    }
+
+    if (timing === 'weekend' && !weekendVenueIds.has(venue.venue_id)) {
+      return false
+    }
+
+    return true
   })
+
   const sortedVenues = publicVenues.sort((a, b) => {
+    const aNextDate = nextEventDateByVenue.get(a.venue_id) || '9999-12-31'
+    const bNextDate = nextEventDateByVenue.get(b.venue_id) || '9999-12-31'
+
+    if (aNextDate !== bNextDate) {
+      return aNextDate.localeCompare(bNextDate)
+    }
+
     const aEventCount = upcomingEventCountByVenue.get(a.venue_id) || 0
     const bEventCount = upcomingEventCountByVenue.get(b.venue_id) || 0
+
     if (bEventCount !== aEventCount) {
       return bEventCount - aEventCount
     }
+
     return cleanText(a.name || '').localeCompare(cleanText(b.name || ''))
   })
+
   const optionVenues = [...(filterOptionVenues || [])].filter((venue) => shouldShowPublicVenue(venue))
   const cityOptions = uniqueSorted([
     ...FALLBACK_CITIES,
@@ -531,6 +711,37 @@ export default async function VenuesPage({
   ])
   // Region choices are canonical only; do not expose arbitrary DB region strings.
   const regionOptions = FALLBACK_REGIONS
+
+  const makeFilterHref = (
+    updates: Partial<{
+      search: string
+      city: string
+      region: string
+      category: string
+      timing: string
+    }>
+  ) => {
+    const next = {
+      search,
+      city,
+      region,
+      category,
+      timing,
+      ...updates,
+    }
+
+    const query = new URLSearchParams()
+
+    if (next.search) query.set('search', next.search)
+    if (next.city) query.set('city', next.city)
+    if (next.region) query.set('region', next.region)
+    if (next.category) query.set('category', next.category)
+    if (next.timing) query.set('timing', next.timing)
+
+    const queryString = query.toString()
+    return queryString ? `/venues?${queryString}` : '/venues'
+  }
+
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 pb-24 text-white sm:px-6 sm:py-10">
       <section className="mx-auto w-full max-w-7xl overflow-x-hidden">
@@ -573,61 +784,196 @@ export default async function VenuesPage({
             </div>
           </div>
         </div>
-        <form className="mt-5 w-full rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-3 shadow-xl shadow-blue-950/20 ring-1 ring-purple-500/10 sm:p-5">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <select
-              name="city"
-              defaultValue={city}
-              className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
-            >
-              <option value="">Search by City</option>
-              {cityOptions.map((cityName) => (
-                <option key={cityName} value={cityName}>
-                  {cityName}
-                </option>
-              ))}
-            </select>
-            <select
-              name="region"
-              defaultValue={region}
-              className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-2 py-3 text-sm text-white sm:px-3 sm:text-base"
-            >
-              <option value="">Search by Region</option>
-              {regionOptions.map((regionName) => (
-                <option key={regionName} value={regionName}>
-                  {regionName}
-                </option>
-              ))}
-            </select>
+        <div className="mt-5 w-full rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-3 shadow-xl shadow-blue-950/20 ring-1 ring-purple-500/10 sm:p-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-300">
+              Quick find
+            </p>
+            <p className="mt-1 text-sm text-zinc-400">
+              Jump straight to what is happening now, this weekend, or the type of venue you want.
+            </p>
           </div>
-          <div className="mt-3 grid w-full grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
-            <input
-              name="search"
-              defaultValue={search}
-              placeholder="Search Leeds, Blackpool, Quest..."
-              className="w-full rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none"
-            />
-            <button
-              type="submit"
-              className="w-full rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-3 font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40 sm:w-auto"
+
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <Link
+              href={makeFilterHref({ timing: timing === 'tonight' ? '' : 'tonight' })}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(timing === 'tonight')}`}
             >
-              Search
-            </button>
+              Tonight
+            </Link>
+            <Link
+              href={makeFilterHref({ timing: timing === 'weekend' ? '' : 'weekend' })}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(timing === 'weekend')}`}
+            >
+              This weekend
+            </Link>
+            <Link
+              href={makeFilterHref({ category: category === 'clubs' ? '' : 'clubs' })}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'clubs')}`}
+            >
+              Clubs
+            </Link>
+            <Link
+              href={makeFilterHref({ category: category === 'saunas' ? '' : 'saunas' })}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'saunas')}`}
+            >
+              Saunas
+            </Link>
+            <Link
+              href={makeFilterHref({ category: category === 'kink' ? '' : 'kink' })}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'kink')}`}
+            >
+              Kink
+            </Link>
+            <Link
+              href={makeFilterHref({ category: category === 'socials' ? '' : 'socials' })}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'socials')}`}
+            >
+              Socials
+            </Link>
           </div>
-          {hasFilters && (
-            <div className="mt-4">
+
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {['London', 'Birmingham', 'Manchester', 'Leeds'].map((quickCity) => (
               <Link
-                href="/venues"
-                className="block rounded-full border border-zinc-700 bg-zinc-950 px-4 py-3 text-center text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
+                key={quickCity}
+                href={makeFilterHref({
+                  city: city === quickCity ? '' : quickCity,
+                  region: '',
+                })}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold transition ${quickChipClass(city === quickCity)}`}
               >
-                Clear filters
+                {quickCity}
               </Link>
+            ))}
+          </div>
+
+          <form className="mt-4">
+            <div className="grid w-full grid-cols-[1fr_auto] gap-2">
+              <input
+                name="search"
+                defaultValue={search}
+                placeholder="Venue, city or postcode..."
+                aria-label="Search venues by name, city or postcode"
+                className="min-w-0 w-full rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none sm:text-base"
+              />
+              <button
+                type="submit"
+                className="rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40 sm:px-6"
+              >
+                Search
+              </button>
+            </div>
+
+            {timing && <input type="hidden" name="timing" value={timing} />}
+
+            <details
+              className="mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/60"
+              open={hasAdvancedFilters}
+            >
+              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-bold text-zinc-200 marker:hidden">
+                <span className="flex items-center justify-between gap-3">
+                  <span>Filters: city, region & type</span>
+                  <span className="text-blue-300">{hasAdvancedFilters ? 'Active' : 'Open'}</span>
+                </span>
+              </summary>
+
+              <div className="grid grid-cols-1 gap-3 border-t border-zinc-800 p-3 sm:grid-cols-3">
+                <select
+                  name="city"
+                  defaultValue={city}
+                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white sm:text-base"
+                >
+                  <option value="">Any city</option>
+                  {cityOptions.map((cityName) => (
+                    <option key={cityName} value={cityName}>
+                      {cityName}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  name="region"
+                  defaultValue={region}
+                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white sm:text-base"
+                >
+                  <option value="">Any region</option>
+                  {regionOptions.map((regionName) => (
+                    <option key={regionName} value={regionName}>
+                      {regionName}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  name="category"
+                  defaultValue={category}
+                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white sm:text-base"
+                >
+                  <option value="">Any type</option>
+                  <option value="clubs">Clubs</option>
+                  <option value="saunas">Saunas / spas</option>
+                  <option value="kink">Kink / fetish</option>
+                  <option value="socials">Socials / munches</option>
+                </select>
+
+                <div className="sm:col-span-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="submit"
+                    className="rounded-2xl border border-blue-400/70 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-100 transition hover:bg-blue-500/20"
+                  >
+                    Apply filters
+                  </button>
+                  <Link
+                    href="/venues"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-bold text-zinc-300 transition hover:border-blue-500 hover:text-white"
+                  >
+                    Clear all
+                  </Link>
+                </div>
+              </div>
+            </details>
+          </form>
+
+          {hasFilters && (
+            <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+              {timing === 'tonight' && (
+                <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1.5 text-blue-200">
+                  Events tonight
+                </span>
+              )}
+              {timing === 'weekend' && (
+                <span className="rounded-full border border-purple-400/40 bg-purple-500/10 px-3 py-1.5 text-purple-200">
+                  This weekend
+                </span>
+              )}
+              {category && (
+                <span className="rounded-full border border-pink-400/40 bg-pink-500/10 px-3 py-1.5 text-pink-200">
+                  {category === 'clubs'
+                    ? 'Clubs'
+                    : category === 'saunas'
+                      ? 'Saunas / spas'
+                      : category === 'kink'
+                        ? 'Kink / fetish'
+                        : 'Socials / munches'}
+                </span>
+              )}
+              {city && (
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-200">
+                  {city}
+                </span>
+              )}
+              {region && (
+                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-200">
+                  {region}
+                </span>
+              )}
             </div>
           )}
-        </form>
+        </div>
         <div className="mt-6 flex items-center justify-between gap-4">
           <h2 className="text-2xl font-extrabold">
-            {hasFilters ? 'Search results' : 'Featured venues'}
+            {hasFilters ? 'Matching venues' : 'Venues to explore'}
           </h2>
           <p className="shrink-0 text-sm text-zinc-400">
             {sortedVenues.length} found
@@ -641,6 +987,9 @@ export default async function VenuesPage({
               const venueCity = cleanText(venue.city_area || '')
               const venueRegion = getCanonicalVenueRegion(venue) || cleanText(venue.region || '')
               const upcomingEventCount = upcomingEventCountByVenue.get(venue.venue_id) || 0
+              const nextEventDate = nextEventDateByVenue.get(venue.venue_id) || null
+              const hasEventTonight = tonightVenueIds.has(venue.venue_id)
+              const hasWeekendEvent = weekendVenueIds.has(venue.venue_id)
               return (
                 <article
                   key={venue.venue_id}
@@ -658,6 +1007,20 @@ export default async function VenuesPage({
                     />
                   </div>
                   <div className="relative min-w-0 p-4 sm:p-5">
+                    {(hasEventTonight || hasWeekendEvent) && (
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {hasEventTonight && (
+                          <span className="rounded-full border border-blue-300/60 bg-blue-500/15 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-blue-100">
+                            Tonight
+                          </span>
+                        )}
+                        {hasWeekendEvent && !hasEventTonight && (
+                          <span className="rounded-full border border-purple-300/50 bg-purple-500/15 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-purple-100">
+                            This weekend
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {category && (
                       <div className="mb-2 flex min-w-0 flex-wrap gap-2">
                         <p className={`max-w-full truncate rounded-full border px-3 py-1 text-[11px] font-bold shadow-lg ${getVenueCategoryPillClass(category)}`}>
@@ -684,12 +1047,12 @@ export default async function VenuesPage({
                         </p>
                       </div>
                       <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-2">
-                        <p className="text-lg">🌐</p>
+                        <p className="text-lg">⏭️</p>
                         <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200">
-                          Website ↗
+                          Next
                         </p>
-                        <p className="mt-1 text-[11px] font-semibold text-white">
-                          {venue.website ? 'Listed' : 'TBC'}
+                        <p className="mt-1 truncate text-[11px] font-semibold text-white">
+                          {nextEventDate ? formatShortDate(nextEventDate) : 'TBC'}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-purple-400/20 bg-purple-500/10 p-2">
@@ -713,7 +1076,7 @@ export default async function VenuesPage({
                         href={`/venue/${venue.venue_id}`}
                         className="inline-flex items-center justify-center rounded-2xl border border-blue-400/70 bg-blue-500/10 px-3 py-2 text-sm font-bold text-blue-200 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:bg-gradient-to-r hover:from-blue-500 hover:to-purple-600 hover:text-white"
                       >
-                        View venue →
+                        {upcomingEventCount > 0 ? `View ${upcomingEventCount} event${upcomingEventCount === 1 ? '' : 's'} →` : 'View venue →'}
                       </Link>
                       {venue.website && (
                         <a
@@ -731,7 +1094,18 @@ export default async function VenuesPage({
               )
             })
           ) : (
-            <p className="text-zinc-400">No venues found.</p>
+            <div className="sm:col-span-2 xl:col-span-3 rounded-3xl border border-zinc-800 bg-zinc-900/70 p-6 text-center">
+              <p className="text-lg font-bold text-white">No venues match those filters.</p>
+              <p className="mt-2 text-sm text-zinc-400">
+                Try another city or type, or clear the filters to see all public venues.
+              </p>
+              <Link
+                href="/venues"
+                className="mt-4 inline-flex items-center justify-center rounded-2xl border border-blue-400/60 bg-blue-500/10 px-4 py-2 text-sm font-bold text-blue-200 transition hover:bg-blue-500/20 hover:text-white"
+              >
+                Clear filters
+              </Link>
+            </div>
           )}
         </div>
       </section>

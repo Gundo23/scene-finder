@@ -198,7 +198,22 @@ function cleanDisplayText(value: string | null | undefined) {
 
 function getTodayString() {
 
-  return new Date().toISOString().split('T')[0]
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+
+  if (!year || !month || !day) {
+    return new Date().toISOString().split('T')[0]
+  }
+
+  return `${year}-${month}-${day}`
 
 }
 
@@ -1082,127 +1097,88 @@ export default async function VenuePage({
 
               return (
 
-                <Link key={event.event_id} href={`/events/${event.event_id}`} className="group block cursor-pointer">
+                <article
+                  key={event.event_id}
+                  className="group relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20"
+                >
 
-                  <article className="relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20">
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.12),transparent_30%)] opacity-75 transition group-hover:opacity-100" />
 
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.12),transparent_30%)] opacity-75 transition group-hover:opacity-100" />
+                  <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/70 to-transparent" />
 
-                    <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/70 to-transparent" />
+                  <div className="pointer-events-none absolute inset-y-6 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400/50 to-transparent" />
 
-                    <div className="pointer-events-none absolute inset-y-6 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400/50 to-transparent" />
+                  {event.image_url && (
 
-                    <div className="pointer-events-none absolute right-5 top-1/2 hidden -translate-y-1/2 text-4xl text-zinc-600 transition group-hover:translate-x-1 group-hover:text-blue-300 sm:block">
+                    <img
 
-                      ›
+                      src={event.image_url}
+
+                      alt={eventName}
+
+                      className="h-48 w-full object-cover sm:h-56"
+
+                    />
+
+                  )}
+
+
+
+                  <div className="relative p-4 sm:p-5">
+
+                    <div className="absolute right-4 top-4 z-20 flex h-[94px] w-[74px] flex-col items-center justify-center rounded-2xl border border-purple-400/50 bg-zinc-950/90 text-center shadow-lg shadow-purple-500/25 ring-1 ring-white/5 backdrop-blur sm:right-5 sm:top-5 sm:h-[106px] sm:w-[82px]">
+
+                      <p className="text-3xl font-black leading-none text-white sm:text-4xl">
+
+                        {dateBadge.day}
+
+                      </p>
+
+                      <p className="mt-1 text-[10px] font-black uppercase tracking-[0.35em] text-purple-100 sm:text-xs">
+
+                        {dateBadge.month}
+
+                      </p>
+
+                      <div className="my-2 h-px w-10 bg-zinc-700/80" />
+
+                      {dateBadge.weekday ? (
+
+                        <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-200 sm:text-xs">
+
+                          {dateBadge.weekday}
+
+                        </p>
+
+                      ) : (
+
+                        <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-500 sm:text-xs">
+
+                          TBC
+
+                        </p>
+
+                      )}
 
                     </div>
 
-                    {event.image_url && (
 
-                      <img
 
-                        src={event.image_url}
+                    <div className="mb-3 flex max-w-[calc(100%-5.75rem)] flex-wrap gap-2 sm:max-w-[calc(100%-6.5rem)]">
 
-                        alt={eventName}
+                      <p className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold shadow-lg ${getCategoryPillClass(category)}`}>
 
-                        className="h-48 w-full object-cover sm:h-56"
+                        🏷 {category}
 
-                      />
-
-                    )}
+                      </p>
 
 
 
-                    <div className="relative p-4 sm:p-5">
+                      {eventType && eventType !== 'Event' && (
 
-                      <div className="absolute right-4 top-4 z-20 flex h-[94px] w-[74px] flex-col items-center justify-center rounded-2xl border border-purple-400/50 bg-zinc-950/85 text-center shadow-lg shadow-purple-500/25 ring-1 ring-white/5 backdrop-blur sm:right-5 sm:top-5 sm:h-[106px] sm:w-[82px]">
+                        <p className="inline-flex rounded-full border border-purple-400/30 bg-purple-500/10 px-3 py-1 text-xs font-semibold text-purple-200 shadow-lg shadow-purple-500/10">
 
-                        <p className="text-3xl font-black leading-none text-white sm:text-4xl">
-
-                          {dateBadge.day}
-
-                        </p>
-
-                        <p className="mt-1 text-[10px] font-black uppercase tracking-[0.35em] text-purple-100 sm:text-xs">
-
-                          {dateBadge.month}
-
-                        </p>
-
-                        <div className="my-2 h-px w-10 bg-zinc-700/80" />
-
-                        {dateBadge.weekday ? (
-
-                          <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-200 sm:text-xs">
-
-                            {dateBadge.weekday}
-
-                          </p>
-
-                        ) : (
-
-                          <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-500 sm:text-xs">
-
-                            TBC
-
-                          </p>
-
-                        )}
-
-                      </div>
-
-
-
-                      <div className="mb-3 flex max-w-[calc(100%-5.75rem)] flex-wrap gap-2 sm:max-w-[calc(100%-6.5rem)]">
-
-                        <p className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold shadow-lg ${getCategoryPillClass(category)}`}>
-
-                          🏷 {category}
-
-                        </p>
-
-
-
-                        {eventType && eventType !== 'Event' && (
-
-                          <p className="inline-flex rounded-full border border-purple-400/30 bg-purple-500/10 px-3 py-1 text-xs font-semibold text-purple-200 shadow-lg shadow-purple-500/10">
-
-                            {eventType}
-
-                          </p>
-
-                        )}
-
-                      </div>
-
-
-
-                      <h3 className="break-words pr-24 text-xl font-extrabold text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] sm:pr-28 sm:text-2xl lg:text-3xl">
-
-                        {eventName}
-
-                      </h3>
-
-
-
-                      <div className="mt-3 grid gap-2 pr-24 text-xs text-zinc-300 sm:grid-cols-3 sm:pr-28 sm:text-sm">
-
-                        <p>📍 {eventLocationDisplay}</p>
-
-                        <p>📅 {formatDate(event.event_date)}</p>
-
-                        <p>🕘 {startTime || 'Time TBC'}</p>
-
-                      </div>
-
-
-
-                      {eventDescription && (
-
-                        <p className="mt-4 line-clamp-3 text-sm leading-6 text-zinc-400">
-
-                          {eventDescription}
+                          {eventType}
 
                         </p>
 
@@ -1210,17 +1186,141 @@ export default async function VenuePage({
 
 
 
-                      <div className="mt-5 flex items-center text-sm font-semibold text-blue-300 opacity-80 transition group-hover:translate-x-1 group-hover:text-blue-200">
+                      {event.ticket_url ? (
 
-                        Tap anywhere on this card to view details →
+                        <p className="inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+
+                          🎟 Ticket / booking link
+
+                        </p>
+
+                      ) : (
+
+                        <p className="inline-flex rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs font-semibold text-zinc-400">
+
+                          Ticket info TBC
+
+                        </p>
+
+                      )}
+
+
+
+                      {event.event_location_verified && (
+
+                        <p className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-200">
+
+                          ✓ Event location verified
+
+                        </p>
+
+                      )}
+
+                    </div>
+
+
+
+                    <h3 className="break-words pr-24 text-xl font-extrabold text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] sm:pr-28 sm:text-2xl lg:text-3xl">
+
+                      {eventName}
+
+                    </h3>
+
+
+
+                    <div className="mt-4 grid grid-cols-2 gap-2 pr-0 text-xs sm:grid-cols-4 sm:text-sm">
+
+                      <div className="rounded-2xl border border-pink-400/20 bg-pink-500/10 p-3">
+
+                        <p className="font-black uppercase tracking-wide text-pink-200">Location</p>
+
+                        <p className="mt-1 line-clamp-2 font-semibold text-white">{eventLocationDisplay}</p>
+
+                      </div>
+
+                      <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 p-3">
+
+                        <p className="font-black uppercase tracking-wide text-blue-200">Date</p>
+
+                        <p className="mt-1 font-semibold text-white">{formatDate(event.event_date)}</p>
+
+                      </div>
+
+                      <div className="rounded-2xl border border-purple-400/20 bg-purple-500/10 p-3">
+
+                        <p className="font-black uppercase tracking-wide text-purple-200">Starts</p>
+
+                        <p className="mt-1 font-semibold text-white">{startTime || 'Time TBC'}</p>
+
+                      </div>
+
+                      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3">
+
+                        <p className="font-black uppercase tracking-wide text-emerald-200">Tickets</p>
+
+                        <p className="mt-1 font-semibold text-white">
+                          {event.ticket_url ? 'Link available' : 'Check event details'}
+                        </p>
 
                       </div>
 
                     </div>
 
-                  </article>
 
-                </Link>
+
+                    {eventDescription && (
+
+                      <p className="mt-4 line-clamp-2 text-sm leading-6 text-zinc-400">
+
+                        {eventDescription}
+
+                      </p>
+
+                    )}
+
+
+
+                    <div className={`mt-5 grid gap-2 ${event.ticket_url ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
+
+                      <Link
+
+                        href={`/events/${event.event_id}`}
+
+                        className="inline-flex items-center justify-center rounded-2xl border border-blue-400/70 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-100 transition hover:-translate-y-0.5 hover:bg-gradient-to-r hover:from-blue-500 hover:to-purple-600 hover:text-white"
+
+                      >
+
+                        View event details →
+
+                      </Link>
+
+
+
+                      {event.ticket_url && (
+
+                        <a
+
+                          href={event.ticket_url}
+
+                          target="_blank"
+
+                          rel="noreferrer"
+
+                          className="inline-flex items-center justify-center rounded-2xl border border-emerald-400/50 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-500/20 hover:text-white"
+
+                        >
+
+                          Tickets / booking ↗
+
+                        </a>
+
+                      )}
+
+                    </div>
+
+                  </div>
+
+                </article>
 
               )
 
