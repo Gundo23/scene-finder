@@ -198,15 +198,11 @@ function getTodayString() {
 
   }).formatToParts(new Date())
 
-
-
   const year = parts.find((part) => part.type === 'year')?.value
 
   const month = parts.find((part) => part.type === 'month')?.value
 
   const day = parts.find((part) => part.type === 'day')?.value
-
-
 
   if (!year || !month || !day) {
 
@@ -214,13 +210,9 @@ function getTodayString() {
 
   }
 
-
-
   return `${year}-${month}-${day}`
 
 }
-
-
 
 function addDays(dateString: string, days: number) {
 
@@ -234,21 +226,15 @@ function addDays(dateString: string, days: number) {
 
 }
 
-
-
 function getNextSevenDaysRange(today: string) {
 
   return { start: today, end: addDays(today, 6) }
 
 }
 
-
-
 function formatShortDate(date: string | null | undefined) {
 
   if (!date) return 'TBC'
-
-
 
   return new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', {
 
@@ -276,11 +262,7 @@ function formatPostcodeSearch(value: string) {
 
 }
 
-
-
 const POSTCODE_SEARCH_RADIUS_MILES = 30
-
-
 
 type GeoPoint = {
 
@@ -292,8 +274,6 @@ type GeoPoint = {
 
 }
 
-
-
 function finiteCoordinate(value: number | string | null | undefined) {
 
   if (value === null || value === undefined || value === '') return null
@@ -303,8 +283,6 @@ function finiteCoordinate(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : null
 
 }
-
-
 
 function compactPostcode(value: string | null | undefined) {
 
@@ -316,35 +294,25 @@ function compactPostcode(value: string | null | undefined) {
 
 }
 
-
-
 function looksLikeUkPostcodeSearch(value: string | null | undefined) {
 
   const compact = compactPostcode(value)
 
   if (!compact) return false
 
-
-
   const outwardCode = /^[A-Z]{1,2}\d[A-Z\d]?$/
 
   const fullPostcode = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/
 
-
-
   return outwardCode.test(compact) || fullPostcode.test(compact)
 
 }
-
-
 
 async function resolvePostcodeOrigin(value: string): Promise<GeoPoint | null> {
 
   const compact = compactPostcode(value)
 
   if (!looksLikeUkPostcodeSearch(compact)) return null
-
-
 
   const fullPostcode = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/.test(compact)
 
@@ -354,15 +322,11 @@ async function resolvePostcodeOrigin(value: string): Promise<GeoPoint | null> {
 
     : `https://api.postcodes.io/outcodes/${encodeURIComponent(compact)}`
 
-
-
   try {
 
     const response = await fetch(endpoint, { cache: 'no-store' })
 
     if (!response.ok) return null
-
-
 
     const payload = await response.json()
 
@@ -372,15 +336,11 @@ async function resolvePostcodeOrigin(value: string): Promise<GeoPoint | null> {
 
     const longitude = finiteCoordinate(result?.longitude)
 
-
-
     if (latitude === null || longitude === null) {
 
       return null
 
     }
-
-
 
     return {
 
@@ -402,8 +362,6 @@ async function resolvePostcodeOrigin(value: string): Promise<GeoPoint | null> {
 
 }
 
-
-
 function distanceMilesBetween(
 
   origin: { latitude: number; longitude: number },
@@ -416,8 +374,6 @@ function distanceMilesBetween(
 
   const earthRadiusMiles = 3958.7613
 
-
-
   const latitude1 = toRadians(origin.latitude)
 
   const latitude2 = toRadians(destination.latitude)
@@ -425,8 +381,6 @@ function distanceMilesBetween(
   const latitudeDelta = toRadians(destination.latitude - origin.latitude)
 
   const longitudeDelta = toRadians(destination.longitude - origin.longitude)
-
-
 
   const a =
 
@@ -438,15 +392,11 @@ function distanceMilesBetween(
 
       Math.sin(longitudeDelta / 2) ** 2
 
-
-
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 
   return earthRadiusMiles * c
 
 }
-
-
 
 function formatDistanceMiles(value: number) {
 
@@ -457,8 +407,6 @@ function formatDistanceMiles(value: number) {
   return `${Math.round(value)} miles`
 
 }
-
-
 
 async function resolveVenueCoordinates(
 
@@ -488,11 +436,7 @@ async function resolveVenueCoordinates(
 
   >()
 
-
-
   const missingByPostcode = new Map<string, string[]>()
-
-
 
   for (const venue of venues) {
 
@@ -504,13 +448,9 @@ async function resolveVenueCoordinates(
 
     if (!venue.postcode) continue
 
-
-
     const latitude = finiteCoordinate(venue.latitude)
 
     const longitude = finiteCoordinate(venue.longitude)
-
-
 
     if (latitude !== null && longitude !== null) {
 
@@ -520,13 +460,9 @@ async function resolveVenueCoordinates(
 
     }
 
-
-
     const postcodeKey = compactPostcode(venue.postcode)
 
     if (!postcodeKey) continue
-
-
 
     const venueIds = missingByPostcode.get(postcodeKey) || []
 
@@ -536,17 +472,11 @@ async function resolveVenueCoordinates(
 
   }
 
-
-
   const missingPostcodes = [...missingByPostcode.keys()]
-
-
 
   for (let index = 0; index < missingPostcodes.length; index += 100) {
 
     const batch = missingPostcodes.slice(index, index + 100)
-
-
 
     try {
 
@@ -568,15 +498,9 @@ async function resolveVenueCoordinates(
 
       )
 
-
-
       if (!response.ok) continue
 
-
-
       const payload = await response.json()
-
-
 
       for (const item of payload?.result || []) {
 
@@ -585,8 +509,6 @@ async function resolveVenueCoordinates(
         const latitude = finiteCoordinate(item?.result?.latitude)
 
         const longitude = finiteCoordinate(item?.result?.longitude)
-
-
 
         if (
 
@@ -601,8 +523,6 @@ async function resolveVenueCoordinates(
           continue
 
         }
-
-
 
         for (const venueId of missingByPostcode.get(postcodeKey) || []) {
 
@@ -619,8 +539,6 @@ async function resolveVenueCoordinates(
     }
 
   }
-
-
 
   return coordinatesByVenueId
 
@@ -1028,8 +946,6 @@ function getCanonicalVenueRegion(venue: {
 
   if (verifiedRegion) return verifiedRegion
 
-
-
   const venueId = cleanText(venue.venue_id || '').toLowerCase()
 
   const explicitOverride = VENUE_REGION_OVERRIDES[venueId]
@@ -1067,8 +983,6 @@ function getCanonicalVenueCity(venue: {
   return cleanText(venue.canonical_city || venue.city_area || '')
 
 }
-
-
 
 function containsWholeLocationPhrase(haystack: string, needle: string) {
 
@@ -1176,8 +1090,6 @@ type VenueEventDiscovery = {
 
 }
 
-
-
 async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscovery> {
 
   const upcomingEventCountByVenue = new Map<string, number>()
@@ -1193,8 +1105,6 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
   const pageSize = 1000
 
   let from = 0
-
-
 
   while (true) {
 
@@ -1212,8 +1122,6 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
       .range(from, to)
 
-
-
     if (error) {
 
       console.error('Error loading venue event discovery data:', error.message)
@@ -1222,13 +1130,9 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
     }
 
-
-
     data?.forEach((event) => {
 
       if (!event.venue_id) return
-
-
 
       upcomingEventCountByVenue.set(
 
@@ -1238,11 +1142,7 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
       )
 
-
-
       if (!event.event_date) return
-
-
 
       const existingNextDate = nextEventDateByVenue.get(event.venue_id)
 
@@ -1252,23 +1152,17 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
       }
 
-
-
       const eventStartTime = String(event.start_time || '').slice(0, 5)
 
       const isTonightTime =
 
         !eventStartTime || eventStartTime === '00:00' || eventStartTime >= '17:00'
 
-
-
       if (event.event_date === today && isTonightTime) {
 
         tonightVenueIds.add(event.venue_id)
 
       }
-
-
 
       if (event.event_date >= nextSevenDays.start && event.event_date <= nextSevenDays.end) {
 
@@ -1278,21 +1172,15 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
     })
 
-
-
     if (!data || data.length < pageSize) {
 
       break
 
     }
 
-
-
     from += pageSize
 
   }
-
-
 
   return {
 
@@ -1307,8 +1195,6 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
   }
 
 }
-
-
 
 function formatCategory(category: string | null | undefined) {
 
@@ -1444,29 +1330,11 @@ function venueMatchesQuickCategory(
 
   if (!quickCategory) return true
 
-
-
   const text = normaliseFilterValue(`${venue.category || ''} ${venue.name || ''}`)
 
-
-
   if (quickCategory === 'clubs') {
-
-    return (
-
-      text.includes('club') ||
-
-      text.includes('swing') ||
-
-      text.includes('lifestyle') ||
-
-      text.includes('playroom')
-
-    )
-
+    return true
   }
-
-
 
   if (quickCategory === 'saunas') {
 
@@ -1474,15 +1342,11 @@ function venueMatchesQuickCategory(
 
   }
 
-
-
   if (quickCategory === 'kink') {
 
     return text.includes('kink') || text.includes('fetish') || text.includes('bdsm')
 
   }
-
-
 
   if (quickCategory === 'socials') {
 
@@ -1490,13 +1354,9 @@ function venueMatchesQuickCategory(
 
   }
 
-
-
   return true
 
 }
-
-
 
 function quickChipClass(active: boolean) {
 
@@ -1507,8 +1367,6 @@ function quickChipClass(active: boolean) {
     : 'border-zinc-700 bg-zinc-950/80 text-zinc-300 hover:border-blue-400/70 hover:bg-blue-500/10 hover:text-blue-100'
 
 }
-
-
 
 export default async function VenuesPage({
 
@@ -1567,8 +1425,6 @@ export default async function VenuesPage({
     .limit(5000)
 
   const postcodeSearchAttempt = looksLikeUkPostcodeSearch(cleanedSearch)
-
-
 
   const [
 
@@ -1640,19 +1496,13 @@ export default async function VenuesPage({
 
   } = eventDiscovery
 
-
-
   const venueCoordinatesById = postcodeOrigin
 
     ? await resolveVenueCoordinates((venues || []) as any[])
 
     : new Map<string, { latitude: number; longitude: number }>()
 
-
-
   const distanceMilesByVenue = new Map<string, number>()
-
-
 
   if (postcodeOrigin) {
 
@@ -1660,13 +1510,9 @@ export default async function VenuesPage({
 
       if (!venue.venue_id) continue
 
-
-
       const coordinates = venueCoordinatesById.get(venue.venue_id)
 
       if (!coordinates) continue
-
-
 
       distanceMilesByVenue.set(
 
@@ -1680,19 +1526,13 @@ export default async function VenuesPage({
 
   }
 
-
-
   const hasFilters = Boolean(search || city || region || category || timing)
 
   const hasAdvancedFilters = Boolean(city || region)
 
-
-
   const publicVenues = [...(venues || [])].filter((venue) => {
 
     if (!shouldShowPublicVenue(venue)) return false
-
-
 
     if (
 
@@ -1714,13 +1554,9 @@ export default async function VenuesPage({
 
     }
 
-
-
     if (postcodeSearchAttempt) {
 
       if (!postcodeOrigin) return false
-
-
 
       const distanceMiles = distanceMilesByVenue.get(venue.venue_id)
 
@@ -1738,15 +1574,11 @@ export default async function VenuesPage({
 
     }
 
-
-
     if (!venueMatchesQuickCategory(venue, category)) {
 
       return false
 
     }
-
-
 
     if (timing === 'tonight' && !tonightVenueIds.has(venue.venue_id)) {
 
@@ -1754,21 +1586,15 @@ export default async function VenuesPage({
 
     }
 
-
-
     if (timing === 'next7days' && !nextSevenDaysVenueIds.has(venue.venue_id)) {
 
       return false
 
     }
 
-
-
     return true
 
   })
-
-
 
   const sortedVenues = publicVenues.sort((a, b) => {
 
@@ -1778,8 +1604,6 @@ export default async function VenuesPage({
 
       const bDistance = distanceMilesByVenue.get(b.venue_id) ?? Number.POSITIVE_INFINITY
 
-
-
       if (aDistance !== bDistance) {
 
         return aDistance - bDistance
@@ -1788,13 +1612,9 @@ export default async function VenuesPage({
 
     }
 
-
-
     const aNextDate = nextEventDateByVenue.get(a.venue_id) || '9999-12-31'
 
     const bNextDate = nextEventDateByVenue.get(b.venue_id) || '9999-12-31'
-
-
 
     if (aNextDate !== bNextDate) {
 
@@ -1802,13 +1622,9 @@ export default async function VenuesPage({
 
     }
 
-
-
     const aEventCount = upcomingEventCountByVenue.get(a.venue_id) || 0
 
     const bEventCount = upcomingEventCountByVenue.get(b.venue_id) || 0
-
-
 
     if (bEventCount !== aEventCount) {
 
@@ -1816,13 +1632,9 @@ export default async function VenuesPage({
 
     }
 
-
-
     return cleanText(a.name || '').localeCompare(cleanText(b.name || ''))
 
   })
-
-
 
   const optionVenues = [...(filterOptionVenues || [])].filter((venue) => shouldShowPublicVenue(venue))
 
@@ -1837,8 +1649,6 @@ export default async function VenuesPage({
   // Region choices are canonical only; do not expose arbitrary DB region strings.
 
   const regionOptions = FALLBACK_REGIONS
-
-
 
   const makeFilterHref = (
 
@@ -1874,11 +1684,7 @@ export default async function VenuesPage({
 
     }
 
-
-
     const query = new URLSearchParams()
-
-
 
     if (next.search) query.set('search', next.search)
 
@@ -1890,15 +1696,11 @@ export default async function VenuesPage({
 
     if (next.timing) query.set('timing', next.timing)
 
-
-
     const queryString = query.toString()
 
     return queryString ? `/venues?${queryString}` : '/venues'
 
   }
-
-
 
   return (
 
@@ -2002,8 +1804,6 @@ export default async function VenuesPage({
 
           </div>
 
-
-
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
             <Link
@@ -2068,8 +1868,6 @@ export default async function VenuesPage({
 
           </div>
 
-
-
           <form className="mt-4">
 
             <div className="grid w-full grid-cols-[1fr_auto] gap-2">
@@ -2102,11 +1900,7 @@ export default async function VenuesPage({
 
             </div>
 
-
-
             {timing && <input type="hidden" name="timing" value={timing} />}
-
-
 
             <details
 
@@ -2127,8 +1921,6 @@ export default async function VenuesPage({
                 </span>
 
               </summary>
-
-
 
               <div className="grid grid-cols-1 gap-3 border-t border-zinc-800 p-3 sm:grid-cols-3">
 
@@ -2156,8 +1948,6 @@ export default async function VenuesPage({
 
                 </select>
 
-
-
                 <select
 
                   name="region"
@@ -2182,8 +1972,6 @@ export default async function VenuesPage({
 
                 </select>
 
-
-
                 <select
 
                   name="category"
@@ -2203,8 +1991,6 @@ export default async function VenuesPage({
                   <option value="kink">Kink / fetish</option>
 
                 </select>
-
-
 
                 <div className="sm:col-span-3 grid grid-cols-2 gap-2">
 
@@ -2239,8 +2025,6 @@ export default async function VenuesPage({
             </details>
 
           </form>
-
-
 
           {hasFilters && (
 
