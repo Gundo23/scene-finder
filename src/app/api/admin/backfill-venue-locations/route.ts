@@ -317,11 +317,19 @@ function inferFallbackRegion(venue: any) {
   return REGION_ALIASES[normalise(venue?.region)] || ''
 }
 
+function normaliseSecret(value: unknown) {
+  return String(value ?? '')
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .trim()
+}
+
 function authorised(request: Request) {
-  const expected = process.env.ADMIN_LOCATION_SECRET || process.env.ADMIN_RESTORE_SECRET
+  const expected = normaliseSecret(
+    process.env.ADMIN_LOCATION_SECRET || process.env.ADMIN_RESTORE_SECRET
+  )
   if (!expected) return false
 
-  const supplied = request.headers.get('x-admin-secret') || ''
+  const supplied = normaliseSecret(request.headers.get('x-admin-secret'))
   return supplied === expected
 }
 
