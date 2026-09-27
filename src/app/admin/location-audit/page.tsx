@@ -1,667 +1,207 @@
-import { createClient } from '@supabase/supabase-js'
+import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
+import { cleanText } from '@/lib/cleanText'
 
-export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
-
-const REGION_ALIASES: Record<string, string> = {
-  'north east': 'North East',
-  northeast: 'North East',
-  'north west': 'North West',
-  northwest: 'North West',
-  'yorkshire and the humber': 'Yorkshire and the Humber',
-  yorkshire: 'Yorkshire and the Humber',
-  'east midlands': 'East Midlands',
-  'west midlands': 'West Midlands',
-  'east of england': 'East of England',
-  london: 'London',
-  'south east': 'South East',
-  southeast: 'South East',
-  'south west': 'South West',
-  southwest: 'South West',
-  scotland: 'Scotland',
-  wales: 'Wales',
-  'northern ireland': 'Northern Ireland',
-
-  'greater manchester': 'North West',
-  lancashire: 'North West',
-  merseyside: 'North West',
-  cheshire: 'North West',
-
-  'north yorkshire': 'Yorkshire and the Humber',
-  'south yorkshire': 'Yorkshire and the Humber',
-  'west yorkshire': 'Yorkshire and the Humber',
-  'east riding of yorkshire': 'Yorkshire and the Humber',
-
-  derbyshire: 'East Midlands',
-  leicestershire: 'East Midlands',
-  lincolnshire: 'East Midlands',
-  nottinghamshire: 'East Midlands',
-  northamptonshire: 'East Midlands',
-  nottingham: 'East Midlands',
-  leicester: 'East Midlands',
-
-  birmingham: 'West Midlands',
-  warwickshire: 'West Midlands',
-  worcestershire: 'West Midlands',
-  staffordshire: 'West Midlands',
-  shropshire: 'West Midlands',
-
-  bedfordshire: 'East of England',
-  cambridgeshire: 'East of England',
-  essex: 'East of England',
-  hertfordshire: 'East of England',
-  norfolk: 'East of England',
-  suffolk: 'East of England',
-
-  berkshire: 'South East',
-  buckinghamshire: 'South East',
-  hampshire: 'South East',
-  kent: 'South East',
-  oxfordshire: 'South East',
-  surrey: 'South East',
-  sussex: 'South East',
-  'east sussex': 'South East',
-  'west sussex': 'South East',
-
-  cornwall: 'South West',
-  devon: 'South West',
-  dorset: 'South West',
-  gloucestershire: 'South West',
-  somerset: 'South West',
-  wiltshire: 'South West',
-
-  edinburgh: 'Scotland',
-  glasgow: 'Scotland',
-  belfast: 'Northern Ireland',
-  sheffield: 'Yorkshire and the Humber',
+function sameLocationValue(a: string | null | undefined, b: string | null | undefined) {
+  return cleanText(a || '').toLowerCase() === cleanText(b || '').toLowerCase()
 }
 
-const CITY_REGION_HINTS: Record<string, string> = {
-  durham: 'North East',
-  'newcastle upon tyne': 'North East',
-  newcastle: 'North East',
-  sunderland: 'North East',
-  gateshead: 'North East',
-  middlesbrough: 'North East',
-  darlington: 'North East',
+function statusForVenue(venue: any) {
+  const postcode = cleanText(venue.postcode || '')
+  const canonicalRegion = cleanText(venue.canonical_region || '')
+  const storedRegion = cleanText(venue.region || '')
+  const error = cleanText(venue.location_verification_error || '')
 
-  blackpool: 'North West',
-  bolton: 'North West',
-  bury: 'North West',
-  burnley: 'North West',
-  carlisle: 'North West',
-  chester: 'North West',
-  crewe: 'North West',
-  lancaster: 'North West',
-  liverpool: 'North West',
-  macclesfield: 'North West',
-  manchester: 'North West',
-  oldham: 'North West',
-  preston: 'North West',
-  rochdale: 'North West',
-  runcorn: 'North West',
-  salford: 'North West',
-  stockport: 'North West',
-  swinton: 'North West',
-  warrington: 'North West',
-  wigan: 'North West',
-
-  bradford: 'Yorkshire and the Humber',
-  doncaster: 'Yorkshire and the Humber',
-  halifax: 'Yorkshire and the Humber',
-  harrogate: 'Yorkshire and the Humber',
-  huddersfield: 'Yorkshire and the Humber',
-  'kingston upon hull': 'Yorkshire and the Humber',
-  hull: 'Yorkshire and the Humber',
-  leeds: 'Yorkshire and the Humber',
-  ripon: 'Yorkshire and the Humber',
-  sheffield: 'Yorkshire and the Humber',
-  wakefield: 'Yorkshire and the Humber',
-  york: 'Yorkshire and the Humber',
-
-  derby: 'East Midlands',
-  leicester: 'East Midlands',
-  lincoln: 'East Midlands',
-  northampton: 'East Midlands',
-  nottingham: 'East Midlands',
-  'west bridgford': 'East Midlands',
-
-  birmingham: 'West Midlands',
-  coventry: 'West Midlands',
-  dudley: 'West Midlands',
-  hereford: 'West Midlands',
-  lichfield: 'West Midlands',
-  solihull: 'West Midlands',
-  'stoke on trent': 'West Midlands',
-  'west bromwich': 'West Midlands',
-  wolverhampton: 'West Midlands',
-  worcester: 'West Midlands',
-
-  bedford: 'East of England',
-  cambridge: 'East of England',
-  chelmsford: 'East of England',
-  colchester: 'East of England',
-  ely: 'East of England',
-  ipswich: 'East of England',
-  luton: 'East of England',
-  norwich: 'East of England',
-  peterborough: 'East of England',
-  'st albans': 'East of England',
-  'southend on sea': 'East of England',
-
-  london: 'London',
-  westminster: 'London',
-  sutton: 'London',
-  croydon: 'London',
-  bromley: 'London',
-  camden: 'London',
-  walthamstow: 'London',
-  stratford: 'London',
-  deptford: 'London',
-  soho: 'London',
-  'south london': 'London',
-  'north london': 'London',
-  'east london': 'London',
-  'west london': 'London',
-  'central london': 'London',
-
-  brighton: 'South East',
-  'brighton and hove': 'South East',
-  canterbury: 'South East',
-  chichester: 'South East',
-  guildford: 'South East',
-  maidstone: 'South East',
-  'milton keynes': 'South East',
-  oxford: 'South East',
-  portsmouth: 'South East',
-  reading: 'South East',
-  slough: 'South East',
-  southampton: 'South East',
-  winchester: 'South East',
-
-  bath: 'South West',
-  bournemouth: 'South West',
-  bristol: 'South West',
-  cheltenham: 'South West',
-  exeter: 'South West',
-  gloucester: 'South West',
-  plymouth: 'South West',
-  salisbury: 'South West',
-  swindon: 'South West',
-  truro: 'South West',
-  wells: 'South West',
-
-  aberdeen: 'Scotland',
-  dundee: 'Scotland',
-  dunfermline: 'Scotland',
-  edinburgh: 'Scotland',
-  glasgow: 'Scotland',
-  inverness: 'Scotland',
-  perth: 'Scotland',
-  stirling: 'Scotland',
-
-  bangor: 'Wales',
-  cardiff: 'Wales',
-  newport: 'Wales',
-  swansea: 'Wales',
-  wrexham: 'Wales',
-
-  belfast: 'Northern Ireland',
-  lisburn: 'Northern Ireland',
-  londonderry: 'Northern Ireland',
-  derry: 'Northern Ireland',
-}
-
-function clean(value: unknown) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim()
-}
-
-function normalise(value: unknown) {
-  return clean(value)
-    .toLowerCase()
-    .replace(/['’]/g, '')
-    .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function compactPostcode(value: unknown) {
-  return clean(value).toUpperCase().replace(/\s+/g, '')
-}
-
-function getLocationParts(value: unknown) {
-  return clean(value)
-    .split(/\s*(?:\/|\||•|,|;|–|—)\s*/)
-    .map((part) => normalise(part))
-    .filter(Boolean)
-}
-
-function canonicalRegion(result: any) {
-  const country = clean(result?.country)
-
-  if (country === 'Scotland') return 'Scotland'
-  if (country === 'Wales') return 'Wales'
-  if (country === 'Northern Ireland') return 'Northern Ireland'
-
-  return REGION_ALIASES[normalise(result?.region)] || ''
-}
-
-function countryForRegion(region: string) {
-  if (region === 'Scotland') return 'Scotland'
-  if (region === 'Wales') return 'Wales'
-  if (region === 'Northern Ireland') return 'Northern Ireland'
-  return region ? 'England' : ''
-}
-
-function isMultiLocationRegion(value: unknown) {
-  const region = normalise(value)
-  return (
-    region === 'uk wide' ||
-    region === 'nationwide' ||
-    region === 'multiple locations' ||
-    region === 'various locations' ||
-    region === 'various'
-  )
-}
-
-function isExplicitMultiLocationVenue(venue: any) {
-  if (isMultiLocationRegion(venue?.region)) return true
-
-  const city = normalise(venue?.city_area)
-  if (
-    city.includes('uk wide') ||
-    city.includes('uk events') ||
-    city.includes('multiple locations') ||
-    city.includes('various locations')
-  ) {
-    return true
+  if (!postcode) {
+    return {
+      label: 'Needs postcode',
+      level: 3,
+      className: 'border-red-400/40 bg-red-500/15 text-red-200',
+      reason: 'No postcode is stored, so this venue cannot be geographically verified.',
+    }
   }
 
-  const parts = getLocationParts(venue?.city_area)
-  if (parts.includes('uk')) return true
+  if (error) {
+    return {
+      label: 'Review',
+      level: 3,
+      className: 'border-amber-400/40 bg-amber-500/15 text-amber-200',
+      reason: error.replace(/_/g, ' '),
+    }
+  }
 
-  const regions = new Set(
-    parts
-      .map((part) => CITY_REGION_HINTS[part] || REGION_ALIASES[part] || '')
-      .filter(Boolean)
-  )
+  if (!venue.location_verified || !canonicalRegion) {
+    return {
+      label: 'Unverified',
+      level: 2,
+      className: 'border-amber-400/40 bg-amber-500/15 text-amber-200',
+      reason: 'Postcode backfill has not verified this venue yet.',
+    }
+  }
 
-  return regions.size > 1
+  if (storedRegion && !sameLocationValue(storedRegion, canonicalRegion)) {
+    return {
+      label: 'Mismatch',
+      level: 3,
+      className: 'border-red-400/40 bg-red-500/15 text-red-200',
+      reason: `Stored region "${storedRegion}" differs from verified region "${canonicalRegion}".`,
+    }
+  }
+
+  return {
+    label: 'Verified',
+    level: 1,
+    className: 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200',
+    reason: 'Postcode and region have been verified.',
+  }
 }
 
-function inferFallbackRegion(venue: any) {
-  if (isExplicitMultiLocationVenue(venue)) return ''
+function formatVerifiedAt(value: string | null | undefined) {
+  if (!value) return 'Never'
 
-  const parts = getLocationParts(venue?.city_area)
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return cleanText(value)
 
-  for (const part of parts) {
-    const cityMatch = CITY_REGION_HINTS[part]
-    if (cityMatch) return cityMatch
-
-    const regionMatch = REGION_ALIASES[part]
-    if (regionMatch) return regionMatch
-  }
-
-  const fullCity = normalise(venue?.city_area)
-
-  for (const [city, region] of Object.entries(CITY_REGION_HINTS)) {
-    if (` ${fullCity} `.includes(` ${city} `)) return region
-  }
-
-  return REGION_ALIASES[normalise(venue?.region)] || ''
+  return date.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
-function authorised(request: Request) {
-  const expected = process.env.ADMIN_LOCATION_SECRET || process.env.ADMIN_RESTORE_SECRET
-  if (!expected) return false
-
-  const supplied = request.headers.get('x-admin-secret') || ''
-  return supplied === expected
-}
-
-export async function POST(request: Request) {
-  if (!authorised(request)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  let body: any = {}
-  try {
-    body = await request.json()
-  } catch {
-    body = {}
-  }
-
-  const targetVenueId = clean(body?.venue_id)
-  const dryRun = body?.dry_run === true
-
-  let query = supabaseAdmin
+export default async function LocationAuditPage() {
+  const { data, error } = await supabase
     .from('venues')
     .select(
-      'venue_id, name, city_area, region, postcode, canonical_city, canonical_region, admin_district, country, latitude, longitude, location_source, location_verification_error'
+      'venue_id, name, city_area, region, postcode, canonical_city, canonical_region, admin_district, country, latitude, longitude, location_verified, location_source, location_verified_at, location_verification_error, status'
     )
     .order('name', { ascending: true })
     .limit(5000)
 
-  if (targetVenueId) {
-    query = query.eq('venue_id', targetVenueId)
+  if (error) {
+    return (
+      <main className="min-h-screen bg-zinc-950 px-4 py-8 text-white sm:px-6">
+        <section className="mx-auto max-w-7xl">
+          <h1 className="text-3xl font-black">Location Audit</h1>
+          <p className="mt-4 text-red-300">Error loading venues: {error.message}</p>
+        </section>
+      </main>
+    )
   }
 
-  const { data: venues, error: venueError } = await query
+  const venues = (data || []).map((venue) => ({
+    ...venue,
+    audit: statusForVenue(venue),
+  }))
 
-  if (venueError) {
-    return Response.json({ error: venueError.message }, { status: 500 })
-  }
-
-  const rows = venues || []
-  const withPostcodes = rows.filter((venue) => compactPostcode(venue.postcode))
-  const missingPostcode = rows.filter((venue) => !compactPostcode(venue.postcode))
-  const results: any[] = []
-
-  // Missing-postcode venues still get a safe canonical REGION where possible.
-  // This makes region search/indexing useful without pretending an exact address is verified.
-  for (const venue of missingPostcode) {
-    const now = new Date().toISOString()
-
-    if (isExplicitMultiLocationVenue(venue)) {
-      const update = {
-        canonical_region: null,
-        location_verified: false,
-        location_source: 'manual-review',
-        location_verification_error: 'multi_location_or_uk_wide_review',
-        location_verified_at: now,
-      }
-
-      if (!dryRun) {
-        await supabaseAdmin.from('venues').update(update).eq('venue_id', venue.venue_id)
-      }
-
-      results.push({
-        venue_id: venue.venue_id,
-        name: venue.name,
-        postcode: null,
-        status: 'review',
-        reason: 'multi_location_or_uk_wide_review',
-      })
-      continue
-    }
-
-    const inferredRegion = inferFallbackRegion(venue)
-    const canonicalCity = clean(venue.canonical_city || venue.city_area)
-    const inferredCountry = countryForRegion(inferredRegion)
-
-    if (inferredRegion) {
-      const update = {
-        canonical_city: canonicalCity || null,
-        canonical_region: inferredRegion,
-        region: inferredRegion,
-        country: inferredCountry || venue.country || null,
-        location_verified: false,
-        location_source: 'city-region-fallback',
-        location_verification_error: 'region_inferred_without_postcode',
-        location_verified_at: now,
-      }
-
-      if (!dryRun) {
-        const { error: updateError } = await supabaseAdmin
-          .from('venues')
-          .update(update)
-          .eq('venue_id', venue.venue_id)
-
-        if (updateError) {
-          results.push({
-            venue_id: venue.venue_id,
-            name: venue.name,
-            status: 'error',
-            reason: updateError.message,
-          })
-          continue
-        }
-      }
-
-      results.push({
-        venue_id: venue.venue_id,
-        name: venue.name,
-        postcode: null,
-        status: 'indexed',
-        canonical_region: inferredRegion,
-        canonical_city: canonicalCity || null,
-        country: inferredCountry || null,
-        reason: 'region_inferred_without_postcode',
-      })
-      continue
-    }
-
-    const update = {
-      canonical_city: canonicalCity || null,
-      canonical_region: null,
-      location_verified: false,
-      location_source: 'manual-review',
-      location_verification_error: 'missing_location_data',
-      location_verified_at: now,
-    }
-
-    if (!dryRun) {
-      await supabaseAdmin.from('venues').update(update).eq('venue_id', venue.venue_id)
-    }
-
-    results.push({
-      venue_id: venue.venue_id,
-      name: venue.name,
-      postcode: null,
-      status: 'review',
-      reason: 'missing_location_data',
-    })
-  }
-
-  // Postcode rows are still verified against postcodes.io.
-  for (let index = 0; index < withPostcodes.length; index += 100) {
-    const batch = withPostcodes.slice(index, index + 100)
-    const requestedPostcodes = batch.map((venue) => clean(venue.postcode))
-
-    let response: Response
-    try {
-      response = await fetch('https://api.postcodes.io/postcodes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ postcodes: requestedPostcodes }),
-        signal: AbortSignal.timeout(20000),
-      })
-    } catch (error: any) {
-      return Response.json(
-        {
-          error: `Postcodes.io request failed: ${error?.message || 'unknown error'}`,
-          processed: results.length,
-          results,
-        },
-        { status: 502 }
-      )
-    }
-
-    if (!response.ok) {
-      return Response.json(
-        {
-          error: `Postcodes.io returned HTTP ${response.status}`,
-          processed: results.length,
-          results,
-        },
-        { status: 502 }
-      )
-    }
-
-    const payload: any = await response.json()
-    const lookupRows = Array.isArray(payload?.result) ? payload.result : []
-    const lookupByPostcode = new Map<string, any>()
-
-    for (const row of lookupRows) {
-      lookupByPostcode.set(compactPostcode(row?.query), row?.result || null)
-    }
-
-    for (const venue of batch) {
-      const lookup = lookupByPostcode.get(compactPostcode(venue.postcode))
-      const now = new Date().toISOString()
-
-      if (!lookup) {
-        const update = {
-          location_verified: false,
-          location_source: 'postcodes.io',
-          location_verification_error: 'postcode_not_found',
-          location_verified_at: now,
-        }
-
-        if (!dryRun) {
-          await supabaseAdmin.from('venues').update(update).eq('venue_id', venue.venue_id)
-        }
-
-        results.push({
-          venue_id: venue.venue_id,
-          name: venue.name,
-          postcode: venue.postcode,
-          status: 'review',
-          reason: 'postcode_not_found',
-        })
-        continue
-      }
-
-      const verifiedRegion = canonicalRegion(lookup)
-      const verifiedPostcode = clean(lookup.postcode) || clean(venue.postcode)
-      const adminDistrict = clean(lookup.admin_district)
-      const country = clean(lookup.country)
-      const canonicalCity = clean(venue.canonical_city || venue.city_area || adminDistrict)
-
-      if (!verifiedRegion) {
-        const update = {
-          postcode: verifiedPostcode,
-          canonical_city: canonicalCity || null,
-          admin_district: adminDistrict || null,
-          country: country || null,
-          latitude: typeof lookup.latitude === 'number' ? lookup.latitude : venue.latitude,
-          longitude: typeof lookup.longitude === 'number' ? lookup.longitude : venue.longitude,
-          location_verified: false,
-          location_source: 'postcodes.io',
-          location_verification_error: 'unsupported_or_missing_region',
-          location_verified_at: now,
-        }
-
-        if (!dryRun) {
-          await supabaseAdmin.from('venues').update(update).eq('venue_id', venue.venue_id)
-        }
-
-        results.push({
-          venue_id: venue.venue_id,
-          name: venue.name,
-          postcode: verifiedPostcode,
-          status: 'review',
-          reason: 'unsupported_or_missing_region',
-          country,
-        })
-        continue
-      }
-
-      const previousRegion = clean(venue.region)
-
-      if (isExplicitMultiLocationVenue(venue)) {
-        const update = {
-          postcode: verifiedPostcode,
-          canonical_city: canonicalCity || null,
-          canonical_region: null,
-          admin_district: adminDistrict || null,
-          country: country || null,
-          latitude: typeof lookup.latitude === 'number' ? lookup.latitude : venue.latitude,
-          longitude: typeof lookup.longitude === 'number' ? lookup.longitude : venue.longitude,
-          location_verified: false,
-          location_source: 'postcodes.io',
-          location_verification_error: 'multi_location_or_uk_wide_review',
-          location_verified_at: now,
-        }
-
-        if (!dryRun) {
-          await supabaseAdmin.from('venues').update(update).eq('venue_id', venue.venue_id)
-        }
-
-        results.push({
-          venue_id: venue.venue_id,
-          name: venue.name,
-          postcode: verifiedPostcode,
-          status: 'review',
-          reason: 'multi_location_or_uk_wide_review',
-          suggested_region: verifiedRegion,
-          previous_region: previousRegion,
-          admin_district: adminDistrict || null,
-          country: country || null,
-        })
-        continue
-      }
-
-      const update = {
-        postcode: verifiedPostcode,
-        canonical_city: canonicalCity || null,
-        canonical_region: verifiedRegion,
-        admin_district: adminDistrict || null,
-        country: country || null,
-        latitude: typeof lookup.latitude === 'number' ? lookup.latitude : venue.latitude,
-        longitude: typeof lookup.longitude === 'number' ? lookup.longitude : venue.longitude,
-        region: verifiedRegion,
-        location_verified: true,
-        location_source: 'postcodes.io',
-        location_verification_error: null,
-        location_verified_at: now,
-      }
-
-      if (!dryRun) {
-        const { error: updateError } = await supabaseAdmin
-          .from('venues')
-          .update(update)
-          .eq('venue_id', venue.venue_id)
-
-        if (updateError) {
-          results.push({
-            venue_id: venue.venue_id,
-            name: venue.name,
-            postcode: verifiedPostcode,
-            status: 'error',
-            reason: updateError.message,
-          })
-          continue
-        }
-      }
-
-      results.push({
-        venue_id: venue.venue_id,
-        name: venue.name,
-        postcode: verifiedPostcode,
-        status: 'verified',
-        canonical_region: verifiedRegion,
-        previous_region: previousRegion || null,
-        region_changed:
-          Boolean(previousRegion) &&
-          previousRegion.toLowerCase() !== verifiedRegion.toLowerCase(),
-        admin_district: adminDistrict || null,
-        country: country || null,
-      })
-    }
-  }
-
-  const summary = {
-    total: rows.length,
-    verified: results.filter((item) => item.status === 'verified').length,
-    indexed_fallback: results.filter((item) => item.status === 'indexed').length,
-    review: results.filter((item) => item.status === 'review').length,
-    errors: results.filter((item) => item.status === 'error').length,
-    region_changes: results.filter((item) => item.region_changed).length,
-    dry_run: dryRun,
-  }
-
-  return Response.json({
-    message: dryRun
-      ? 'Location audit dry run finished'
-      : 'Venue locations normalised and region-indexed',
-    summary,
-    results,
+  venues.sort((a, b) => {
+    if (b.audit.level !== a.audit.level) return b.audit.level - a.audit.level
+    return cleanText(a.name || '').localeCompare(cleanText(b.name || ''))
   })
+
+  const verifiedCount = venues.filter((venue) => venue.audit.label === 'Verified').length
+  const reviewCount = venues.length - verifiedCount
+  const missingPostcodeCount = venues.filter((venue) => !cleanText(venue.postcode || '')).length
+
+  return (
+    <main className="min-h-screen bg-zinc-950 px-3 py-6 text-white sm:px-6 sm:py-10">
+      <section className="mx-auto max-w-7xl">
+        <div className="rounded-3xl border border-blue-500/25 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-5 shadow-2xl shadow-blue-950/30 sm:p-7">
+          <p className="text-xs font-bold uppercase tracking-[0.25em] text-blue-300">
+            Scene Finder Admin
+          </p>
+          <h1 className="mt-2 text-3xl font-black sm:text-4xl">Venue Location Audit</h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400 sm:text-base">
+            Postcode-verified regions are the source of truth. Venues needing attention are shown first.
+          </p>
+
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/70 p-4">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">Venues</p>
+              <p className="mt-1 text-2xl font-black">{venues.length}</p>
+            </div>
+            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4">
+              <p className="text-xs uppercase tracking-wide text-emerald-300">Verified</p>
+              <p className="mt-1 text-2xl font-black">{verifiedCount}</p>
+            </div>
+            <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4">
+              <p className="text-xs uppercase tracking-wide text-amber-300">Needs review</p>
+              <p className="mt-1 text-2xl font-black">{reviewCount}</p>
+            </div>
+            <div className="rounded-2xl border border-red-500/25 bg-red-500/10 p-4">
+              <p className="text-xs uppercase tracking-wide text-red-300">Missing postcode</p>
+              <p className="mt-1 text-2xl font-black">{missingPostcodeCount}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-x-auto rounded-3xl border border-zinc-800 bg-zinc-950/70 shadow-xl">
+          <table className="min-w-[1050px] w-full text-left text-sm">
+            <thead className="border-b border-zinc-800 bg-zinc-900/90 text-xs uppercase tracking-wide text-zinc-400">
+              <tr>
+                <th className="px-4 py-3">Venue</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Postcode</th>
+                <th className="px-4 py-3">City / Area</th>
+                <th className="px-4 py-3">Stored region</th>
+                <th className="px-4 py-3">Verified region</th>
+                <th className="px-4 py-3">District</th>
+                <th className="px-4 py-3">Verified</th>
+              </tr>
+            </thead>
+            <tbody>
+              {venues.map((venue) => (
+                <tr key={venue.venue_id} className="border-b border-zinc-900 align-top">
+                  <td className="px-4 py-4">
+                    <Link
+                      href={`/venue/${venue.venue_id}`}
+                      className="font-bold text-blue-200 hover:text-blue-100"
+                    >
+                      {cleanText(venue.name || 'Venue')}
+                    </Link>
+                    <p className="mt-1 max-w-[260px] break-all text-xs text-zinc-600">
+                      {venue.venue_id}
+                    </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${venue.audit.className}`}
+                    >
+                      {venue.audit.label}
+                    </span>
+                    <p className="mt-2 max-w-[280px] text-xs leading-5 text-zinc-500">
+                      {venue.audit.reason}
+                    </p>
+                  </td>
+                  <td className="px-4 py-4 font-semibold text-zinc-200">
+                    {cleanText(venue.postcode || '') || '—'}
+                  </td>
+                  <td className="px-4 py-4 text-zinc-300">
+                    {cleanText(venue.canonical_city || venue.city_area || '') || '—'}
+                  </td>
+                  <td className="px-4 py-4 text-zinc-400">
+                    {cleanText(venue.region || '') || '—'}
+                  </td>
+                  <td className="px-4 py-4 font-semibold text-white">
+                    {cleanText(venue.canonical_region || '') || '—'}
+                  </td>
+                  <td className="px-4 py-4 text-zinc-400">
+                    {cleanText(venue.admin_district || '') || '—'}
+                  </td>
+                  <td className="px-4 py-4 text-xs text-zinc-500">
+                    {formatVerifiedAt(venue.location_verified_at)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  )
 }
