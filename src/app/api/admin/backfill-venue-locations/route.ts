@@ -38,8 +38,35 @@ function canonicalRegion(result: any) {
   if (country === 'Wales') return 'Wales'
   if (country === 'Northern Ireland') return 'Northern Ireland'
 
-  const region = clean(result?.region)
-  return UK_REGIONS.has(region) ? region : ''
+  const rawRegion = clean(result?.region)
+  const normalisedRegion = rawRegion.toLowerCase().replace(/\s+/g, ' ').trim()
+
+  const regionMap: Record<string, string> = {
+    'north east': 'North East',
+    'north west': 'North West',
+    'yorkshire and the humber': 'Yorkshire and the Humber',
+    'east midlands': 'East Midlands',
+    'west midlands': 'West Midlands',
+    'east of england': 'East of England',
+    london: 'London',
+    'south east': 'South East',
+    'south west': 'South West',
+  }
+
+  return regionMap[normalisedRegion] || ''
+}
+
+function isMultiLocationRegion(value: unknown) {
+  const region = clean(value).toLowerCase()
+
+  return (
+    region === 'uk-wide' ||
+    region === 'uk wide' ||
+    region === 'nationwide' ||
+    region === 'multiple locations' ||
+    region === 'various locations' ||
+    region === 'various'
+  )
 }
 
 function authorised(request: Request) {
@@ -212,6 +239,41 @@ export async function POST(request: Request) {
       }
 
       const previousRegion = clean(venue.region)
+
+      // Do not collapse organisers / multi-location listings into one region
+      // merely because one stored postcode happens to resolve there.
+      if (isMultiLocationRegion(previousRegion)) {
+        const update = {
+          postcode: verifiedPostcode,
+          canonical_city: canonicalCity || null,
+          admin_district: adminDistrict || null,
+          country: country || null,
+          latitude: typeof lookup.latitude === 'number' ? lookup.latitude : venue.latitude,
+          longitude: typeof lookup.longitude === 'number' ? lookup.longitude : venue.longitude,
+          location_verified: false,
+          location_source: 'postcodes.io',
+          location_verification_error: 'multi_location_or_uk_wide_review',
+          location_verified_at: new Date().toISOString(),
+        }
+
+        if (!dryRun) {
+          await supabaseAdmin.from('venues').update(update).eq('venue_id', venue.venue_id)
+        }
+
+        results.push({
+          venue_id: venue.venue_id,
+          name: venue.name,
+          postcode: verifiedPostcode,
+          status: 'review',
+          reason: 'multi_location_or_uk_wide_review',
+          suggested_region: verifiedRegion,
+          previous_region: previousRegion,
+          admin_district: adminDistrict || null,
+          country: country || null,
+        })
+        continue
+      }
+
       const update = {
         postcode: verifiedPostcode,
         canonical_city: canonicalCity || null,
