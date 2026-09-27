@@ -335,7 +335,31 @@ function authorised(request: Request) {
 
 export async function POST(request: Request) {
   if (!authorised(request)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    const expectedRaw =
+      process.env.ADMIN_LOCATION_SECRET || process.env.ADMIN_RESTORE_SECRET || ''
+    const suppliedRaw = request.headers.get('x-admin-secret') || ''
+
+    const expected = normaliseSecret(expectedRaw)
+    const supplied = normaliseSecret(suppliedRaw)
+
+    return Response.json(
+      {
+        error: 'Unauthorized',
+        diagnostic: {
+          secret_source: process.env.ADMIN_LOCATION_SECRET
+            ? 'ADMIN_LOCATION_SECRET'
+            : process.env.ADMIN_RESTORE_SECRET
+              ? 'ADMIN_RESTORE_SECRET'
+              : 'NONE',
+          has_location_secret: Boolean(process.env.ADMIN_LOCATION_SECRET),
+          has_restore_secret: Boolean(process.env.ADMIN_RESTORE_SECRET),
+          expected_length: expected.length,
+          supplied_length: supplied.length,
+          lengths_match: expected.length === supplied.length,
+        },
+      },
+      { status: 401 }
+    )
   }
 
   let body: any = {}
