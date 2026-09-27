@@ -241,7 +241,7 @@ export default async function LocationAuditPage() {
     )
   }
 
-  const venues = (data || []).map((venue) => ({
+  const venues = ((data || []) as any[]).map((venue: any) => ({
     ...venue,
     audit: statusForVenue(venue),
   }))
