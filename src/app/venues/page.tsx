@@ -151,6 +151,181 @@ function formatPostcodeSearch(value: string) {
   }
   return `${compact.slice(0, -3)} ${compact.slice(-3)}`
 }
+
+const POSTCODE_SEARCH_RADIUS_MILES = 50
+
+type GeoPoint = {
+  latitude: number
+  longitude: number
+  label: string
+}
+
+function finiteCoordinate(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function compactPostcode(value: string | null | undefined) {
+  return cleanText(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+}
+
+function looksLikeUkPostcodeSearch(value: string | null | undefined) {
+  const compact = compactPostcode(value)
+  if (!compact) return false
+
+  const outwardCode = /^[A-Z]{1,2}\d[A-Z\d]?$/
+  const fullPostcode = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/
+
+  return outwardCode.test(compact) || fullPostcode.test(compact)
+}
+
+async function resolvePostcodeOrigin(value: string): Promise<GeoPoint | null> {
+  const compact = compactPostcode(value)
+  if (!looksLikeUkPostcodeSearch(compact)) return null
+
+  const fullPostcode = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/.test(compact)
+  const endpoint = fullPostcode
+    ? `https://api.postcodes.io/postcodes/${encodeURIComponent(compact)}`
+    : `https://api.postcodes.io/outcodes/${encodeURIComponent(compact)}`
+
+  try {
+    const response = await fetch(endpoint, { cache: 'no-store' })
+    if (!response.ok) return null
+
+    const payload = await response.json()
+    const result = payload?.result
+    const latitude = finiteCoordinate(result?.latitude)
+    const longitude = finiteCoordinate(result?.longitude)
+
+    if (latitude === null || longitude === null) {
+      return null
+    }
+
+    return {
+      latitude,
+      longitude,
+      label: cleanText(result?.postcode || result?.outcode || value).toUpperCase(),
+    }
+  } catch (error) {
+    console.error('Postcode lookup failed:', error)
+    return null
+  }
+}
+
+function distanceMilesBetween(
+  origin: { latitude: number; longitude: number },
+  destination: { latitude: number; longitude: number }
+) {
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180
+  const earthRadiusMiles = 3958.7613
+
+  const latitude1 = toRadians(origin.latitude)
+  const latitude2 = toRadians(destination.latitude)
+  const latitudeDelta = toRadians(destination.latitude - origin.latitude)
+  const longitudeDelta = toRadians(destination.longitude - origin.longitude)
+
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(latitude1) *
+      Math.cos(latitude2) *
+      Math.sin(longitudeDelta / 2) ** 2
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return earthRadiusMiles * c
+}
+
+function formatDistanceMiles(value: number) {
+  if (value < 0.1) return '<0.1 miles'
+  if (value < 10) return `${value.toFixed(1)} miles`
+  return `${Math.round(value)} miles`
+}
+
+async function resolveVenueCoordinates(
+  venues: Array<{
+    venue_id?: string | null
+    postcode?: string | null
+    latitude?: number | string | null
+    longitude?: number | string | null
+    location_kind?: string | null
+    address_visibility?: string | null
+  }>
+) {
+  const coordinatesByVenueId = new Map<
+    string,
+    { latitude: number; longitude: number }
+  >()
+
+  const missingByPostcode = new Map<string, string[]>()
+
+  for (const venue of venues) {
+    if (!venue.venue_id) continue
+    if (venue.location_kind !== 'fixed_venue') continue
+    if (venue.address_visibility && venue.address_visibility !== 'public') continue
+    if (!venue.postcode) continue
+
+    const latitude = finiteCoordinate(venue.latitude)
+    const longitude = finiteCoordinate(venue.longitude)
+
+    if (latitude !== null && longitude !== null) {
+      coordinatesByVenueId.set(venue.venue_id, { latitude, longitude })
+      continue
+    }
+
+    const postcodeKey = compactPostcode(venue.postcode)
+    if (!postcodeKey) continue
+
+    const venueIds = missingByPostcode.get(postcodeKey) || []
+    venueIds.push(venue.venue_id)
+    missingByPostcode.set(postcodeKey, venueIds)
+  }
+
+  const missingPostcodes = [...missingByPostcode.keys()]
+
+  for (let index = 0; index < missingPostcodes.length; index += 100) {
+    const batch = missingPostcodes.slice(index, index + 100)
+
+    try {
+      const response = await fetch(
+        'https://api.postcodes.io/postcodes?filter=postcode,longitude,latitude',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ postcodes: batch }),
+          cache: 'no-store',
+        }
+      )
+
+      if (!response.ok) continue
+
+      const payload = await response.json()
+
+      for (const item of payload?.result || []) {
+        const postcodeKey = compactPostcode(item?.query)
+        const latitude = finiteCoordinate(item?.result?.latitude)
+        const longitude = finiteCoordinate(item?.result?.longitude)
+
+        if (
+          !postcodeKey ||
+          latitude === null ||
+          longitude === null
+        ) {
+          continue
+        }
+
+        for (const venueId of missingByPostcode.get(postcodeKey) || []) {
+          coordinatesByVenueId.set(venueId, { latitude, longitude })
+        }
+      }
+    } catch (error) {
+      console.error('Venue postcode batch lookup failed:', error)
+    }
+  }
+
+  return coordinatesByVenueId
+}
 function uniqueSorted(values: Array<string | null | undefined>) {
   return Array.from(
     new Set(
@@ -616,16 +791,19 @@ export default async function VenuesPage({
   const venueQuery = supabase
     .from('venues')
     .select(
-      'venue_id, name, city_area, region, canonical_city, canonical_region, admin_district, country, location_verified, postcode, website, category, status, image_url, like_count'
+      'venue_id, name, city_area, region, canonical_city, canonical_region, admin_district, country, location_verified, postcode, latitude, longitude, location_kind, address_visibility, website, category, status, image_url, like_count'
     )
     .order('name', { ascending: true })
     .limit(5000)
+  const postcodeSearchAttempt = looksLikeUkPostcodeSearch(cleanedSearch)
+
   const [
     { data: venues, error },
     { data: filterOptionVenues, error: filterOptionsError },
     { count: venueCount },
     { count: eventCount },
     eventDiscovery,
+    postcodeOrigin,
   ] = await Promise.all([
     venueQuery,
     supabase
@@ -636,6 +814,7 @@ export default async function VenuesPage({
     supabase.from('venues').select('*', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }),
     fetchVenueEventDiscovery(today),
+    postcodeSearchAttempt ? resolvePostcodeOrigin(cleanedSearch) : Promise.resolve(null),
   ])
   if (error) {
     return (
@@ -654,6 +833,26 @@ export default async function VenuesPage({
     weekendVenueIds,
   } = eventDiscovery
 
+  const venueCoordinatesById = postcodeOrigin
+    ? await resolveVenueCoordinates((venues || []) as any[])
+    : new Map<string, { latitude: number; longitude: number }>()
+
+  const distanceMilesByVenue = new Map<string, number>()
+
+  if (postcodeOrigin) {
+    for (const venue of venues || []) {
+      if (!venue.venue_id) continue
+
+      const coordinates = venueCoordinatesById.get(venue.venue_id)
+      if (!coordinates) continue
+
+      distanceMilesByVenue.set(
+        venue.venue_id,
+        distanceMilesBetween(postcodeOrigin, coordinates)
+      )
+    }
+  }
+
   const hasFilters = Boolean(search || city || region || category || timing)
   const hasAdvancedFilters = Boolean(city || region)
 
@@ -662,13 +861,25 @@ export default async function VenuesPage({
 
     if (
       !venueMatchesFilters(venue, {
-        search: cleanedSearch,
+        search: postcodeOrigin ? '' : cleanedSearch,
         city,
         region,
-        postcodeSearch,
+        postcodeSearch: postcodeOrigin ? '' : postcodeSearch,
       })
     ) {
       return false
+    }
+
+    if (postcodeSearchAttempt) {
+      if (!postcodeOrigin) return false
+
+      const distanceMiles = distanceMilesByVenue.get(venue.venue_id)
+      if (
+        distanceMiles === undefined ||
+        distanceMiles > POSTCODE_SEARCH_RADIUS_MILES
+      ) {
+        return false
+      }
     }
 
     if (!venueMatchesQuickCategory(venue, category)) {
@@ -687,6 +898,15 @@ export default async function VenuesPage({
   })
 
   const sortedVenues = publicVenues.sort((a, b) => {
+    if (postcodeOrigin) {
+      const aDistance = distanceMilesByVenue.get(a.venue_id) ?? Number.POSITIVE_INFINITY
+      const bDistance = distanceMilesByVenue.get(b.venue_id) ?? Number.POSITIVE_INFINITY
+
+      if (aDistance !== bDistance) {
+        return aDistance - bDistance
+      }
+    }
+
     const aNextDate = nextEventDateByVenue.get(a.venue_id) || '9999-12-31'
     const bNextDate = nextEventDateByVenue.get(b.venue_id) || '9999-12-31'
 
@@ -915,6 +1135,16 @@ export default async function VenuesPage({
 
           {hasFilters && (
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
+              {postcodeOrigin && (
+                <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-emerald-200">
+                  Within {POSTCODE_SEARCH_RADIUS_MILES} miles of {postcodeOrigin.label}
+                </span>
+              )}
+              {postcodeSearchAttempt && !postcodeOrigin && (
+                <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-amber-200">
+                  Postcode not recognised
+                </span>
+              )}
               {timing === 'tonight' && (
                 <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1.5 text-blue-200">
                   Events tonight
@@ -951,7 +1181,11 @@ export default async function VenuesPage({
         </div>
         <div className="mt-6 flex items-center justify-between gap-4">
           <h2 className="text-2xl font-extrabold">
-            {hasFilters ? 'Matching venues' : 'Venues to explore'}
+            {postcodeOrigin
+              ? `Venues within ${POSTCODE_SEARCH_RADIUS_MILES} miles`
+              : hasFilters
+                ? 'Matching venues'
+                : 'Venues to explore'}
           </h2>
           <p className="shrink-0 text-sm text-zinc-400">
             {sortedVenues.length} found
@@ -968,6 +1202,7 @@ export default async function VenuesPage({
               const nextEventDate = nextEventDateByVenue.get(venue.venue_id) || null
               const hasEventTonight = tonightVenueIds.has(venue.venue_id)
               const hasWeekendEvent = weekendVenueIds.has(venue.venue_id)
+              const distanceMiles = distanceMilesByVenue.get(venue.venue_id)
               return (
                 <article
                   key={venue.venue_id}
@@ -985,6 +1220,18 @@ export default async function VenuesPage({
                     />
                   </div>
                   <div className="relative min-w-0 p-4 sm:p-5">
+                    {postcodeOrigin && distanceMiles !== undefined && (
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        <span className="rounded-full border border-emerald-300/50 bg-emerald-500/15 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-emerald-100">
+                          {formatDistanceMiles(distanceMiles)} away
+                        </span>
+                        {venue.postcode && (
+                          <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-[11px] font-bold text-zinc-300">
+                            {venue.postcode}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {(hasEventTonight || hasWeekendEvent) && (
                       <div className="mb-2 flex flex-wrap gap-2">
                         {hasEventTonight && (
@@ -1073,9 +1320,17 @@ export default async function VenuesPage({
             })
           ) : (
             <div className="sm:col-span-2 xl:col-span-3 rounded-3xl border border-zinc-800 bg-zinc-900/70 p-6 text-center">
-              <p className="text-lg font-bold text-white">No venues match those filters.</p>
+              <p className="text-lg font-bold text-white">
+                {postcodeSearchAttempt
+                  ? postcodeOrigin
+                    ? `No public fixed venues found within ${POSTCODE_SEARCH_RADIUS_MILES} miles of ${postcodeOrigin.label}.`
+                    : 'That postcode could not be recognised.'
+                  : 'No venues match those filters.'}
+              </p>
               <p className="mt-2 text-sm text-zinc-400">
-                Try another city or type, or clear the filters to see all public venues.
+                {postcodeSearchAttempt
+                  ? 'Try a nearby UK postcode or outward code such as M40, M27 or B1.'
+                  : 'Try another city or type, or clear the filters to see all public venues.'}
               </p>
               <Link
                 href="/venues"
