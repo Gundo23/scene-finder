@@ -2847,6 +2847,35 @@ function isLeBoudoirJunkEventTitle(value: string | null | undefined) {
   return false
 }
 
+function extractFSocietyNextEvent(html: string, pageUrl: string) {
+  if (!/^https:\/\/(?:www\.)?f-society\.uk\/events\/?$/i.test(pageUrl)) return []
+
+  // The homepage displays a loading placeholder. The Events page renders its
+  // confirmed next date in this card, while the detail URL describes a recurring
+  // monthly social without an occurrence date.
+  const card = html.match(/<span[^>]*>Next Event<\/span>([\s\S]{0,4500})/i)?.[1]
+  const title = cleanText(card?.match(/<h3[^>]*class=["'][^"']*buy-ticket__title[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i)?.[1])
+  const date = cleanText(card).match(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/i)
+  const link = card?.match(/<a\b[^>]*href=["'](\/events\/[a-z0-9-]+)["'][^>]*>\s*View Event Details?\b/i)?.[1]
+  if (!title || isJunkTitle(title) || !date || !link) return []
+
+  const month = monthNameToNumber(date[3])
+  const eventDate = month ? validDateOrNull(`${date[4]}-${month}-${date[2].padStart(2, '0')}`) : null
+  const href = absoluteUrl(pageUrl, link)
+  const weekday = eventDate ? new Date(`${eventDate}T00:00:00Z`).getUTCDay() : -1
+  if (!eventDate || eventDate < londonToday() ||
+      weekday !== ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(date[1].toLowerCase()) ||
+      !href || !/^https:\/\/(?:www\.)?f-society\.uk\/events\/[a-z0-9-]+$/i.test(href)) return []
+
+  return [{
+    href, text: title, event_date: eventDate,
+    start_time: validTimeOrNull(cleanText(card).match(/\b(\d{1,2}):(\d{2})\s*-\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i)?.[0]
+      ?.replace(/\s*-.*$/, '')?.padStart(5, '0') || null),
+    raw: `${title} at Zerox, Newcastle upon Tyne, ${eventDate}`,
+    image_url: null, method: 'f-society-next-event',
+  }]
+}
+
 function isLeBoudoirJunkExistingEvent(event: {
   event_name?: string | null
   event_date?: string | null
@@ -9962,6 +9991,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('afterdark_edinburgh_edinburgh') ||
     combined.includes('club_play_blackpool') ||
     combined.includes('le_boudoir_club_london') ||
+    combined.includes('f_society_newcastle_upon_tyne_north_east') ||
     isIgniteSource(venueId, sourceUrl) ||
     combined.includes('club_bacchus_dundee') ||
     combined.includes('clubbacchusdundee.uk') ||
@@ -10150,6 +10180,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (source.venue_id === 'le_boudoir_club_london') {
     return ['https://leboudoir.club/events']
+  }
+
+  if (source.venue_id === 'f_society_newcastle_upon_tyne_north_east') {
+    return ['https://f-society.uk/events']
   }
 
   if (source.venue_id === 'ignite_west_drayton_heathrow') {
@@ -10342,6 +10376,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'afterdark_edinburgh_edinburgh') return extractAfterdarkEdinburghEvents(html, pageUrl)
   if (venueId === 'club_play_blackpool') return extractClubPlayEvents(html, pageUrl)
   if (venueId === 'le_boudoir_club_london') return extractLeBoudoirListingEvents(html, pageUrl)
+  if (venueId === 'f_society_newcastle_upon_tyne_north_east') return extractFSocietyNextEvent(html, pageUrl)
   if (isCupidsSource(venueId, pageUrl)) return extractCupidsEvents(html, pageUrl)
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
@@ -14865,6 +14900,7 @@ async function runScrapeRequest(request: Request) {
         source.venue_id === 'ignite_west_drayton_heathrow' ||
         source.venue_id === 'club_play_blackpool' ||
         source.venue_id === 'le_boudoir_club_london' ||
+        source.venue_id === 'f_society_newcastle_upon_tyne_north_east' ||
         source.venue_id === 'the_mirage_caenby_corner_market_rasen'
         ? targetVenueDiscoveredUrls
       : isHellfireSource(source.venue_id, source.source_url)
@@ -14898,6 +14934,8 @@ async function runScrapeRequest(request: Request) {
       source.venue_id === 'townhouse_wirral_near_liverpool'
         ? 1
         : source.venue_id === 'le_boudoir_club_london'
+          ? 1
+        : source.venue_id === 'f_society_newcastle_upon_tyne_north_east'
           ? 1
         : source.venue_id === 'xtasia_west_bromwich'
           ? 2
@@ -14997,7 +15035,8 @@ async function runScrapeRequest(request: Request) {
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
           source.venue_id === 'ignite_west_drayton_heathrow' ||
           source.venue_id === 'club_play_blackpool' ||
-          source.venue_id === 'le_boudoir_club_london'
+          source.venue_id === 'le_boudoir_club_london' ||
+          source.venue_id === 'f_society_newcastle_upon_tyne_north_east'
         const jsonLdEvents = dedicatedCalendar ? [] : extractJsonLdEvents(html, pageUrl)
         const calendarLinks = dedicatedCalendar ? [] : extractCalendarEventLinks(html, pageUrl)
         const townhouseEvents =
@@ -15355,6 +15394,7 @@ ${hu9HydratedText}`, pageUrl)
               source.venue_id !== 'ignite_west_drayton_heathrow' &&
               source.venue_id !== 'club_play_blackpool' &&
               source.venue_id !== 'le_boudoir_club_london' &&
+              source.venue_id !== 'f_society_newcastle_upon_tyne_north_east' &&
               !isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
