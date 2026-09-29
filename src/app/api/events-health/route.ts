@@ -50,7 +50,7 @@ export async function GET(request: Request) {
   const get = (type: string) => parts.find((part) => part.type === type)?.value
   const today = `${get('year')}-${get('month')}-${get('day')}`
   const runwayEnd = new Date(`${today}T12:00:00Z`)
-  runwayEnd.setUTCDate(runwayEnd.getUTCDate() + 7)
+  runwayEnd.setUTCDate(runwayEnd.getUTCDate() + 21)
   const lastRunwayDate = runwayEnd.toISOString().slice(0, 10)
 
   const { data: health, error: healthError } = await supabase.rpc('get_venue_event_health')
@@ -83,10 +83,11 @@ export async function GET(request: Request) {
         detail: `Last completed healthy scrape: ${row.last_completed_success || 'never'}. ` +
           `Last source attempt: ${row.latest_source_attempt || 'never'}.` })
     }
-    if (historical >= 5 && visible > 0 && visible <= 3 &&
+    if (historical >= 5 && visible > 0 &&
         row.last_future_event_date && row.last_future_event_date <= lastRunwayDate) {
       issues.push({ venue_id: row.venue_id, issue_kind: 'short_runway',
-        detail: `${visible} visible future event(s); last dated event ${row.last_future_event_date}.` })
+        detail: `${visible} visible future event(s); last dated event ${row.last_future_event_date}. ` +
+          'The venue has no published events beyond the next 21 days.' })
     }
   }
 
