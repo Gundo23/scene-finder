@@ -13481,14 +13481,18 @@ async function finalizeVenueSafety(input: {
   const candidateAttempts = context.candidateAttemptsByVenue.get(input.venueId) || 0
   const qualityReviewCount = context.reviewedByVenue.get(input.venueId) || 0
 
-  if (
+  // Each questionable candidate has already been held in event_review_queue.
+  // Keep the batch quarantine when live events exist or another safety rule
+  // fires. With no live events, publish the separately approved candidates
+  // and alert about the individually held candidates.
+  const qualityReviewReason = (
     candidateAttempts >= 8 &&
     qualityReviewCount >= 3 &&
     qualityReviewCount / candidateAttempts >= 0.35
-  ) {
-    reasons.push(
-      `Data quality guard held ${qualityReviewCount} of ${candidateAttempts} candidates for review`
-    )
+  ) ? `Data quality guard held ${qualityReviewCount} of ${candidateAttempts} candidates for individual review` : null
+
+  if (qualityReviewReason && (previousCount > 0 || reasons.length > 0)) {
+    reasons.push(qualityReviewReason)
   }
 
   if (reasons.length > 0) {
@@ -13653,6 +13657,10 @@ async function finalizeVenueSafety(input: {
 
   const finalReasons: string[] = []
 
+  if (qualityReviewReason) {
+    finalReasons.push(`${qualityReviewReason}; individually approved candidates were processed`)
+  }
+
   if (visibilityFailure) {
     finalReasons.push(
       finalCount.error
@@ -13700,7 +13708,7 @@ async function finalizeVenueSafety(input: {
 
   let alert = { sent: false, error: null as string | null }
 
-  if (visibilityFailure || publishErrors > 0 || staleMissing > 0 || Boolean(postSnapshot.error) || (publishErrors === 0 && !postSnapshot.snapshotId)) {
+  if (qualityReviewReason || visibilityFailure || publishErrors > 0 || staleMissing > 0 || Boolean(postSnapshot.error) || (publishErrors === 0 && !postSnapshot.snapshotId)) {
     alert = await sendScrapeSafetyAlert({
       venueId: input.venueId,
       previousCount,
