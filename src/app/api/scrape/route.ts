@@ -2151,8 +2151,7 @@ function isIcsSourceUrl(url: string | null | undefined) {
   return (
     lower.endsWith('.ics') ||
     lower.includes('/calendar/ical/') ||
-    lower.includes('basic.ics') ||
-    lower.includes('ical=1')
+    lower.includes('basic.ics')
   )
 }
 
@@ -2293,9 +2292,7 @@ async function scrapeIcsSource(source: {
   const diaryPage =
     source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaPublicPageForIcs(source.source_url)
-      : source.venue_id === 'liberty_elite_lutterworth'
-        ? 'https://libertyelite.co.uk/events/'
-        : source.source_url
+      : source.source_url
 
   const diaryName =
     source.venue_id === 'xtasia_west_bromwich'
@@ -2339,13 +2336,8 @@ async function scrapeIcsSource(source: {
   const found: any[] = []
   const errors: any[] = []
   const runSeen = new Set<string>()
-  const today = new Date().toISOString().slice(0, 10)
 
   for (const event of icsEvents) {
-    if (source.venue_id === 'liberty_elite_lutterworth' && event.event_date && event.event_date < today) {
-      skipped++
-      continue
-    }
     candidatesFound++
 
     const title = cleanIcsEventTitleForVenue(source.venue_id, event.text)
@@ -2360,12 +2352,7 @@ async function scrapeIcsSource(source: {
       continue
     }
 
-    const ticketUrl =
-      source.venue_id === 'liberty_elite_lutterworth' &&
-      sameDomain(diaryPage, event.href) &&
-      !isJunkUrl(event.href)
-        ? event.href
-        : eventUrlWithAnchor(diaryPage, title)
+    const ticketUrl = eventUrlWithAnchor(diaryPage, title)
     const dedupeKey = eventDedupeKey(source.venue_id, title, event.event_date, ticketUrl)
 
     if (runSeen.has(dedupeKey)) {
@@ -13952,6 +13939,112 @@ async function upsertEvent(input: {
   return { action: 'created', error: null }
 }
 
+async function scrapeLibertyEliteApiSource(source: { venue_id: string; source_url: string }) {
+  const found: any[] = []
+  const errors: any[] = []
+  const failedPages: any[] = []
+  const seen = new Set<string>()
+  const today = new Date().toISOString().slice(0, 10)
+  const baseUrl = new URL('/wp-json/tribe/events/v1/events', source.source_url)
+  baseUrl.searchParams.set('per_page', '20')
+  baseUrl.searchParams.set('start_date', `${today} 00:00:00`)
+
+  let nextUrl: string | null = baseUrl.toString()
+  let checkedPages = 0
+  let candidatesFound = 0
+  let created = 0
+  let updated = 0
+  let skipped = 0
+  let failed = 0
+
+  // Two pages cover the next 40 events without making a targeted run time out.
+  while (nextUrl && checkedPages < 2) {
+    const pageUrl: string = nextUrl
+    checkedPages++
+    const body = await fetchText(pageUrl, 'application/json')
+    if (!body) {
+      failed++
+      failedPages.push({ venue_id: source.venue_id, page_url: pageUrl, reason: 'API fetch returned empty/null' })
+      break
+    }
+
+    let response: any
+    try {
+      response = JSON.parse(body)
+      if (!Array.isArray(response.events)) throw new Error('No events array in API response')
+    } catch (err: any) {
+      failed++
+      failedPages.push({ venue_id: source.venue_id, page_url: pageUrl, reason: err?.message || 'Invalid API response' })
+      break
+    }
+
+    for (const event of response.events) {
+      const title = cleanText(String(event.title || ''))
+      const eventDate = validDateOrNull(String(event.start_date || '').slice(0, 10))
+      const startTime = validTimeOrNull(String(event.start_date || '').slice(11, 16))
+      const ticketUrl = absoluteUrl(source.source_url, event.url)
+
+      if (!title || !eventDate || eventDate < today || !ticketUrl ||
+          !sameDomain(source.source_url, ticketUrl) || isJunkUrl(ticketUrl)) {
+        skipped++
+        continue
+      }
+
+      const dedupeKey = eventDedupeKey(source.venue_id, title, eventDate, ticketUrl)
+      if (seen.has(dedupeKey)) {
+        skipped++
+        continue
+      }
+      seen.add(dedupeKey)
+      candidatesFound++
+
+      const imageUrl = validImageUrl(event.image?.url)
+      const result = await upsertEvent({
+        venue_id: source.venue_id,
+        event_name: title,
+        event_date: eventDate,
+        start_time: startTime,
+        description: cleanText(String(event.excerpt || event.description || title)).slice(0, 500),
+        ticket_url: ticketUrl,
+        image_url: imageUrl,
+        source_url: source.source_url,
+      })
+
+      if (result.action === 'created') created++
+      else if (result.action === 'updated') updated++
+      else if (result.action === 'skipped') skipped++
+      else {
+        failed++
+        if (errors.length < 20) {
+          errors.push({ venue_id: source.venue_id, event_name: title, event_date: eventDate, error: result.error?.message })
+        }
+      }
+
+      if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
+        found.push({ venue_id: source.venue_id, event_name: title, event_date: eventDate,
+          event_url: ticketUrl, image_url: imageUrl, method: 'liberty-events-api' })
+      }
+    }
+
+    const candidateNext = response.next_rest_url
+    nextUrl = typeof candidateNext === 'string' &&
+      sameDomain(source.source_url, candidateNext) &&
+      new URL(candidateNext).pathname.replace(/\/+$/, '') === baseUrl.pathname.replace(/\/+$/, '')
+        ? candidateNext
+        : null
+  }
+
+  return {
+    checked_pages: checkedPages,
+    candidates_found: candidatesFound,
+    created, updated, skipped, failed,
+    timedOutOrEmpty: failedPages.length,
+    found, errors,
+    existing_junk_deleted: 0,
+    failed_pages: failedPages,
+  }
+}
+
 async function runScrapeRequest(request: Request) {
   const startedAt = Date.now()
   const { searchParams } = new URL(request.url)
@@ -14036,9 +14129,7 @@ async function runScrapeRequest(request: Request) {
     }
     seenSourceKeys.add(sourceKey)
 
-    const source = configuredSource.venue_id === 'liberty_elite_lutterworth'
-      ? { ...configuredSource, source_url: 'https://libertyelite.co.uk/events/?ical=1' }
-      : configuredSource
+    const source = configuredSource
 
     console.log('SOURCE START:', source.source_url)
 
@@ -14055,11 +14146,13 @@ async function runScrapeRequest(request: Request) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
 
-    if (isIcsSourceUrl(source.source_url)) {
-      const result = await scrapeIcsSource({
-        venue_id: source.venue_id,
-        source_url: source.source_url,
-      })
+    if (source.venue_id === 'liberty_elite_lutterworth' || isIcsSourceUrl(source.source_url)) {
+      const result = source.venue_id === 'liberty_elite_lutterworth'
+        ? await scrapeLibertyEliteApiSource(source)
+        : await scrapeIcsSource({
+            venue_id: source.venue_id,
+            source_url: source.source_url,
+          })
 
       checkedPages += result.checked_pages
       candidatesFound += result.candidates_found
