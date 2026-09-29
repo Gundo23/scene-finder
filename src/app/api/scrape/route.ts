@@ -10,7 +10,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const MAX_SOURCES = 80
+const MAX_VENUES_PER_REQUEST = 1
 const MAX_PAGES_PER_SOURCE = 8
 const MAX_EVENTS_RETURNED = 150
 const FETCH_TIMEOUT_MS = 20000
@@ -41,15 +41,23 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 const ZERO_EVENT_ALERT_EMAIL = process.env.ADMIN_NOTIFY_EMAIL || 'info@scenefinder.co.uk'
 const ZERO_EVENT_ALERT_FROM = process.env.NOTIFY_FROM_EMAIL || 'Scene Finder <notifications@scenefinder.co.uk>'
 
+function londonToday() {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date())
+  const get = (type: string) => parts.find((part) => part.type === type)?.value
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
 async function monitorVenueFutureEventCount(venueId: string) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = londonToday()
 
   const { count, error: countError } = await supabaseAdmin
     .from('events')
     .select('event_id', { count: 'exact', head: true })
     .eq('venue_id', venueId)
-    .eq('status', 'published')
-    .gte('event_date', today)
+    .eq('is_published', true)
+    .or(`event_date.gte.${today},event_date.is.null`)
 
   if (countError) {
     return { checked: false, alerted: false, error: `event count failed: ${countError.message}` }
@@ -13181,13 +13189,13 @@ function stageEventForCurrentRun(event: StagedEventRecord) {
 }
 
 async function countFuturePublishedEvents(venueId: string) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = londonToday()
 
   const { count, error } = await supabaseAdmin
     .from('events')
     .select('event_id', { count: 'exact', head: true })
     .eq('venue_id', venueId)
-    .eq('status', 'published')
+    .eq('is_published', true)
     .gte('event_date', today)
 
   return { count: count || 0, error }
@@ -13252,14 +13260,6 @@ async function publishStagedEvent(input: StagedEventRecord, runId: string) {
 
   if (matchingByUrl.length > 0) {
     const keeper = matchingByUrl[0]
-    const duplicates = matchingByUrl.slice(1)
-
-    if (duplicates.length > 0) {
-      await supabaseAdmin
-        .from('events')
-        .delete()
-        .in('event_id', duplicates.map((event) => event.event_id))
-    }
 
     const { error } = await supabaseAdmin
       .from('events')
@@ -13297,14 +13297,6 @@ async function publishStagedEvent(input: StagedEventRecord, runId: string) {
 
     if (matches.length > 0) {
       const keeper = matches[0]
-      const extras = matches.slice(1)
-
-      if (extras.length > 0) {
-        await supabaseAdmin
-          .from('events')
-          .delete()
-          .in('event_id', extras.map((event) => event.event_id))
-      }
 
       const { error } = await supabaseAdmin
         .from('events')
@@ -13342,6 +13334,7 @@ async function publishStagedEvent(input: StagedEventRecord, runId: string) {
       source_url: input.source_url,
       tags: input.tags,
       status: 'published',
+      is_published: true,
       last_seen_at: new Date().toISOString(),
       last_seen_run_id: runId,
       missed_successful_scrapes: 0,
@@ -13414,7 +13407,7 @@ async function finalizeVenueSafety(input: {
 
   const venueStage = context.stagedByVenue.get(input.venueId) || new Map<string, StagedEventRecord>()
   const stagedEvents = [...venueStage.values()]
-  const today = new Date().toISOString().slice(0, 10)
+  const today = londonToday()
   const stagedFutureEvents = stagedEvents.filter(
     (event) => Boolean(event.event_date) && String(event.event_date) >= today
   )
@@ -13618,7 +13611,7 @@ async function finalizeVenueSafety(input: {
       .from('events')
       .select('event_id, missed_successful_scrapes')
       .eq('venue_id', input.venueId)
-      .eq('status', 'published')
+      .eq('is_published', true)
       .gte('event_date', today)
       .limit(5000)
 
@@ -13644,14 +13637,29 @@ async function finalizeVenueSafety(input: {
       ? await createVenueRecoverySnapshot(input.venueId, runId, 'post_publish')
       : { snapshotId: null, error: null }
 
+  const visibilityFailure =
+    Boolean(finalCount.error) ||
+    (stagedCount > 0 && finalCount.count === 0) ||
+    (previousCount > 0 && finalCount.count === 0)
+
   const status =
-    publishErrors > 0
+    visibilityFailure
+      ? 'accepted_visibility_failure'
+      : publishErrors > 0
       ? 'accepted_with_publish_errors'
       : staleMissing > 0
         ? 'accepted_stale_review'
         : 'accepted'
 
   const finalReasons: string[] = []
+
+  if (visibilityFailure) {
+    finalReasons.push(
+      finalCount.error
+        ? `Could not verify publicly visible events: ${finalCount.error.message}`
+        : `The scraper staged ${stagedCount} future events, but the public venue count is 0`
+    )
+  }
 
   if (publishErrors > 0) {
     finalReasons.push(
@@ -13692,7 +13700,7 @@ async function finalizeVenueSafety(input: {
 
   let alert = { sent: false, error: null as string | null }
 
-  if (publishErrors > 0 || staleMissing > 0 || Boolean(postSnapshot.error) || (publishErrors === 0 && !postSnapshot.snapshotId)) {
+  if (visibilityFailure || publishErrors > 0 || staleMissing > 0 || Boolean(postSnapshot.error) || (publishErrors === 0 && !postSnapshot.snapshotId)) {
     alert = await sendScrapeSafetyAlert({
       venueId: input.venueId,
       previousCount,
@@ -14049,26 +14057,42 @@ async function runScrapeRequest(request: Request) {
   const startedAt = Date.now()
   const { searchParams } = new URL(request.url)
   const targetVenueId = searchParams.get('venue_id')
+  const requestedBatchSize = Number(searchParams.get('batch_size'))
+  const maxVenues = Number.isInteger(requestedBatchSize) && requestedBatchSize >= 1
+    ? Math.min(requestedBatchSize, MAX_VENUES_PER_REQUEST)
+    : MAX_VENUES_PER_REQUEST
 
   let sourcesQuery = supabaseAdmin
     .from('event_sources')
-    .select('source_id, venue_id, source_url, active, collection_method')
+    .select('source_id, venue_id, source_url, active, collection_method', { count: 'exact' })
     .eq('active', true)
 
   if (targetVenueId) {
     sourcesQuery = sourcesQuery.eq('venue_id', targetVenueId)
   }
 
-  // Rotate through the least recently checked sources so the 80-source cap
-  // cannot permanently starve venues added beyond the first batch.
-  const { data: sources, error } = await sourcesQuery
+  // Select complete venues, including all their active sources. A one-source
+  // batch could falsely quarantine a venue whose events span two sources.
+  const { data: allSources, error, count: activeSourceCount } = await sourcesQuery
     .order('last_checked', { ascending: true, nullsFirst: true })
     .order('source_id', { ascending: true })
-    .limit(MAX_SOURCES)
+    .limit(5000)
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 })
   }
+
+  if (activeSourceCount !== (allSources || []).length) {
+    return Response.json({ error: 'Source selection was truncated; refusing an incomplete venue batch' },
+      { status: 503 })
+  }
+
+  const selectedVenueIds = new Set<string>()
+  for (const source of allSources || []) {
+    if (selectedVenueIds.size >= maxVenues) break
+    selectedVenueIds.add(source.venue_id)
+  }
+  const sources = (allSources || []).filter((source) => selectedVenueIds.has(source.venue_id))
 
   if (targetVenueId && (!sources || sources.length === 0)) {
     return Response.json({
@@ -14115,8 +14139,53 @@ async function runScrapeRequest(request: Request) {
   }
 
   const seenSourceKeys = new Set<string>()
+  const remainingSourcesByVenue = new Map<string, number>()
+  const firstSourceIndexByVenue = new Map<string, number>()
+  for (const [index, source] of (sources || []).entries()) {
+    if (source.venue_id) {
+      if (!firstSourceIndexByVenue.has(source.venue_id)) {
+        firstSourceIndexByVenue.set(source.venue_id, index)
+      }
+      remainingSourcesByVenue.set(
+        source.venue_id,
+        (remainingSourcesByVenue.get(source.venue_id) || 0) + 1
+      )
+    }
+  }
+  const scrapeSafety: any[] = []
+  const zeroEventMonitors: any[] = []
+  // Keep each selected venue's sources together while retaining the queue's
+  // original oldest-attempt-first order between venues.
+  const orderedSources = [...(sources || [])].sort(
+    (a, b) => (firstSourceIndexByVenue.get(a.venue_id) || 0) -
+      (firstSourceIndexByVenue.get(b.venue_id) || 0)
+  )
 
-  for (const configuredSource of sources || []) {
+  // Complete a venue before moving on. A later slow source must not discard
+  // events already staged for venues that have finished in this request.
+  async function completeSource(venueId: string) {
+    const remaining = (remainingSourcesByVenue.get(venueId) || 0) - 1
+    remainingSourcesByVenue.set(venueId, remaining)
+    if (remaining !== 0) return
+
+    const safetyResult = await finalizeVenueSafety({
+      venueId,
+      failedPageCount: failedPages.filter((item: any) => item.venue_id === venueId).length,
+      errorCount: errors.filter((item: any) => item.venue_id === venueId).length,
+    })
+    scrapeSafety.push(safetyResult)
+
+    const monitorResult = await monitorVenueFutureEventCount(venueId)
+    zeroEventMonitors.push({ venue_id: venueId, ...monitorResult })
+    if (monitorResult.error) {
+      console.log('ZERO EVENT MONITOR:', venueId, monitorResult.error)
+    }
+
+    // Release staged records as soon as they have been published or quarantined.
+    scrapeSafetyContext.getStore()?.stagedByVenue.delete(venueId)
+  }
+
+  for (const configuredSource of orderedSources) {
     const sourceKey = `${configuredSource.venue_id}|${configuredSource.source_url}`
     if (seenSourceKeys.has(sourceKey)) {
       // The same source was just checked for this venue; do not fetch it twice.
@@ -14125,11 +14194,23 @@ async function runScrapeRequest(request: Request) {
         .update({ last_checked: new Date().toISOString() })
         .eq('source_id', configuredSource.source_id)
       skipped++
+      await completeSource(configuredSource.venue_id)
       continue
     }
     seenSourceKeys.add(sourceKey)
 
     const source = configuredSource
+
+    // This is an attempt timestamp, not a completed scrape timestamp. Advance
+    // the queue before fetching so a source that hangs cannot starve every
+    // other venue on all subsequent scheduled invocations.
+    const { error: attemptError } = await supabaseAdmin
+      .from('event_sources')
+      .update({ last_checked: new Date().toISOString() })
+      .eq('source_id', source.source_id)
+    if (attemptError) {
+      console.log('SOURCE ATTEMPT TIMESTAMP FAILED:', source.source_id, attemptError.message)
+    }
 
     console.log('SOURCE START:', source.source_url)
 
@@ -14175,12 +14256,8 @@ async function runScrapeRequest(request: Request) {
         if (failedPages.length < 30) failedPages.push(item)
       }
 
-      await supabaseAdmin
-        .from('event_sources')
-        .update({ last_checked: new Date().toISOString() })
-        .eq('source_id', source.source_id)
-
       console.log('SOURCE DONE:', source.source_url)
+      await completeSource(source.venue_id)
       continue
     }
 
@@ -14340,12 +14417,8 @@ async function runScrapeRequest(request: Request) {
         }
       }
 
-      await supabaseAdmin
-        .from('event_sources')
-        .update({ last_checked: new Date().toISOString() })
-        .eq('source_id', source.source_id)
-
       console.log('SOURCE DONE:', source.source_url)
+      await completeSource(source.venue_id)
       continue
     }
 
@@ -14512,12 +14585,8 @@ async function runScrapeRequest(request: Request) {
         }
       }
 
-      await supabaseAdmin
-        .from('event_sources')
-        .update({ last_checked: new Date().toISOString() })
-        .eq('source_id', source.source_id)
-
       console.log('SOURCE DONE:', source.source_url)
+      await completeSource(source.venue_id)
       continue
     }
 
@@ -15848,49 +15917,15 @@ ${hu9HydratedText}`, pageUrl)
       }
     }
 
-    await supabaseAdmin
-      .from('event_sources')
-      .update({ last_checked: new Date().toISOString() })
-      .eq('source_id', source.source_id)
-
     console.log('SOURCE DONE:', source.source_url)
-  }
-
-  const processedVenueIds: string[] = [
-    ...new Set<string>(
-      (sources || [])
-        .map((source: any) => source.venue_id)
-        .filter((venueId: any): venueId is string => typeof venueId === 'string' && venueId.length > 0)
-    ),
-  ]
-  const scrapeSafety: any[] = []
-
-  for (const venueId of processedVenueIds) {
-    const safetyResult = await finalizeVenueSafety({
-      venueId,
-      failedPageCount: failedPages.filter((item: any) => item.venue_id === venueId).length,
-      errorCount: errors.filter((item: any) => item.venue_id === venueId).length,
-    })
-
-    scrapeSafety.push(safetyResult)
-  }
-
-  const zeroEventMonitors: any[] = []
-
-  for (const venueId of processedVenueIds) {
-    const monitorResult = await monitorVenueFutureEventCount(venueId)
-    zeroEventMonitors.push({ venue_id: venueId, ...monitorResult })
-
-    if (monitorResult.error) {
-      console.log('ZERO EVENT MONITOR:', venueId, monitorResult.error)
-    }
+    await completeSource(source.venue_id)
   }
 
   return Response.json({
     message: 'Scrape finished',
     runtime_seconds: Math.round((Date.now() - startedAt) / 1000),
     limits: {
-      max_sources: MAX_SOURCES,
+      max_venues: maxVenues,
       max_pages_per_source: MAX_PAGES_PER_SOURCE,
       fetch_timeout_ms: FETCH_TIMEOUT_MS,
     },
@@ -15915,6 +15950,13 @@ ${hu9HydratedText}`, pageUrl)
 }
 
 export async function GET(request: Request) {
+  if (process.env.NODE_ENV === 'production') {
+    const secret = process.env.CRON_SECRET
+    if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
   const context: ScrapeSafetyContext = {
     batchId: randomUUID(),
     stagedByVenue: new Map<string, Map<string, StagedEventRecord>>(),

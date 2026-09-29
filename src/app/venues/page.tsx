@@ -1080,6 +1080,8 @@ function venueMatchesFilters(
 
 type VenueEventDiscovery = {
 
+  error: string | null
+
   upcomingEventCountByVenue: Map<string, number>
 
   nextEventDateByVenue: Map<string, string>
@@ -1104,29 +1106,47 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
   const pageSize = 1000
 
-  let from = 0
+  let lastEventId: string | null = null
 
   while (true) {
 
-    const to = from + pageSize - 1
-
-    const { data, error } = await supabase
+    let query = supabase
 
       .from('events')
 
-      .select('venue_id, event_date, start_time')
+      .select('event_id, venue_id, event_date, start_time')
 
       .eq('is_published', true)
 
       .or(`event_date.gte.${today},event_date.is.null`)
 
-      .range(from, to)
+      .order('event_id', { ascending: true })
 
-    if (error) {
+      .limit(pageSize)
 
-      console.error('Error loading venue event discovery data:', error.message)
+    if (lastEventId) query = query.gt('event_id', lastEventId)
 
-      break
+    const { data, error } = await query
+
+    if (error || !data) {
+
+      const message = error?.message || 'Event query returned no data'
+
+      console.error('Error loading venue event discovery data:', message)
+
+      return {
+
+        error: message,
+
+        upcomingEventCountByVenue: new Map(),
+
+        nextEventDateByVenue: new Map(),
+
+        tonightVenueIds: new Set(),
+
+        nextSevenDaysVenueIds: new Set(),
+
+      }
 
     }
 
@@ -1178,11 +1198,13 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
     }
 
-    from += pageSize
+    lastEventId = data[data.length - 1].event_id
 
   }
 
   return {
+
+    error: null,
 
     upcomingEventCountByVenue,
 
@@ -1486,6 +1508,8 @@ export default async function VenuesPage({
 
   const {
 
+    error: eventDiscoveryError,
+
     upcomingEventCountByVenue,
 
     nextEventDateByVenue,
@@ -1580,13 +1604,13 @@ export default async function VenuesPage({
 
     }
 
-    if (timing === 'tonight' && !tonightVenueIds.has(venue.venue_id)) {
+    if (!eventDiscoveryError && timing === 'tonight' && !tonightVenueIds.has(venue.venue_id)) {
 
       return false
 
     }
 
-    if (timing === 'next7days' && !nextSevenDaysVenueIds.has(venue.venue_id)) {
+    if (!eventDiscoveryError && timing === 'next7days' && !nextSevenDaysVenueIds.has(venue.venue_id)) {
 
       return false
 
@@ -1785,6 +1809,16 @@ export default async function VenuesPage({
           </div>
 
         </div>
+
+        {eventDiscoveryError && (
+
+          <div role="alert" className="mt-5 rounded-2xl border border-amber-400/40 bg-amber-500/10 p-4 text-sm text-amber-100">
+
+            Event information is temporarily unavailable. The venues are still listed; please try again shortly.
+
+          </div>
+
+        )}
 
         <div className="mt-5 w-full rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-3 shadow-xl shadow-blue-950/20 ring-1 ring-purple-500/10 sm:p-5">
 
@@ -2314,7 +2348,7 @@ export default async function VenuesPage({
 
                         <p className="mt-1 truncate text-[11px] font-semibold text-white">
 
-                          {nextEventDate ? formatShortDate(nextEventDate) : 'TBC'}
+                          {eventDiscoveryError ? 'Unavailable' : nextEventDate ? formatShortDate(nextEventDate) : 'TBC'}
 
                         </p>
 
@@ -2332,7 +2366,7 @@ export default async function VenuesPage({
 
                         <p className="mt-1 text-[11px] font-semibold text-white">
 
-                          {upcomingEventCount}
+                          {eventDiscoveryError ? '—' : upcomingEventCount}
 
                         </p>
 
@@ -2362,7 +2396,7 @@ export default async function VenuesPage({
 
                       >
 
-                        {upcomingEventCount > 0 ? `View ${upcomingEventCount} event${upcomingEventCount === 1 ? '' : 's'} →` : 'View venue →'}
+                        {!eventDiscoveryError && upcomingEventCount > 0 ? `View ${upcomingEventCount} event${upcomingEventCount === 1 ? '' : 's'} →` : 'View venue →'}
 
                       </Link>
 

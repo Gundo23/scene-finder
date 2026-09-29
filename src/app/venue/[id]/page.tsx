@@ -476,7 +476,7 @@ export default async function VenuePage({
 
 
 
-  const { data: events } = await supabase
+  const { data: events, error: eventsError } = await supabase
 
     .from('events')
 
@@ -873,7 +873,7 @@ export default async function VenuePage({
 
                     <p className="mt-1 text-sm font-bold text-white sm:text-base">
 
-                      {sortedEvents.length} Upcoming Event{sortedEvents.length === 1 ? '' : 's'}
+                      {eventsError ? 'Events unavailable' : `${sortedEvents.length} Upcoming Event${sortedEvents.length === 1 ? '' : 's'}`}
 
                     </p>
 
@@ -1019,7 +1019,7 @@ export default async function VenuePage({
 
             <p className="mt-2 text-sm text-zinc-400">
 
-              {sortedEvents.length} upcoming event{sortedEvents.length === 1 ? '' : 's'} listed for this venue
+              {eventsError ? 'Event information is temporarily unavailable.' : `${sortedEvents.length} upcoming event${sortedEvents.length === 1 ? '' : 's'} listed for this venue`}
 
             </p>
 
@@ -1055,7 +1055,15 @@ export default async function VenuePage({
 
         <div className="mt-4 grid gap-4 sm:mt-5 sm:gap-5">
 
-          {sortedEvents.length > 0 ? (
+          {eventsError ? (
+
+            <div role="alert" className="rounded-2xl border border-amber-400/40 bg-amber-500/10 p-6 text-amber-100">
+
+              Event information is temporarily unavailable. Please try again shortly.
+
+            </div>
+
+          ) : sortedEvents.length > 0 ? (
 
             visibleEvents.map((event) => {
 
