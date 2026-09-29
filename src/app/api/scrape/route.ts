@@ -13012,6 +13012,13 @@ function globalDataQualityCheck(input: {
     return { decision: 'reject', reasons: ['previous_next_navigation_title'], warnings, imageUrl }
   }
 
+  // This organiser lists events in multiple countries on one dates page.
+  // Unqualified titles omit the city, so hold them for review rather than
+  // assigning Berlin or Warsaw dates to the London venue.
+  if (input.venue_id === 'klub_verboten_london' && !/\b(?:london|ldn)\b/i.test(title)) {
+    reasons.push('klub_verboten_london_location_unverified')
+  }
+
   const testimonialSignals = [
     /displayed on profile/i,
     /\bwe had (?:an? )?(?:amazing|great|lovely|fantastic|brilliant)\b/i,
