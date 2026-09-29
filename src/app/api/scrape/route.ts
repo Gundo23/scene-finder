@@ -2715,6 +2715,59 @@ function isLeBoudoirSource(value: string | null | undefined) {
   )
 }
 
+function extractLeBoudoirListingEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+  const today = londonToday()
+  const year = Number(today.slice(0, 4))
+  const seen = new Set<string>()
+  const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']*\/events\/\d+(?:\?[^"']*)?)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+
+  for (const [index, link] of links.entries()) {
+    const href = absoluteUrl(baseUrl, link[1])
+    const title = cleanEventName(cleanText(link[2]))
+    if (!href || !/^https:\/\/(?:www\.)?leboudoir\.club\/events\/\d+\/?(?:\?.*)?$/i.test(href) ||
+        isLeBoudoirJunkEventTitle(title)) continue
+
+    // A card has several links to the same event. Bound its date by the next
+    // *different* event so a neighbouring party cannot lend it a date.
+    const next = links.slice(index + 1).find((candidate) => {
+      const nextHref = absoluteUrl(baseUrl, candidate[1])
+      return nextHref && new URL(nextHref).pathname !== new URL(href).pathname
+    })
+    const end = Math.min(next?.index ?? html.length, (link.index || 0) + 4500)
+    const card = cleanText(html.slice((link.index || 0) + link[0].length, end))
+    if (!/\bat\s+Le Boudoir\b/i.test(card)) continue
+    const date = card.match(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i)
+    if (!date) continue
+    const month = monthNameToNumber(date[2])
+    const eventDate = month ? validDateOrNull(`${year}-${month}-${date[3].padStart(2, '0')}`) : null
+    if (!eventDate || eventDate < today ||
+        ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(date[1].toLowerCase()) !==
+          new Date(`${eventDate}T00:00:00Z`).getUTCDay()) continue
+    const hour = Number(date[4]) % 12 + (date[6].toUpperCase() === 'PM' ? 12 : 0)
+    const startTime = validTimeOrNull(`${String(hour).padStart(2, '0')}:${date[5] || '00'}`)
+    const canonicalUrl = new URL(href).origin + new URL(href).pathname
+    const key = `${canonicalUrl}|${eventDate}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    candidates.push({
+      href: canonicalUrl, text: title, event_date: eventDate, start_time: startTime,
+      raw: `${title} at Le Boudoir, ${eventDate}`,
+      image_url: null, method: 'le-boudoir-listing-card',
+    })
+  }
+
+  return candidates
+}
+
 function isLeBoudoirJunkEventTitle(value: string | null | undefined) {
   const cleaned = normalizeTitle(value || '')
 
@@ -9906,6 +9959,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
   return (
     combined.includes('afterdark_edinburgh_edinburgh') ||
     combined.includes('club_play_blackpool') ||
+    combined.includes('le_boudoir_club_london') ||
     isIgniteSource(venueId, sourceUrl) ||
     combined.includes('club_bacchus_dundee') ||
     combined.includes('clubbacchusdundee.uk') ||
@@ -9959,6 +10013,7 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
   const canonicalHosts: Record<string, string> = {
     afterdark_edinburgh_edinburgh: 'afterdarkedinburgh.co.uk',
     club_play_blackpool: 'clubplay.net',
+    le_boudoir_club_london: 'leboudoir.club',
     ignite_west_drayton_heathrow: 'club-ignite.co.uk',
     the_mirage_caenby_corner_market_rasen: 'themiragelincoln.co.uk',
   }
@@ -10089,6 +10144,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (source.venue_id === 'club_play_blackpool') {
     return ['https://clubplay.net/events/', 'https://clubplay.net/events/?pno=2']
+  }
+
+  if (source.venue_id === 'le_boudoir_club_london') {
+    return ['https://leboudoir.club/events']
   }
 
   if (source.venue_id === 'ignite_west_drayton_heathrow') {
@@ -10280,6 +10339,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
   if (venueId === 'afterdark_edinburgh_edinburgh') return extractAfterdarkEdinburghEvents(html, pageUrl)
   if (venueId === 'club_play_blackpool') return extractClubPlayEvents(html, pageUrl)
+  if (venueId === 'le_boudoir_club_london') return extractLeBoudoirListingEvents(html, pageUrl)
   if (isCupidsSource(venueId, pageUrl)) return extractCupidsEvents(html, pageUrl)
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
@@ -10450,6 +10510,8 @@ function extractClubBacchusEvents(html: string, baseUrl: string) {
 
   const seen = new Set<string>()
   const text = cleanText(html)
+  const today = londonToday()
+  const currentYear = Number(today.slice(0, 4))
   const months =
     'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
   const monthSectionPattern = new RegExp(
@@ -10465,23 +10527,28 @@ function extractClubBacchusEvents(html: string, baseUrl: string) {
 
     const section = monthMatch[2]
     const eventPattern =
-      /\b(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)?\s*(\d{1,2})(?:st|nd|rd|th)?\s+(.{5,130}?)(?:\s+(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm))(?:\s*[-–—]\s*(?:late|\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)))?)?(?=\s+(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)?\s*\d{1,2}(?:st|nd|rd|th)?\s+|$)/gi
+      /\b(?:(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s*)?(\d{1,2})(?:st|nd|rd|th)?\s+(.{5,130}?)(?:\s+(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm))(?:\s*[-–—]\s*(?:late|\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)))?)?(?=\s+(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)?\s*\d{1,2}(?:st|nd|rd|th)?\s+|$)/gi
 
     let eventMatch
 
     while ((eventMatch = eventPattern.exec(section)) !== null) {
-      const day = eventMatch[1].padStart(2, '0')
-      const year = futureSafeYear(month, day)
-      const eventDate = validDateOrNull(`${year}-${month}-${day}`)
+      const day = eventMatch[2].padStart(2, '0')
+      // The page has month headings but no year. A past September block must
+      // not roll into September next year just to become a future event.
+      const eventDate = validDateOrNull(`${currentYear}-${month}-${day}`)
       const raw = cleanText(eventMatch[0])
-      let title = cleanTargetVenueTitle(eventMatch[2])
+      let title = cleanTargetVenueTitle(eventMatch[3])
 
       title = title
         .replace(/\b(?:wear|come|open to all|subs in uniform|doms as teachers)\b[\s\S]*$/i, '')
         .replace(/\s+/g, ' ')
         .trim()
 
-      if (!eventDate || !title || title.length < 5) continue
+      if (!eventDate || eventDate < today || !title || title.length < 5) continue
+      // A weekday on the listing is an independent check on the inferred year.
+      const weekday = eventMatch[1]?.slice(0, 3).toLowerCase()
+      if (weekday && ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(weekday) !==
+          new Date(`${eventDate}T00:00:00Z`).getUTCDay()) continue
 
       pushTargetCandidate(candidates, seen, {
         href: eventUrlWithAnchor(baseUrl, title),
@@ -14795,6 +14862,7 @@ async function runScrapeRequest(request: Request) {
       : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
         source.venue_id === 'ignite_west_drayton_heathrow' ||
         source.venue_id === 'club_play_blackpool' ||
+        source.venue_id === 'le_boudoir_club_london' ||
         source.venue_id === 'the_mirage_caenby_corner_market_rasen'
         ? targetVenueDiscoveredUrls
       : isHellfireSource(source.venue_id, source.source_url)
@@ -14827,6 +14895,8 @@ async function runScrapeRequest(request: Request) {
     const maxPagesForSource =
       source.venue_id === 'townhouse_wirral_near_liverpool'
         ? 1
+        : source.venue_id === 'le_boudoir_club_london'
+          ? 1
         : source.venue_id === 'xtasia_west_bromwich'
           ? 2
           : isHu9Source(source.venue_id, source.source_url)
@@ -14924,7 +14994,8 @@ async function runScrapeRequest(request: Request) {
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
           source.venue_id === 'ignite_west_drayton_heathrow' ||
-          source.venue_id === 'club_play_blackpool'
+          source.venue_id === 'club_play_blackpool' ||
+          source.venue_id === 'le_boudoir_club_london'
         const jsonLdEvents = dedicatedCalendar ? [] : extractJsonLdEvents(html, pageUrl)
         const calendarLinks = dedicatedCalendar ? [] : extractCalendarEventLinks(html, pageUrl)
         const townhouseEvents =
@@ -15281,6 +15352,7 @@ ${hu9HydratedText}`, pageUrl)
           if (source.venue_id !== 'afterdark_edinburgh_edinburgh' &&
               source.venue_id !== 'ignite_west_drayton_heathrow' &&
               source.venue_id !== 'club_play_blackpool' &&
+              source.venue_id !== 'le_boudoir_club_london' &&
               !isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
