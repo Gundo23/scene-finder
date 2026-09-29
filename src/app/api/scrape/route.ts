@@ -2159,7 +2159,8 @@ function isIcsSourceUrl(url: string | null | undefined) {
   return (
     lower.endsWith('.ics') ||
     lower.includes('/calendar/ical/') ||
-    lower.includes('basic.ics')
+    lower.includes('basic.ics') ||
+    /^https:\/\/(?:www\.)?kennelklub\.co\.uk\/\?ical=1$/.test(lower)
   )
 }
 
@@ -2300,6 +2301,8 @@ async function scrapeIcsSource(source: {
   const diaryPage =
     source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaPublicPageForIcs(source.source_url)
+      : /^https:\/\/(?:www\.)?kennelklub\.co\.uk\/\?ical=1$/i.test(source.source_url)
+        ? 'https://www.kennelklub.co.uk/our-events/'
       : source.source_url
 
   const diaryName =
@@ -7388,6 +7391,11 @@ function isIgniteAllowedTitle(value: string | null | undefined) {
     cleaned === 'silks skins spa day' ||
     cleaned === 'half off friday' ||
     cleaned === 'social at ignite' ||
+    cleaned === 'flirt and fling' ||
+    cleaned === 'couples singles friday' ||
+    cleaned === 'couples singles saturday' ||
+    cleaned === 'halloween friday' ||
+    cleaned === 'halloween couples ladies only saturday party' ||
     cleaned === 'couples ladies only saturday party' ||
     cleaned === 'couples singles social after party' ||
     cleaned === 'saturday couples singles social after party'
@@ -7415,11 +7423,13 @@ function extractIgniteEvents(html: string, baseUrl: string) {
     raw: string
     href?: string | null
     method: string
+    trustedCard?: boolean
   }) => {
-    const title = cleanIgniteTitle(input.title)
+    const title = input.trustedCard ? cleanEventName(input.title) : cleanIgniteTitle(input.title)
 
     if (!title || isIgniteJunkTitle(title)) return
-    if (!isIgniteAllowedTitle(title)) return
+    if (/^cancell?ed\b/i.test(title)) return
+    if (!input.trustedCard && !isIgniteAllowedTitle(title)) return
     if (!input.event_date) return
 
     const href = input.href || eventUrlWithAnchor(baseUrl, title)
@@ -7439,7 +7449,29 @@ function extractIgniteEvents(html: string, baseUrl: string) {
     })
   }
 
-  // Prefer structured Event data if Ignite exposes it.
+  // The Events Calendar puts the date on a <time> inside each event article,
+  // not on the title link. Keep the title, date and URL from the same card.
+  const cards = html.match(/<article\b[^>]*class=["'][^"']*tribe-events-calendar-list__event\b[^"']*["'][^>]*>[\s\S]*?<\/article>/gi) || []
+  for (const card of cards) {
+    const heading = card.match(/<h[34]\b[^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i)
+    const date = card.match(/<time\b[^>]*datetime=["'](20\d{2}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?[^"']*["']/i)
+    if (!heading || !date) continue
+    const href = absoluteUrl(baseUrl, heading[1])
+    if (!href || !sameDomain(baseUrl, href) || !/\/events\/[^/?#]+/i.test(href)) continue
+    addIgniteCandidate({
+      title: cleanText(heading[2]),
+      event_date: validDateOrNull(date[1]),
+      start_time: validTimeOrNull(date[2] || ''),
+      raw: cleanText(card).slice(0, 500),
+      href,
+      method: 'ignite-calendar-card',
+      trustedCard: true,
+    })
+  }
+
+  if (candidates.length > 0) return candidates
+
+  // Fall back to structured Event data if the card layout changes.
   for (const event of extractJsonLdEvents(html, baseUrl)) {
     addIgniteCandidate({
       title: event.name,
@@ -7491,6 +7523,78 @@ function extractIgniteEvents(html: string, baseUrl: string) {
     }
   }
 
+  return candidates
+}
+
+function extractAfterdarkEdinburghEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+  const seen = new Set<string>()
+
+  // Each Site123 event card contains its own title link and DD-MM-YYYY date.
+  // Do not infer a date from neighbouring cards or the page's month heading.
+  const cards = html.match(/<div\b[^>]*class=["'][^"']*\bevent-details\b[^"']*["'][^>]*>[\s\S]*?<\/ul>/gi) || []
+  for (const card of cards) {
+    const heading = card.match(/<h4\b[^>]*>\s*<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/i)
+    const date = card.match(/\b(\d{2})-(\d{2})-(20\d{2})\s+(\d{2}:\d{2})\s*-/i)
+    if (!heading || !date) continue
+    const href = absoluteUrl(baseUrl, heading[1])
+    const eventDate = validDateOrNull(`${date[3]}-${date[2]}-${date[1]}`)
+    const title = cleanEventName(cleanText(heading[2]))
+    if (!href || !sameDomain(baseUrl, href) || !eventDate || !title || isJunkTitle(title)) continue
+    const key = `${normalizeTitle(title)}|${eventDate}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    candidates.push({
+      href, text: title, event_date: eventDate,
+      start_time: validTimeOrNull(date[4]),
+      raw: `${title} at Afterdark Edinburgh, ${date[1]}-${date[2]}-${date[3]}`,
+      image_url: null, method: 'afterdark-calendar-card',
+    })
+  }
+  return candidates
+}
+
+function extractClubPlayEvents(html: string, baseUrl: string) {
+  const candidates: {
+    href: string
+    text: string
+    event_date: string | null
+    start_time: string | null
+    raw: string
+    image_url: string | null
+    method: string
+  }[] = []
+  const headings = [...html.matchAll(/<h3\b[^>]*>\s*<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h3>/gi)]
+  for (const [index, heading] of headings.entries()) {
+    const href = absoluteUrl(baseUrl, heading[1])
+    const title = cleanEventName(cleanText(heading[2]))
+    if (!href || !sameDomain(baseUrl, href) ||
+        !/\/events\/[^/?#]+\/?$/i.test(href) || !title || isJunkTitle(title)) continue
+    // Events Manager renders the start/end date immediately after the heading.
+    // Stop before the next event so its date cannot be assigned to this title.
+    const end = Math.min(headings[index + 1]?.index || html.length,
+      (heading.index || 0) + heading[0].length + 2500)
+    const card = html.slice((heading.index || 0) + heading[0].length, end)
+    const cardText = cleanText(card)
+    const date = cardText.match(/\b(\d{2})\/(\d{2})\/(20\d{2})\s*-\s*\d{2}\/\d{2}\/20\d{2}\b/)
+    if (!date) continue
+    const eventDate = validDateOrNull(`${date[3]}-${date[2]}-${date[1]}`)
+    if (!eventDate) continue
+    candidates.push({
+      href, text: title, event_date: eventDate,
+      start_time: extractTime(cardText.slice(0, 350)),
+      raw: `${title} at Club Play, ${date[1]}/${date[2]}/${date[3]}`,
+      image_url: null, method: 'club-play-events-manager',
+    })
+  }
   return candidates
 }
 
@@ -8733,16 +8837,14 @@ function isMirageLincolnSource(venueId: string | null | undefined, sourceUrl?: s
   )
 }
 
-function discoverMirageLincolnEventPages(sourceUrl: string) {
+function discoverMirageLincolnEventPages() {
   const urls = [
-    sourceUrl,
-    absoluteUrl(sourceUrl, '/events'),
-    absoluteUrl(sourceUrl, '/events/'),
-    absoluteUrl(sourceUrl, '/calendar'),
-    absoluteUrl(sourceUrl, '/calendar/'),
-    // Current official event detail page that is indexed but not exposed cleanly
-    // in the server-rendered events page HTML.
-    absoluteUrl(sourceUrl, '/event/1844'),
+    'https://themiragelincoln.co.uk/',
+    'https://themiragelincoln.co.uk/events',
+    // Verified current detail pages also cover a sparse server-rendered list.
+    'https://themiragelincoln.co.uk/event/2172',
+    'https://themiragelincoln.co.uk/event/2182',
+    'https://themiragelincoln.co.uk/event/2174',
   ].filter(Boolean) as string[]
 
   return [...new Set(urls)].filter((url) => {
@@ -9728,7 +9830,7 @@ function extractCjsTownhouseEvents(html: string, baseUrl: string) {
   const isDateLine = (line: string) => dateLinePattern.test(line)
   const isMonthHeading = (line: string) => {
     const compact = line.replace(/\s+/g, '').toLowerCase()
-    return /^(june|july|august)20\d{2}$/.test(compact)
+    return /^(january|february|march|april|may|june|july|august|september|october|november|december)20\d{2}$/.test(compact)
   }
 
   const today = new Date()
@@ -9802,6 +9904,9 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
   return (
+    combined.includes('afterdark_edinburgh_edinburgh') ||
+    combined.includes('club_play_blackpool') ||
+    isIgniteSource(venueId, sourceUrl) ||
     combined.includes('club_bacchus_dundee') ||
     combined.includes('clubbacchusdundee.uk') ||
     combined.includes('club_f_birmingham') ||
@@ -9851,6 +9956,22 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  const canonicalHosts: Record<string, string> = {
+    afterdark_edinburgh_edinburgh: 'afterdarkedinburgh.co.uk',
+    club_play_blackpool: 'clubplay.net',
+    ignite_west_drayton_heathrow: 'club-ignite.co.uk',
+    the_mirage_caenby_corner_market_rasen: 'themiragelincoln.co.uk',
+  }
+  const canonicalHost = canonicalHosts[source.venue_id]
+  if (canonicalHost) {
+    try {
+      const url = new URL(pageUrl)
+      return url.protocol === 'https:' && url.hostname.replace(/^www\./, '').toLowerCase() === canonicalHost
+    } catch {
+      return false
+    }
+  }
+
   if (isCupidsSource(source.venue_id, source.source_url)) {
     return isCupidsAllowedPage(pageUrl)
   }
@@ -9961,6 +10082,18 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (source.venue_id === 'afterdark_edinburgh_edinburgh') {
+    return ['https://www.afterdarkedinburgh.co.uk/club-nights-events-1']
+  }
+
+  if (source.venue_id === 'club_play_blackpool') {
+    return ['https://clubplay.net/events/', 'https://clubplay.net/events/?pno=2']
+  }
+
+  if (source.venue_id === 'ignite_west_drayton_heathrow') {
+    return ['https://club-ignite.co.uk/events/list/']
+  }
 
   if (isCupidsSource(source.venue_id, source.source_url)) {
     return discoverCupidsEventPages(source.source_url)
@@ -10118,7 +10251,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
   }
 
   if (isMirageLincolnSource(source.venue_id, source.source_url)) {
-    for (const url of discoverMirageLincolnEventPages(source.source_url)) {
+    for (const url of discoverMirageLincolnEventPages()) {
       urls.add(url)
     }
   }
@@ -10145,6 +10278,8 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (venueId === 'afterdark_edinburgh_edinburgh') return extractAfterdarkEdinburghEvents(html, pageUrl)
+  if (venueId === 'club_play_blackpool') return extractClubPlayEvents(html, pageUrl)
   if (isCupidsSource(venueId, pageUrl)) return extractCupidsEvents(html, pageUrl)
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
@@ -14657,6 +14792,11 @@ async function runScrapeRequest(request: Request) {
 
     const queue = source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
+      : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+        source.venue_id === 'ignite_west_drayton_heathrow' ||
+        source.venue_id === 'club_play_blackpool' ||
+        source.venue_id === 'the_mirage_caenby_corner_market_rasen'
+        ? targetVenueDiscoveredUrls
       : isHellfireSource(source.venue_id, source.source_url)
         ? targetVenueDiscoveredUrls
       : isHu9Source(source.venue_id, source.source_url)
@@ -14757,6 +14897,19 @@ async function runScrapeRequest(request: Request) {
       }
 
       try {
+        if (source.venue_id === 'the_mirage_caenby_corner_market_rasen' &&
+            !/\/event\/\d+\/?$/i.test(new URL(pageUrl).pathname)) {
+          for (const link of extractLinks(html, pageUrl)) {
+            try {
+              if (/\/event\/\d+\/?$/i.test(new URL(link.href).pathname) &&
+                  allowedSourcePageForVenue(source, link.href) && queue.length < 16 &&
+                  !queue.includes(link.href) && !seenPages.has(link.href)) queue.push(link.href)
+            } catch {
+              // Ignore malformed links on the venue's listing page.
+            }
+          }
+        }
+
         const pageImage = extractBestImage(html, pageUrl)
 
         if (pageImage) {
@@ -14769,8 +14922,11 @@ async function runScrapeRequest(request: Request) {
         }
 
         const pageText = cleanText(html).slice(0, 8000)
-        const jsonLdEvents = extractJsonLdEvents(html, pageUrl)
-        const calendarLinks = extractCalendarEventLinks(html, pageUrl)
+        const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          source.venue_id === 'ignite_west_drayton_heathrow' ||
+          source.venue_id === 'club_play_blackpool'
+        const jsonLdEvents = dedicatedCalendar ? [] : extractJsonLdEvents(html, pageUrl)
+        const calendarLinks = dedicatedCalendar ? [] : extractCalendarEventLinks(html, pageUrl)
         const townhouseEvents =
           source.venue_id === 'townhouse_wirral_near_liverpool'
             ? extractTownhouseEvents(html, pageUrl)
@@ -14784,7 +14940,7 @@ async function runScrapeRequest(request: Request) {
             ? await extractXtasiaEvents(html, pageUrl)
             : []
         const wixTileEvents =
-          isWixLikeSource(`${source.source_url} ${html}`)
+          !dedicatedCalendar && isWixLikeSource(`${source.source_url} ${html}`)
             ? extractWixCalendarTileEvents(html, pageUrl)
             : []
         const vanillaAlternativeEvents =
@@ -14855,7 +15011,7 @@ ${hu9HydratedText}`, pageUrl)
                   : []),
               ]
             : []
-        const links = extractLinks(html, pageUrl)
+        const links = dedicatedCalendar ? [] : extractLinks(html, pageUrl)
 
         for (const clubAlchemyEvent of clubAlchemyEvents) {
           candidatesFound++
@@ -15122,7 +15278,10 @@ ${hu9HydratedText}`, pageUrl)
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (!isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
+          if (source.venue_id !== 'afterdark_edinburgh_edinburgh' &&
+              source.venue_id !== 'ignite_west_drayton_heathrow' &&
+              source.venue_id !== 'club_play_blackpool' &&
+              !isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
             if (eventHtml) {
