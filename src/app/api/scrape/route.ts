@@ -2151,7 +2151,8 @@ function isIcsSourceUrl(url: string | null | undefined) {
   return (
     lower.endsWith('.ics') ||
     lower.includes('/calendar/ical/') ||
-    lower.includes('basic.ics')
+    lower.includes('basic.ics') ||
+    lower.includes('ical=1')
   )
 }
 
@@ -2292,7 +2293,9 @@ async function scrapeIcsSource(source: {
   const diaryPage =
     source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaPublicPageForIcs(source.source_url)
-      : source.source_url
+      : source.venue_id === 'liberty_elite_lutterworth'
+        ? 'https://libertyelite.co.uk/events/'
+        : source.source_url
 
   const diaryName =
     source.venue_id === 'xtasia_west_bromwich'
@@ -2336,8 +2339,13 @@ async function scrapeIcsSource(source: {
   const found: any[] = []
   const errors: any[] = []
   const runSeen = new Set<string>()
+  const today = new Date().toISOString().slice(0, 10)
 
   for (const event of icsEvents) {
+    if (source.venue_id === 'liberty_elite_lutterworth' && event.event_date && event.event_date < today) {
+      skipped++
+      continue
+    }
     candidatesFound++
 
     const title = cleanIcsEventTitleForVenue(source.venue_id, event.text)
@@ -2352,7 +2360,12 @@ async function scrapeIcsSource(source: {
       continue
     }
 
-    const ticketUrl = eventUrlWithAnchor(diaryPage, title)
+    const ticketUrl =
+      source.venue_id === 'liberty_elite_lutterworth' &&
+      sameDomain(diaryPage, event.href) &&
+      !isJunkUrl(event.href)
+        ? event.href
+        : eventUrlWithAnchor(diaryPage, title)
     const dedupeKey = eventDedupeKey(source.venue_id, title, event.event_date, ticketUrl)
 
     if (runSeen.has(dedupeKey)) {
@@ -14008,7 +14021,25 @@ async function runScrapeRequest(request: Request) {
     }
   }
 
-  for (const source of sources || []) {
+  const seenSourceKeys = new Set<string>()
+
+  for (const configuredSource of sources || []) {
+    const sourceKey = `${configuredSource.venue_id}|${configuredSource.source_url}`
+    if (seenSourceKeys.has(sourceKey)) {
+      // The same source was just checked for this venue; do not fetch it twice.
+      await supabaseAdmin
+        .from('event_sources')
+        .update({ last_checked: new Date().toISOString() })
+        .eq('source_id', configuredSource.source_id)
+      skipped++
+      continue
+    }
+    seenSourceKeys.add(sourceKey)
+
+    const source = configuredSource.venue_id === 'liberty_elite_lutterworth'
+      ? { ...configuredSource, source_url: 'https://libertyelite.co.uk/events/?ical=1' }
+      : configuredSource
+
     console.log('SOURCE START:', source.source_url)
 
     if (
