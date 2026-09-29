@@ -13953,7 +13953,12 @@ async function runScrapeRequest(request: Request) {
     sourcesQuery = sourcesQuery.eq('venue_id', targetVenueId)
   }
 
-  const { data: sources, error } = await sourcesQuery.limit(MAX_SOURCES)
+  // Rotate through the least recently checked sources so the 80-source cap
+  // cannot permanently starve venues added beyond the first batch.
+  const { data: sources, error } = await sourcesQuery
+    .order('last_checked', { ascending: true, nullsFirst: true })
+    .order('source_id', { ascending: true })
+    .limit(MAX_SOURCES)
 
   if (error) {
     return Response.json({ error: error.message }, { status: 500 })
