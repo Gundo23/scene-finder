@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomUUID } from 'node:crypto'
+import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEvent } from '@/lib/route69-calendar'
 
 export const runtime = 'nodejs'
 
@@ -6963,89 +6964,30 @@ function discoverRoute69EventPages(sourceUrl: string) {
   return [url].filter((pageUrl) => isRoute69AllowedPage(pageUrl) && !isJunkUrl(pageUrl))
 }
 
-function extractRoute69Events(html: string, baseUrl: string) {
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
+async function fetchRoute69CalendarEvents(html: string, baseUrl: string) {
+  const links = route69CalendarLinks(html, baseUrl, londonToday())
+  if (links.length === 0) throw new Error('No current Route69 calendar PDFs linked on events page')
 
-  if (!isRoute69AllowedPage(baseUrl)) return candidates
-
-  const lowerHtml = String(html || '').toLowerCase()
-  const pageText = cleanText(html).toLowerCase()
-
-  const hasRoute69EventsPage =
-    pageText.includes('please see the calendars below for our events') ||
-    lowerHtml.includes('r69eventsjun2026') ||
-    lowerHtml.includes('r69eventsjul2026') ||
-    lowerHtml.includes('guide to events')
-
-  if (!hasRoute69EventsPage) return candidates
-
-  const image = extractBestImage(html, baseUrl)
-  const now = new Date()
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const todayString = datePartsToString(today)
-
-  if (!todayString) return candidates
-
-  const junePdf = 'https://img1.wsimg.com/blobby/go/ef7be6ae-716c-4c5d-b2d1-01d1682ebb5f/R69EventsJUN2026.pdf'
-  const julyPdf = 'https://img1.wsimg.com/blobby/go/ef7be6ae-716c-4c5d-b2d1-01d1682ebb5f/R69EventsJUL2026.pdf'
-
-  const pageHasJunePdf = lowerHtml.includes('r69eventsjun2026') || lowerHtml.includes(junePdf.toLowerCase())
-  const pageHasJulyPdf = lowerHtml.includes('r69eventsjul2026') || lowerHtml.includes(julyPdf.toLowerCase())
-
-  const events = [
-    // Route69 publishes monthly PDF calendars. Only named future event cells are emitted.
-    // Plain open-session cells are deliberately skipped so we do not create generic opening-time rows.
-    { event_date: '2026-06-26', text: 'Kinky Night', start_time: '20:00', href: junePdf, raw: 'June 2026 Guide to Events - Friday 26 June - 8PM - 2AM - Kinky Night', pdfVisible: pageHasJunePdf },
-    { event_date: '2026-06-27', text: 'Greedy Girls', start_time: '20:00', href: junePdf, raw: 'June 2026 Guide to Events - Saturday 27 June - 8PM - 2AM - Greedy Girls', pdfVisible: pageHasJunePdf },
-    { event_date: '2026-07-04', text: 'Bare It All', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 4 July - 8PM - 2AM - Bare It All', pdfVisible: pageHasJulyPdf },
-    { event_date: '2026-07-05', text: 'Greedy Girls', start_time: '14:00', href: julyPdf, raw: 'July 2026 Guide to Events - Sunday 5 July - 2PM - 10PM - Greedy Girls', pdfVisible: pageHasJulyPdf },
-    { event_date: '2026-07-10', text: 'Kinky Night', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Friday 10 July - 8PM - 2AM - Kinky Night', pdfVisible: pageHasJulyPdf },
-    { event_date: '2026-07-11', text: 'BDSM Night', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 11 July - 8PM - 2AM - BDSM Night', pdfVisible: pageHasJulyPdf },
-    { event_date: '2026-07-18', text: 'Bi Night', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 18 July - 8PM - 2AM - Bi Night', pdfVisible: pageHasJulyPdf },
-    { event_date: '2026-07-19', text: 'Greedy Girls', start_time: '14:00', href: julyPdf, raw: 'July 2026 Guide to Events - Sunday 19 July - 2PM - 10PM - Greedy Girls', pdfVisible: pageHasJulyPdf },
-    { event_date: '2026-07-25', text: 'Greedy Girls', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Saturday 25 July - 8PM - 2AM - Greedy Girls', pdfVisible: pageHasJulyPdf },
-    { event_date: '2026-07-31', text: 'Greedy Girls', start_time: '20:00', href: julyPdf, raw: 'July 2026 Guide to Events - Friday 31 July - 8PM - 2AM - Greedy Girls', pdfVisible: pageHasJulyPdf },
-  ]
-
-  const seen = new Set<string>()
-
-  for (const event of events) {
-    if (!event.pdfVisible) continue
-    if (event.event_date < todayString) continue
-
-    const title = cleanSf10RecoveryTitle(event.text)
-      .replace(/^[-–—:|]+/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-
-    if (!title || isSf10RecoverySkipLine(title)) continue
-
-    const key = `${normalizeTitle(title)}|${event.event_date}|${normalizeTicketUrl(event.href)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-
-    candidates.push({
-      href: event.href,
-      text: title,
-      event_date: event.event_date,
-      start_time: event.start_time,
-      raw: event.raw,
-      image_url: image,
-      method: 'route69-pdf-calendar-fixed-list',
-    })
+  const events: Route69CalendarEvent[] = []
+  for (const link of links) {
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    try {
+      const response = await fetch(link, { signal: controller.signal, cache: 'no-store' })
+      if (!response.ok) throw new Error(`Calendar fetch returned ${response.status}`)
+      const length = Number(response.headers.get('content-length') || 0)
+      if (length > 2_000_000) throw new Error('Calendar PDF exceeds size limit')
+      const bytes = new Uint8Array(await response.arrayBuffer())
+      if (bytes.length > 2_000_000 || String.fromCharCode(...bytes.slice(0, 4)) !== '%PDF') {
+        throw new Error('Calendar response is not a valid sized PDF')
+      }
+      events.push(...await parseRoute69CalendarPdf(bytes, link, londonToday()))
+    } finally {
+      clearTimeout(timeout)
+    }
   }
-
-  return candidates
+  return events
 }
-
 
 
 function isMe1SaunaSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
@@ -10388,7 +10330,6 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
   if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
   if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
-  if (isRoute69Source(venueId, pageUrl)) return extractRoute69Events(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
   if (isSaunabarBournemouthSource(venueId, pageUrl)) return extractSaunabarBournemouthEvents(html, pageUrl)
@@ -15063,6 +15004,18 @@ async function runScrapeRequest(request: Request) {
           source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, `${source.source_url} ${pageUrl}`) || isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
+
+        if (isRoute69Source(source.venue_id, pageUrl) && isRoute69AllowedPage(pageUrl)) {
+          try {
+            targetVenueEvents = await fetchRoute69CalendarEvents(html, pageUrl)
+          } catch (error) {
+            failed++
+            const reason = error instanceof Error ? error.message : 'Route69 PDF extraction failed'
+            if (failedPages.length < 30) {
+              failedPages.push({ venue_id: source.venue_id, page_url: pageUrl, reason })
+            }
+          }
+        }
 
         if (isHu9Source(source.venue_id, `${source.source_url} ${pageUrl}`) && targetVenueEvents.length === 0) {
           const hu9HydratedText = await fetchHu9HydratedText(html, pageUrl)
