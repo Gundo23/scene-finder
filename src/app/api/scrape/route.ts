@@ -2743,7 +2743,9 @@ function extractLeBoudoirListingEvents(html: string, baseUrl: string) {
       return nextHref && new URL(nextHref).pathname !== new URL(href).pathname
     })
     const end = Math.min(next?.index ?? html.length, (link.index || 0) + 4500)
-    const card = cleanText(html.slice((link.index || 0) + link[0].length, end))
+    // Modern Lifestyle emits a bare `&nbsp` between the day and time.
+    // Decode it before matching the date; the shared HTML cleaner expects `&nbsp;`.
+    const card = cleanText(html.slice((link.index || 0) + link[0].length, end).replace(/&nbsp;?/gi, ' '))
     if (!/\bat\s+Le Boudoir\b/i.test(card)) continue
     const date = card.match(/\b(Mon|Tue|Wed|Thu|Fri|Sat|Sun),?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2})\s+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b/i)
     if (!date) continue
