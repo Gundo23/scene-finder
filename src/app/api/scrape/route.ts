@@ -3,6 +3,7 @@ import { Resend } from 'resend'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomUUID } from 'node:crypto'
 import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEvent } from '@/lib/route69-calendar'
+import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 
 export const runtime = 'nodejs'
 
@@ -9934,6 +9935,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('club_play_blackpool') ||
     combined.includes('le_boudoir_club_london') ||
     combined.includes('f_society_newcastle_upon_tyne_north_east') ||
+    combined.includes('infusions_infusion_blackpool_blackpool') ||
     isIgniteSource(venueId, sourceUrl) ||
     combined.includes('club_bacchus_dundee') ||
     combined.includes('clubbacchusdundee.uk') ||
@@ -9990,6 +9992,7 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
     le_boudoir_club_london: 'leboudoir.club',
     ignite_west_drayton_heathrow: 'club-ignite.co.uk',
     the_mirage_caenby_corner_market_rasen: 'themiragelincoln.co.uk',
+    infusions_infusion_blackpool_blackpool: 'infusionblackpool.co.uk',
   }
   const canonicalHost = canonicalHosts[source.venue_id]
   if (canonicalHost) {
@@ -10126,6 +10129,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (source.venue_id === 'f_society_newcastle_upon_tyne_north_east') {
     return ['https://f-society.uk/events']
+  }
+
+  if (source.venue_id === 'infusions_infusion_blackpool_blackpool') {
+    return ['https://www.infusionblackpool.co.uk/events/']
   }
 
   if (source.venue_id === 'ignite_west_drayton_heathrow') {
@@ -10319,6 +10326,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'club_play_blackpool') return extractClubPlayEvents(html, pageUrl)
   if (venueId === 'le_boudoir_club_london') return extractLeBoudoirListingEvents(html, pageUrl)
   if (venueId === 'f_society_newcastle_upon_tyne_north_east') return extractFSocietyNextEvent(html, pageUrl)
+  if (venueId === 'infusions_infusion_blackpool_blackpool') return parseInfusionMonth(html, pageUrl, londonToday())
   if (isCupidsSource(venueId, pageUrl)) return extractCupidsEvents(html, pageUrl)
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
@@ -13832,6 +13840,7 @@ async function finalizeVenueSafety(input: {
     Boolean(finalCount.error) ||
     (stagedCount > 0 && finalCount.count === 0) ||
     (previousCount > 0 && finalCount.count === 0)
+  const emptySource = previousCount === 0 && stagedCount === 0
 
   const status =
     visibilityFailure
@@ -13840,9 +13849,19 @@ async function finalizeVenueSafety(input: {
       ? 'accepted_with_publish_errors'
       : staleMissing > 0
         ? 'accepted_stale_review'
+      : emptySource && (input.failedPageCount > 0 || input.errorCount > 0)
+        ? 'source_failed'
+      : emptySource
+        ? 'empty_source'
         : 'accepted'
 
   const finalReasons: string[] = []
+
+  if (emptySource) {
+    finalReasons.push(input.failedPageCount > 0 || input.errorCount > 0
+      ? 'The source returned no future events and at least one page or extraction failed'
+      : 'The source returned no confirmed future dated events')
+  }
 
   if (qualityReviewReason) {
     finalReasons.push(`${qualityReviewReason}; individually approved candidates were processed`)
@@ -14838,6 +14857,7 @@ async function runScrapeRequest(request: Request) {
     const queue = source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
       : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+        source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
         source.venue_id === 'ignite_west_drayton_heathrow' ||
         source.venue_id === 'club_play_blackpool' ||
         source.venue_id === 'le_boudoir_club_london' ||
@@ -14874,6 +14894,8 @@ async function runScrapeRequest(request: Request) {
     const maxPagesForSource =
       source.venue_id === 'townhouse_wirral_near_liverpool'
         ? 1
+        : source.venue_id === 'infusions_infusion_blackpool_blackpool'
+          ? 5
         : source.venue_id === 'le_boudoir_club_london'
           ? 1
         : source.venue_id === 'f_society_newcastle_upon_tyne_north_east'
@@ -14948,6 +14970,21 @@ async function runScrapeRequest(request: Request) {
       }
 
       try {
+        if (source.venue_id === 'infusions_infusion_blackpool_blackpool' &&
+            new URL(pageUrl).pathname.replace(/\/+$/, '') === '/events') {
+          const monthLinks = infusionMonthLinks(html, pageUrl, londonToday())
+          if (monthLinks.length === 0) {
+            failed++
+            if (failedPages.length < 30) failedPages.push({
+              venue_id: source.venue_id, page_url: pageUrl,
+              reason: 'Official events page has no current or upcoming monthly calendars',
+            })
+          }
+          for (const link of monthLinks) {
+            if (!seenPages.has(link) && !queue.includes(link)) queue.push(link)
+          }
+        }
+
         if (source.venue_id === 'the_mirage_caenby_corner_market_rasen' &&
             !/\/event\/\d+\/?$/i.test(new URL(pageUrl).pathname)) {
           for (const link of extractLinks(html, pageUrl)) {
@@ -14974,6 +15011,7 @@ async function runScrapeRequest(request: Request) {
 
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
           source.venue_id === 'ignite_west_drayton_heathrow' ||
           source.venue_id === 'club_play_blackpool' ||
           source.venue_id === 'le_boudoir_club_london' ||

@@ -15,7 +15,7 @@ type HealthRow = {
   last_future_event_date: string | null
 }
 
-type IssueKind = 'zero_events' | 'stale_scrape' | 'short_runway'
+type IssueKind = 'zero_events' | 'stale_scrape' | 'short_runway' | 'missing_source'
 type Issue = { venue_id: string; issue_kind: IssueKind; detail: string }
 type AlertState = {
   venue_id: string
@@ -25,6 +25,7 @@ type AlertState = {
 }
 
 const repeatAfterMs = 24 * 60 * 60 * 1000
+const missingSourceRepeatAfterMs = 7 * repeatAfterMs
 const staleAfterMs = 48 * 60 * 60 * 1000
 
 function escapeHtml(value: string) {
@@ -78,12 +79,15 @@ export async function GET(request: Request) {
       issues.push({ venue_id: row.venue_id, issue_kind: 'zero_events',
         detail: 'Previously published events exist, but none are visible now.' })
     }
-    if (!successAt || now.getTime() - successAt > staleAfterMs) {
+    if (Number(row.active_source_count) === 0) {
+      issues.push({ venue_id: row.venue_id, issue_kind: 'missing_source',
+        detail: 'No active official event source is configured for this public venue.' })
+    } else if (!successAt || now.getTime() - successAt > staleAfterMs) {
       issues.push({ venue_id: row.venue_id, issue_kind: 'stale_scrape',
-        detail: `Last completed healthy scrape: ${row.last_completed_success || 'never'}. ` +
+        detail: `Last scrape yielding confirmed future events: ${row.last_completed_success || 'never'}. ` +
           `Last source attempt: ${row.latest_source_attempt || 'never'}.` })
     }
-    if (historical >= 5 && visible > 0 &&
+    if (visible > 0 &&
         row.last_future_event_date && row.last_future_event_date <= lastRunwayDate) {
       issues.push({ venue_id: row.venue_id, issue_kind: 'short_runway',
         detail: `${visible} visible future event(s); last dated event ${row.last_future_event_date}. ` +
@@ -98,8 +102,10 @@ export async function GET(request: Request) {
   const currentKeys = new Set(issues.map((issue) => key(issue.venue_id, issue.issue_kind)))
   const toNotify = issues.filter((issue) => {
     const state = previous.get(key(issue.venue_id, issue.issue_kind))
+    const repeatInterval = issue.issue_kind === 'missing_source'
+      ? missingSourceRepeatAfterMs : repeatAfterMs
     return !state?.active || !state.last_notified_at ||
-      now.getTime() - new Date(state.last_notified_at).getTime() >= repeatAfterMs
+      now.getTime() - new Date(state.last_notified_at).getTime() >= repeatInterval
   })
 
   if (toNotify.length > 0) {
@@ -151,6 +157,10 @@ export async function GET(request: Request) {
     }
   }
 
+  const issueCounts = Object.fromEntries(
+    (['zero_events', 'stale_scrape', 'short_runway', 'missing_source'] as IssueKind[])
+      .map((kind) => [kind, issues.filter((issue) => issue.issue_kind === kind).length])
+  )
   return Response.json({ checked_venues: health.length,
-    issue_count: issues.length, alerts_sent: toNotify.length })
+    issue_count: issues.length, issues_by_kind: issueCounts, alerts_sent: toNotify.length })
 }
