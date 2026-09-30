@@ -1,5 +1,3 @@
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
-
 type TextItem = { str: string; x: number; y: number }
 export type Route69CalendarEvent = {
   href: string
@@ -43,6 +41,15 @@ function collapseSpacedLetters(value: string) {
 export async function parseRoute69CalendarPdf(
   data: Uint8Array, pdfUrl: string, today: string
 ): Promise<Route69CalendarEvent[]> {
+  // PDF.js needs DOMMatrix during module evaluation in Node. Loading it here
+  // keeps a missing native canvas dependency from breaking every venue scrape.
+  const canvas = await import('@napi-rs/canvas')
+  Object.assign(globalThis, {
+    DOMMatrix: canvas.DOMMatrix,
+    ImageData: canvas.ImageData,
+    Path2D: canvas.Path2D,
+  })
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const document = await getDocument({ data, useSystemFonts: true, disableFontFace: true }).promise
   try {
     if (document.numPages !== 1) throw new Error('Unexpected Route69 calendar page count')
