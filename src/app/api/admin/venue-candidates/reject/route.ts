@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
+import { ADMIN_COOKIE, validAdminSession } from '@/lib/admin-session'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,6 +9,9 @@ const supabaseAdmin = createClient(
 )
 
 export async function POST(request: Request) {
+  if (!validAdminSession((await cookies()).get(ADMIN_COOKIE)?.value)) {
+    return NextResponse.json({ error: 'Admin sign-in required' }, { status: 401 })
+  }
   const formData = await request.formData()
   const id = String(formData.get('id') || '')
 
