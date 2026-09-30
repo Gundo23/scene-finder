@@ -6,6 +6,7 @@ WITH verified(venue_id, source_url) AS (
   VALUES
     ('curious_club_leicester', 'https://www.curious-club.com/special'),
     ('dv8_kent_kent', 'https://dv8kent.co.uk/event-calendar/'),
+    ('eagle_london_london', 'https://www.eaglelondon.com/'),
     ('xtasia_west_bromwich', 'https://www.xtasia.co.uk/en')
 )
 INSERT INTO public.event_sources (source_id, venue_id, source_url, active, collection_method)
@@ -21,5 +22,5 @@ RETURNING venue_id, source_url;
 SELECT h.venue_id, h.active_source_count, h.visible_future_count,
        h.latest_source_attempt, h.last_completed_success
 FROM public.get_venue_event_health() h
-WHERE h.venue_id IN ('curious_club_leicester', 'dv8_kent_kent', 'xtasia_west_bromwich')
+WHERE h.venue_id IN ('curious_club_leicester', 'dv8_kent_kent', 'eagle_london_london', 'xtasia_west_bromwich')
 ORDER BY h.venue_id;
