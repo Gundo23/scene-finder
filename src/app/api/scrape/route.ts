@@ -6,6 +6,8 @@ import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEven
 import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { alertReasonKey, scrapeSafetyPolicy } from '@/lib/scrape-safety-policy'
+import { parseTownhouseLocation } from '@/lib/townhouse-location-calendar'
+import { sheWorldSchedule } from '@/lib/she-world-schedule'
 
 export const runtime = 'nodejs'
 
@@ -9393,15 +9395,12 @@ function extractSheWorldEvents(html: string, baseUrl: string) {
   }
 
   const pageText = cleanText(decodeEscapedText(html)).replace(/\s+/g, ' ').trim()
-  const pageTextNormalised = normalizeTitle(pageText)
+  const schedule = sheWorldSchedule(pageText)
   const pageImage = extractBestImage(html, baseUrl)
   const ticketUrl = 'https://she.world/event-entry-tickets'
   const today = new Date()
   const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
   const seen = new Set<string>()
-
-  const hasSaturday = pageTextNormalised.includes('every saturday')
-  const hasThursday = pageTextNormalised.includes('every thursday')
 
   const pushSheWorldRecurring = (input: {
     title: string
@@ -9433,16 +9432,25 @@ function extractSheWorldEvents(html: string, baseUrl: string) {
     const eventDate = formatSheWorldDate(date)
     if (!eventDate) continue
 
-    if (hasThursday && date.getDay() === 4) {
+    if (schedule.firstMonday && date.getDay() === 1 && date.getDate() <= 7) {
       pushSheWorldRecurring({
-        title: 'She World Thursday Club Night',
+        title: 'She World First Monday Club Night',
         eventDate,
-        startTime: '13:00',
-        raw: 'Open every Thursday 1pm - 1am. Entry 20+ only.',
+        startTime: '17:00',
+        raw: 'Open on the first Monday of each month 5pm-1am, according to the official event dates page.',
       })
     }
 
-    if (hasSaturday && date.getDay() === 6) {
+    if (schedule.thursday && date.getDay() === 4) {
+      pushSheWorldRecurring({
+        title: 'She World Thursday Club Night',
+        eventDate,
+        startTime: '14:00',
+        raw: 'Open every Thursday 2pm - 2am, according to the official event dates page. Entry 20+ only.',
+      })
+    }
+
+    if (schedule.saturday && date.getDay() === 6) {
       pushSheWorldRecurring({
         title: 'She World Saturday Club Night',
         eventDate,
@@ -14702,22 +14710,9 @@ async function runScrapeRequest(request: Request) {
         }
       }
 
-      // Keep the fast directory parser as a fallback/extra source, but do not deep-crawl.
-      const townhouseUrls = [
-        'https://townhouseswingers.com/event-directory/',
-        source.source_url,
-      ]
-        .filter(Boolean)
-        .filter((url, index, array) => array.indexOf(url) === index)
-        .filter((url) => {
-          try {
-            const parsed = new URL(url)
-            return parsed.hostname.replace(/^www\./, '').toLowerCase() === 'townhouseswingers.com'
-          } catch {
-            return false
-          }
-        })
-        .slice(0, 2)
+      // The old /event-directory/ is now an empty shell. The official venue
+      // location page has fully dated EventON rows for upcoming months.
+      const townhouseUrls = ['https://townhouseswingers.com/event-location/townhouse/']
 
       for (const pageUrl of townhouseUrls) {
         checkedPages++
@@ -14746,7 +14741,7 @@ async function runScrapeRequest(request: Request) {
           if (venueImageResult.updated) venueImagesUpdated++
         }
 
-        const townhouseEvents = extractTownhouseEvents(html, pageUrl)
+        const townhouseEvents = parseTownhouseLocation(html, pageUrl, londonToday())
 
         for (const townhouseEvent of townhouseEvents) {
           candidatesFound++
@@ -14797,7 +14792,7 @@ async function runScrapeRequest(request: Request) {
               event_date: townhouseEvent.event_date,
               event_url: ticketUrl,
               image_url: pageImage,
-              method: 'townhouse-directory-fast',
+              method: 'townhouse-location-calendar',
             })
           }
         }
