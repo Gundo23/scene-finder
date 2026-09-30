@@ -19,6 +19,22 @@ WHERE NOT EXISTS (
 )
 RETURNING venue_id, source_url;
 
+UPDATE public.venues AS venue
+SET event_source_url = verified.source_url
+FROM (VALUES
+  ('curious_club_leicester', 'https://www.curious-club.com/special'),
+  ('dv8_kent_kent', 'https://dv8kent.co.uk/event-calendar/'),
+  ('eagle_london_london', 'https://www.eaglelondon.com/'),
+  ('xtasia_west_bromwich', 'https://www.xtasia.co.uk/en')
+) AS verified(venue_id, source_url)
+WHERE venue.venue_id = verified.venue_id
+  AND venue.event_source_url IS DISTINCT FROM verified.source_url
+  AND EXISTS (
+    SELECT 1 FROM public.event_sources source
+    WHERE source.venue_id = verified.venue_id AND source.active = true
+      AND source.source_url = verified.source_url
+  );
+
 SELECT h.venue_id, h.active_source_count, h.visible_future_count,
        h.latest_source_attempt, h.last_completed_success
 FROM public.get_venue_event_health() h
