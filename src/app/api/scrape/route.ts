@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomUUID } from 'node:crypto'
 import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEvent } from '@/lib/route69-calendar'
 import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
+import { parseDv8Calendar } from '@/lib/dv8-calendar'
 
 export const runtime = 'nodejs'
 
@@ -9936,6 +9937,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('le_boudoir_club_london') ||
     combined.includes('f_society_newcastle_upon_tyne_north_east') ||
     combined.includes('infusions_infusion_blackpool_blackpool') ||
+    combined.includes('dv8_kent_kent') ||
     isIgniteSource(venueId, sourceUrl) ||
     combined.includes('club_bacchus_dundee') ||
     combined.includes('clubbacchusdundee.uk') ||
@@ -9993,6 +9995,7 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
     ignite_west_drayton_heathrow: 'club-ignite.co.uk',
     the_mirage_caenby_corner_market_rasen: 'themiragelincoln.co.uk',
     infusions_infusion_blackpool_blackpool: 'infusionblackpool.co.uk',
+    dv8_kent_kent: 'dv8club.co.uk',
   }
   const canonicalHost = canonicalHosts[source.venue_id]
   if (canonicalHost) {
@@ -10133,6 +10136,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (source.venue_id === 'infusions_infusion_blackpool_blackpool') {
     return ['https://www.infusionblackpool.co.uk/events/']
+  }
+
+  if (source.venue_id === 'dv8_kent_kent') {
+    return ['https://dv8club.co.uk/']
   }
 
   if (source.venue_id === 'ignite_west_drayton_heathrow') {
@@ -10327,6 +10334,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'le_boudoir_club_london') return extractLeBoudoirListingEvents(html, pageUrl)
   if (venueId === 'f_society_newcastle_upon_tyne_north_east') return extractFSocietyNextEvent(html, pageUrl)
   if (venueId === 'infusions_infusion_blackpool_blackpool') return parseInfusionMonth(html, pageUrl, londonToday())
+  if (venueId === 'dv8_kent_kent') return parseDv8Calendar(html, pageUrl, londonToday())
   if (isCupidsSource(venueId, pageUrl)) return extractCupidsEvents(html, pageUrl)
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
@@ -14858,6 +14866,7 @@ async function runScrapeRequest(request: Request) {
       ? xtasiaDiscoveredUrls
       : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
         source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
+        source.venue_id === 'dv8_kent_kent' ||
         source.venue_id === 'ignite_west_drayton_heathrow' ||
         source.venue_id === 'club_play_blackpool' ||
         source.venue_id === 'le_boudoir_club_london' ||
@@ -14896,6 +14905,8 @@ async function runScrapeRequest(request: Request) {
         ? 1
         : source.venue_id === 'infusions_infusion_blackpool_blackpool'
           ? 5
+        : source.venue_id === 'dv8_kent_kent'
+          ? 1
         : source.venue_id === 'le_boudoir_club_london'
           ? 1
         : source.venue_id === 'f_society_newcastle_upon_tyne_north_east'
@@ -15012,6 +15023,7 @@ async function runScrapeRequest(request: Request) {
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
           source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
+          source.venue_id === 'dv8_kent_kent' ||
           source.venue_id === 'ignite_west_drayton_heathrow' ||
           source.venue_id === 'club_play_blackpool' ||
           source.venue_id === 'le_boudoir_club_london' ||
