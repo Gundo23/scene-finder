@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEvent } from '@/lib/route69-calendar'
 import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 import { parseDv8Calendar } from '@/lib/dv8-calendar'
+import { alertReasonKey, scrapeSafetyPolicy } from '@/lib/scrape-safety-policy'
 
 export const runtime = 'nodejs'
 
@@ -13415,10 +13416,35 @@ async function sendScrapeSafetyAlert(input: {
     return { sent: false, error: 'RESEND_API_KEY is not configured' }
   }
 
+  const now = new Date()
+  const reasonKey = createHash('sha256')
+    .update(`${input.status}|${alertReasonKey(input.reasons)}`).digest('hex')
+  const { data: previousAlert } = await supabaseAdmin
+    .from('venue_scrape_alert_state')
+    .select('last_notified_at')
+    .eq('venue_id', input.venueId)
+    .eq('reason_key', reasonKey)
+    .maybeSingle()
+  if (previousAlert?.last_notified_at &&
+      now.getTime() - new Date(previousAlert.last_notified_at).getTime() < 24 * 60 * 60 * 1000) {
+    return { sent: false, error: null }
+  }
+
   const subject =
-    input.status === 'quarantined'
+    input.status.startsWith('quarantined')
       ? `Scene Finder safety guard blocked ${input.venueId}`
       : `Scene Finder scrape warning: ${input.venueId}`
+
+  const action = input.reasons.some((reason) => /snapshot/i.test(reason))
+    ? 'The recovery snapshot failed. Check the database error before retrying this venue.'
+    : input.reasons.some((reason) => /spiked|unusually large/i.test(reason))
+      ? 'The new batch was held. Check candidate titles and dates in the source before changing the scraper.'
+      : input.reasons.some((reason) => /quality guard/i.test(reason))
+        ? 'Approved events were processed. Review the held entries for this venue in the Supabase event_review_queue.'
+        : 'Check the source page and the latest venue scrape run. Published future events were retained.'
+  const safe = (value: string) => value.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character] || character)
 
   const { error } = await resend.emails.send({
     from: ZERO_EVENT_ALERT_FROM,
@@ -13426,17 +13452,25 @@ async function sendScrapeSafetyAlert(input: {
     subject,
     html: `
       <h2>Scene Finder scraper safety alert</h2>
-      <p><strong>${input.venueId}</strong></p>
-      <p>Status: <strong>${input.status}</strong></p>
+      <p><strong>${safe(input.venueId)}</strong></p>
+      <p>Status: <strong>${safe(input.status)}</strong></p>
       <p>Previous future events: <strong>${input.previousCount}</strong></p>
       <p>New staged future events: <strong>${input.stagedCount}</strong></p>
       <p>Reason${input.reasons.length === 1 ? '' : 's'}:</p>
-      <ul>${input.reasons.map((reason) => `<li>${reason}</li>`).join('')}</ul>
-      <p>The live event set was preserved where possible.</p>
-      <p>Checked: ${new Date().toISOString()}</p>
+      <ul>${input.reasons.map((reason) => `<li>${safe(reason)}</li>`).join('')}</ul>
+      <p><strong>What to do:</strong> ${safe(action)}</p>
+      <p><a href="https://www.scenefinder.co.uk/venue/${encodeURIComponent(input.venueId)}">View the public venue page</a></p>
+      <p>Checked: ${now.toISOString()}</p>
     `,
   })
 
+  if (!error) {
+    const { error: stateError } = await supabaseAdmin.from('venue_scrape_alert_state').upsert({
+      venue_id: input.venueId, reason_key: reasonKey, status: input.status,
+      last_notified_at: now.toISOString(),
+    }, { onConflict: 'venue_id,reason_key' })
+    return { sent: true, error: stateError?.message || null }
+  }
   return { sent: !error, error: error?.message || null }
 }
 
@@ -13652,53 +13686,14 @@ async function finalizeVenueSafety(input: {
 
   const previousCount = previous.count
   const stagedCount = stagedFutureEvents.length
-  const reasons: string[] = []
-
-  if (previousCount > 0 && stagedCount === 0) {
-    reasons.push(`Future events dropped from ${previousCount} to 0`)
-  }
-
-  if (previousCount >= 5 && stagedCount > 0 && stagedCount < Math.ceil(previousCount * 0.4)) {
-    reasons.push(
-      `Future event count dropped by more than 60% (${previousCount} → ${stagedCount})`
-    )
-  }
-
-  if (
-    previousCount >= 5 &&
-    stagedCount > Math.max(previousCount * 3, previousCount + 50)
-  ) {
-    reasons.push(
-      `Future event count spiked unexpectedly (${previousCount} → ${stagedCount})`
-    )
-  }
-
-  if (stagedCount > 300) {
-    reasons.push(`Scrape produced an unusually large future event set (${stagedCount})`)
-  }
-
-  if (input.failedPageCount >= 3 && stagedCount < previousCount) {
-    reasons.push(`${input.failedPageCount} source pages failed during the scrape`)
-  }
-
   const candidateAttempts = context.candidateAttemptsByVenue.get(input.venueId) || 0
   const qualityReviewCount = context.reviewedByVenue.get(input.venueId) || 0
+  const policy = scrapeSafetyPolicy({ previousCount, stagedCount,
+    failedPageCount: input.failedPageCount, candidateAttempts, qualityReviewCount })
+  const reasons = [...policy.blocking, ...policy.advisory]
+  const qualityReviewReason = policy.qualityReviewReason
 
-  // Each questionable candidate has already been held in event_review_queue.
-  // Keep the batch quarantine when live events exist or another safety rule
-  // fires. With no live events, publish the separately approved candidates
-  // and alert about the individually held candidates.
-  const qualityReviewReason = (
-    candidateAttempts >= 8 &&
-    qualityReviewCount >= 3 &&
-    qualityReviewCount / candidateAttempts >= 0.35
-  ) ? `Data quality guard held ${qualityReviewCount} of ${candidateAttempts} candidates for individual review` : null
-
-  if (qualityReviewReason && (previousCount > 0 || reasons.length > 0)) {
-    reasons.push(qualityReviewReason)
-  }
-
-  if (reasons.length > 0) {
+  if (policy.blocking.length > 0) {
     const logError = await recordScrapeSafetyRun({
       batchId: context.batchId,
       venueId: input.venueId,
@@ -13772,7 +13767,7 @@ async function finalizeVenueSafety(input: {
       previousCount,
       stagedCount,
       reasons: snapshotReasons,
-      status: 'quarantined',
+      status: 'quarantined_snapshot_failure',
     })
 
     return {
@@ -13848,7 +13843,7 @@ async function finalizeVenueSafety(input: {
     Boolean(finalCount.error) ||
     (stagedCount > 0 && finalCount.count === 0) ||
     (previousCount > 0 && finalCount.count === 0)
-  const emptySource = previousCount === 0 && stagedCount === 0
+  const noStagedEvents = stagedCount === 0
 
   const status =
     visibilityFailure
@@ -13857,22 +13852,23 @@ async function finalizeVenueSafety(input: {
       ? 'accepted_with_publish_errors'
       : staleMissing > 0
         ? 'accepted_stale_review'
-      : emptySource && (input.failedPageCount > 0 || input.errorCount > 0)
+      : noStagedEvents && (input.failedPageCount > 0 || input.errorCount > 0)
         ? 'source_failed'
-      : emptySource
+      : noStagedEvents
         ? 'empty_source'
         : 'accepted'
 
-  const finalReasons: string[] = []
+  const finalReasons: string[] = [...policy.advisory]
 
-  if (emptySource) {
+  if (noStagedEvents && previousCount === 0) {
     finalReasons.push(input.failedPageCount > 0 || input.errorCount > 0
       ? 'The source returned no future events and at least one page or extraction failed'
       : 'The source returned no confirmed future dated events')
   }
 
   if (qualityReviewReason) {
-    finalReasons.push(`${qualityReviewReason}; individually approved candidates were processed`)
+    const index = finalReasons.indexOf(qualityReviewReason)
+    if (index !== -1) finalReasons[index] += '; individually approved candidates were processed'
   }
 
   if (visibilityFailure) {
