@@ -1,12 +1,23 @@
 import { createClient } from '@supabase/supabase-js'
 import Link from 'next/link'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { ADMIN_COOKIE, validAdminSession } from '@/lib/admin-session'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export default async function VenueCandidatesPage() {
+export default async function VenueCandidatesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>
+}) {
+  if (!validAdminSession((await cookies()).get(ADMIN_COOKIE)?.value)) {
+    redirect('/admin/submissions')
+  }
+  const { error: actionError } = await searchParams
   const { data: candidates, error } = await supabaseAdmin
     .from('venue_candidates')
     .select('*')
@@ -26,6 +37,10 @@ export default async function VenueCandidatesPage() {
         <p className="mt-3 text-zinc-400">
           Review Scout discoveries before adding them to Scene Finder.
         </p>
+
+        {actionError && (
+          <p className="mt-3 text-sm text-red-400">Could not save venue source: {actionError}</p>
+        )}
 
         {error ? (
           <p className="mt-6 text-red-400">{error.message}</p>
