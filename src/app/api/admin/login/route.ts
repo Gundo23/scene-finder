@@ -1,4 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
+import { NextResponse } from 'next/server'
+import { ADMIN_COOKIE, ADMIN_SESSION_SECONDS, createAdminSession } from '@/lib/admin-session'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -28,10 +30,18 @@ export async function POST(request: Request) {
   }
 
   if (data === true) {
-    return Response.json({
+    const response = NextResponse.json({
       success: true,
       username,
     })
+    response.cookies.set(ADMIN_COOKIE, createAdminSession(), {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      path: '/',
+      maxAge: ADMIN_SESSION_SECONDS,
+    })
+    return response
   }
 
   return Response.json(
