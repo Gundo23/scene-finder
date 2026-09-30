@@ -1090,6 +1090,12 @@ type VenueEventDiscovery = {
 
   nextSevenDaysVenueIds: Set<string>
 
+  socialVenueIds: Set<string>
+
+  newbieVenueIds: Set<string>
+
+  bdsmVenueIds: Set<string>
+
 }
 
 async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscovery> {
@@ -1101,6 +1107,12 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
   const tonightVenueIds = new Set<string>()
 
   const nextSevenDaysVenueIds = new Set<string>()
+
+  const socialVenueIds = new Set<string>()
+
+  const newbieVenueIds = new Set<string>()
+
+  const bdsmVenueIds = new Set<string>()
 
   const nextSevenDays = getNextSevenDaysRange(today)
 
@@ -1114,7 +1126,7 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
       .from('events')
 
-      .select('event_id, venue_id, event_date, start_time')
+      .select('event_id, venue_id, event_name, event_type, event_date, start_time')
 
       .eq('is_published', true)
 
@@ -1146,6 +1158,12 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
         nextSevenDaysVenueIds: new Set(),
 
+        socialVenueIds: new Set(),
+
+        newbieVenueIds: new Set(),
+
+        bdsmVenueIds: new Set(),
+
       }
 
     }
@@ -1163,6 +1181,14 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
       )
 
       if (!event.event_date) return
+
+      const eventTopic = `${event.event_name || ''} ${event.event_type || ''}`.toLowerCase()
+
+      if (/\bsocials?\b|\bmunch(?:es)?\b|\bmeet(?:up|s)?\b/.test(eventTopic)) socialVenueIds.add(event.venue_id)
+
+      if (/\bnewb(?:ie|ies)\b|\bnewcomers?\b|\bfirst[ -]timers?\b/.test(eventTopic)) newbieVenueIds.add(event.venue_id)
+
+      if (/\bbdsm\b|\bbondage\b/.test(eventTopic)) bdsmVenueIds.add(event.venue_id)
 
       const existingNextDate = nextEventDateByVenue.get(event.venue_id)
 
@@ -1213,6 +1239,12 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
     tonightVenueIds,
 
     nextSevenDaysVenueIds,
+
+    socialVenueIds,
+
+    newbieVenueIds,
+
+    bdsmVenueIds,
 
   }
 
@@ -1344,9 +1376,13 @@ function venueMatchesQuickCategory(
 
     category?: string | null
 
+    venue_id?: string | null
+
   },
 
-  quickCategory: string
+  quickCategory: string,
+
+  eventVenueIds: Set<string>
 
 ) {
 
@@ -1372,7 +1408,22 @@ function venueMatchesQuickCategory(
 
   if (quickCategory === 'socials') {
 
-    return text.includes('social') || text.includes('munch') || text.includes('meet')
+    return text.includes('social') || text.includes('munch') || text.includes('meet') ||
+      (!!venue.venue_id && eventVenueIds.has(venue.venue_id))
+
+  }
+
+  if (quickCategory === 'newbie') {
+
+    return text.includes('newbie') || text.includes('newcomer') ||
+      (!!venue.venue_id && eventVenueIds.has(venue.venue_id))
+
+  }
+
+  if (quickCategory === 'bdsm') {
+
+    return text.includes('bdsm') || text.includes('bondage') ||
+      (!!venue.venue_id && eventVenueIds.has(venue.venue_id))
 
   }
 
@@ -1518,6 +1569,12 @@ export default async function VenuesPage({
 
     nextSevenDaysVenueIds,
 
+    socialVenueIds,
+
+    newbieVenueIds,
+
+    bdsmVenueIds,
+
   } = eventDiscovery
 
   const venueCoordinatesById = postcodeOrigin
@@ -1553,6 +1610,10 @@ export default async function VenuesPage({
   const hasFilters = Boolean(search || city || region || category || timing)
 
   const hasAdvancedFilters = Boolean(city || region)
+
+  const matchingEventVenues = category === 'socials' ? socialVenueIds
+    : category === 'newbie' ? newbieVenueIds
+      : category === 'bdsm' ? bdsmVenueIds : new Set<string>()
 
   const publicVenues = [...(venues || [])].filter((venue) => {
 
@@ -1598,7 +1659,7 @@ export default async function VenuesPage({
 
     }
 
-    if (!venueMatchesQuickCategory(venue, category)) {
+    if (!venueMatchesQuickCategory(venue, category, matchingEventVenues)) {
 
       return false
 
@@ -1832,19 +1893,19 @@ export default async function VenuesPage({
 
             <p className="mt-1 text-sm text-zinc-400">
 
-              Find what is happening tonight, the next 7 days, or jump straight to clubs, saunas and kink venues.
+              Find what is happening tonight, the next 7 days, or browse clubs, saunas and event themes.
 
             </p>
 
           </div>
 
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="mt-3 grid grid-cols-4 gap-2 md:flex md:flex-nowrap md:overflow-x-auto md:pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
             <Link
 
               href={makeFilterHref({ timing: timing === 'tonight' ? '' : 'tonight' })}
 
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(timing === 'tonight')}`}
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(timing === 'tonight')}`}
 
             >
 
@@ -1856,7 +1917,7 @@ export default async function VenuesPage({
 
               href={makeFilterHref({ timing: timing === 'next7days' ? '' : 'next7days' })}
 
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(timing === 'next7days')}`}
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(timing === 'next7days')}`}
 
             >
 
@@ -1868,7 +1929,7 @@ export default async function VenuesPage({
 
               href={makeFilterHref({ category: category === 'clubs' ? '' : 'clubs' })}
 
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'clubs')}`}
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(category === 'clubs')}`}
 
             >
 
@@ -1880,7 +1941,7 @@ export default async function VenuesPage({
 
               href={makeFilterHref({ category: category === 'saunas' ? '' : 'saunas' })}
 
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'saunas')}`}
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(category === 'saunas')}`}
 
             >
 
@@ -1892,11 +1953,47 @@ export default async function VenuesPage({
 
               href={makeFilterHref({ category: category === 'kink' ? '' : 'kink' })}
 
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'kink')}`}
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(category === 'kink')}`}
 
             >
 
               Kink
+
+            </Link>
+
+            <Link
+
+              href={makeFilterHref({ category: category === 'socials' ? '' : 'socials' })}
+
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(category === 'socials')}`}
+
+            >
+
+              Social
+
+            </Link>
+
+            <Link
+
+              href={makeFilterHref({ category: category === 'newbie' ? '' : 'newbie' })}
+
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(category === 'newbie')}`}
+
+            >
+
+              Newbie
+
+            </Link>
+
+            <Link
+
+              href={makeFilterHref({ category: category === 'bdsm' ? '' : 'bdsm' })}
+
+              className={`flex min-h-11 items-center justify-center rounded-full border px-1 py-2 text-center text-xs font-bold leading-tight transition md:shrink-0 md:px-4 md:text-sm ${quickChipClass(category === 'bdsm')}`}
+
+            >
+
+              BDSM
 
             </Link>
 
@@ -2024,6 +2121,12 @@ export default async function VenuesPage({
 
                   <option value="kink">Kink / fetish</option>
 
+                  <option value="socials">Social</option>
+
+                  <option value="newbie">Newbie</option>
+
+                  <option value="bdsm">BDSM</option>
+
                 </select>
 
                 <div className="sm:col-span-3 grid grid-cols-2 gap-2">
@@ -2120,7 +2223,19 @@ export default async function VenuesPage({
 
                         ? 'Kink / fetish'
 
-                        : 'Socials / munches'}
+                        : category === 'socials'
+
+                          ? 'Socials / munches'
+
+                          : category === 'newbie'
+
+                            ? 'Newbie'
+
+                            : category === 'bdsm'
+
+                              ? 'BDSM'
+
+                              : category}
 
                 </span>
 
