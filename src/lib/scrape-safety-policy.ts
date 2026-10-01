@@ -42,3 +42,16 @@ export function scrapeSafetyPolicy(input: {
 export function alertReasonKey(reasons: string[]) {
   return reasons.map((reason) => reason.replace(/\d+/g, '#')).sort().join('|')
 }
+
+export function shouldCountMissingEvents(input: {
+  stagedCount: number
+  failedPageCount: number
+  errorCount: number
+  publishErrors: number
+  qualityReviewCount: number
+  rejectedAttempts: number
+}) {
+  return input.stagedCount > 0 && input.failedPageCount === 0 &&
+    input.errorCount === 0 && input.publishErrors === 0 &&
+    input.qualityReviewCount === 0 && input.rejectedAttempts === 0
+}
