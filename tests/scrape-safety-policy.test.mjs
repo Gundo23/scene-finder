@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { scrapeSafetyPolicy, alertReasonKey } from '../src/lib/scrape-safety-policy.ts'
+import { scrapeSafetyPolicy, alertReasonKey, shouldCountMissingEvents } from '../src/lib/scrape-safety-policy.ts'
 
 const policy = (previousCount, stagedCount, failedPageCount = 0,
   candidateAttempts = 0, qualityReviewCount = 0) => scrapeSafetyPolicy({
@@ -29,4 +29,16 @@ test('unusually large or spiking batches remain quarantined', () => {
 test('reason key groups changed counts but distinguishes new alert causes', () => {
   assert.equal(alertReasonKey(['14 source pages failed']), alertReasonKey(['4 source pages failed']))
   assert.notEqual(alertReasonKey(['4 source pages failed']), alertReasonKey(['Recovery snapshot failed']))
+})
+
+test('only complete productive runs count an unseen live event as missed', () => {
+  const complete = { stagedCount: 10, failedPageCount: 0, errorCount: 0,
+    publishErrors: 0, qualityReviewCount: 0, rejectedAttempts: 0 }
+  assert.equal(shouldCountMissingEvents(complete), true)
+  for (const change of [
+    { stagedCount: 0 }, { failedPageCount: 2 }, { errorCount: 1 },
+    { publishErrors: 1 }, { qualityReviewCount: 1 }, { rejectedAttempts: 1 },
+  ]) {
+    assert.equal(shouldCountMissingEvents({ ...complete, ...change }), false)
+  }
 })

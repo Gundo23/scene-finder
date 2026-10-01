@@ -5,10 +5,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEvent } from '@/lib/route69-calendar'
 import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 import { parseDv8Calendar } from '@/lib/dv8-calendar'
-import { alertReasonKey, scrapeSafetyPolicy } from '@/lib/scrape-safety-policy'
+import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
 import { parseTownhouseLocation } from '@/lib/townhouse-location-calendar'
 import { sheWorldSchedule } from '@/lib/she-world-schedule'
 import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
+import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-event'
 
 export const runtime = 'nodejs'
 
@@ -12985,7 +12986,10 @@ function candidateRejectionReason(input: {
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return 'rejected_blacklisted_tbc'
   if (isJunkTitle(eventName) && !safeRescueCandidate) return 'rejected_junk_title'
-  if (isJunkUrl(input.ticket_url)) return 'rejected_junk_url'
+  if (isJunkUrl(input.ticket_url) && !isOfficialSweetWednesdayCalendarEvent({
+    venueId: input.venue_id, title: eventName,
+    eventDate: input.event_date, ticketUrl: input.ticket_url,
+  })) return 'rejected_junk_url'
 
   const lowerUrl = input.ticket_url.toLowerCase()
   if (lowerUrl.includes('google.com/calendar')) return 'rejected_calendar_export'
@@ -13062,6 +13066,10 @@ async function cleanupBadExistingEvents() {
       if (isCjsTownhouseJunkExistingEvent(event)) return true
       if (isGgsLoungeJunkExistingEvent(event)) return true
       if (isAcquaSource(event.venue_id, ticketUrl) && event.event_date && !isAcquaJunkTitle(name) && !isJunkUrl(ticketUrl)) return false
+      if (isOfficialSweetWednesdayCalendarEvent({
+        venueId: event.venue_id, title: name,
+        eventDate: event.event_date, ticketUrl,
+      })) return false
       if (isBlacklistedTbcEvent(event.venue_id, name, event.event_date)) return true
       if (isJunkTitle(name)) return true
       if (isJunkUrl(ticketUrl)) return true
@@ -13825,11 +13833,14 @@ async function finalizeVenueSafety(input: {
   let archived = 0
   let staleMissing = 0
 
-  // Last-known-good policy: successful scrapes may mark an event as "missed",
-  // but they do NOT automatically hide/delete it. That prevents three parser
-  // glitches in a row from making a real future event disappear from Scene Finder.
-  // Once an event has been absent from 3 healthy scrapes we email for review.
-  if (publishErrors === 0) {
+  // Count an unseen event as missed only after a complete, productive scrape.
+  // A blocked page, empty calendar, or rejected candidate set is not evidence
+  // that the venue removed an event. Missed events stay published for review.
+  if (shouldCountMissingEvents({
+    stagedCount, failedPageCount: input.failedPageCount,
+    errorCount: input.errorCount, publishErrors, qualityReviewCount,
+    rejectedAttempts: context.rejectedByVenue.get(input.venueId) || 0,
+  })) {
     const { data: liveFutureEvents, error: liveFutureError } = await supabaseAdmin
       .from('events')
       .select('event_id, missed_successful_scrapes')
