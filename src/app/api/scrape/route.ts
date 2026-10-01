@@ -5361,7 +5361,9 @@ function discoverSweetWednesdayEventPages(sourceUrl: string) {
   const aboutUrl = absoluteUrl(base, '/about/') || 'https://sweetwednesday.co.uk/about/'
   urls.add(aboutUrl)
 
-  return [...urls].filter((url) => isSweetWednesdayAllowedPage(url) && !isJunkUrl(url))
+  // The official party calendar lives on /about/, a path the generic junk
+  // filter rejects. The venue-specific allowlist keeps this exception narrow.
+  return [...urls].filter(isSweetWednesdayAllowedPage)
 }
 
 function extractSweetWednesdayEvents(html: string, baseUrl: string) {
@@ -10868,7 +10870,7 @@ function extractGenericDatedBlockEvents(html: string, baseUrl: string, method: s
 
 
 
-async function fetchHtml(url: string) {
+async function fetchHtml(url: string, reportFailure?: (reason: string) => void) {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
@@ -10892,6 +10894,7 @@ async function fetchHtml(url: string) {
 
     if (!response.ok) {
       console.log('FAILED:', response.status, response.statusText, url)
+      reportFailure?.(`HTTP ${response.status} ${response.statusText}`.trim())
       return null
     }
 
@@ -10900,6 +10903,7 @@ async function fetchHtml(url: string) {
 
     if (!body || body.trim().length === 0) {
       console.log('EMPTY BODY:', url)
+      reportFailure?.('Empty response body')
       return null
     }
 
@@ -10924,6 +10928,8 @@ async function fetchHtml(url: string) {
       err?.name || 'UnknownError',
       err?.message || 'Unknown fetch error'
     )
+
+    reportFailure?.(`${err?.name || 'UnknownError'}: ${err?.message || 'Unknown fetch error'}`.slice(0, 250))
 
     return null
   }
@@ -14960,12 +14966,15 @@ async function runScrapeRequest(request: Request) {
 
       if (!pageUrl || seenPages.has(pageUrl)) continue
       if (!allowedSourcePageForVenue(source, pageUrl)) continue
-      if (isJunkUrl(pageUrl)) continue
+      if (isJunkUrl(pageUrl) &&
+          !(isSweetWednesdaySource(source.venue_id, source.source_url) &&
+            isSweetWednesdayAllowedPage(pageUrl))) continue
 
       seenPages.add(pageUrl)
       checkedPages++
 
-      const html = await fetchHtml(pageUrl)
+      let fetchFailureReason = 'fetchHtml returned empty/null'
+      const html = await fetchHtml(pageUrl, (reason) => { fetchFailureReason = reason })
 
       if (!html) {
         failed++
@@ -14975,7 +14984,7 @@ async function runScrapeRequest(request: Request) {
           failedPages.push({
             venue_id: source.venue_id,
             page_url: pageUrl,
-            reason: 'fetchHtml returned empty/null',
+            reason: fetchFailureReason,
           })
         }
 
