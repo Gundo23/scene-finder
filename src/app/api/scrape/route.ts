@@ -8,6 +8,7 @@ import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { alertReasonKey, scrapeSafetyPolicy } from '@/lib/scrape-safety-policy'
 import { parseTownhouseLocation } from '@/lib/townhouse-location-calendar'
 import { sheWorldSchedule } from '@/lib/she-world-schedule'
+import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
 
 export const runtime = 'nodejs'
 
@@ -3540,7 +3541,8 @@ function extractAcquaEvents(html: string, baseUrl: string) {
   const now = new Date()
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
   const todayString = datePartsToString(today)
-  const endDate = new Date(Date.UTC(now.getUTCFullYear(), 11, 31))
+  const endDate = new Date(today)
+  endDate.setUTCDate(endDate.getUTCDate() + 120)
 
   if (!todayString || endDate < today) return candidates
 
@@ -3641,16 +3643,22 @@ function extractAcquaEvents(html: string, baseUrl: string) {
     isFistersPage &&
     (pageText.includes('last tuesday monthly') || pageText.includes('last tuesday of every month'))
   ) {
-    for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
-      const eventDate = datePartsToString(lastWeekdayOfMonth(today.getUTCFullYear(), monthIndex, 2))
+    const month = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
+    const endDateString = datePartsToString(endDate)
+    while (month <= endDate) {
+      const eventDate = datePartsToString(lastWeekdayOfMonth(month.getUTCFullYear(), month.getUTCMonth(), 2))
 
-      pushAcquaCandidate({
-        title: 'Blackpool Fisters',
-        eventDate,
-        startTime: '12:00',
-        raw: 'Blackpool Fisters at Acqua Sauna. Last Tuesday monthly, 12:00pm-5:00pm.',
-        href: 'https://acquasaunas.com/blackpool-fisters/',
-      })
+      if (eventDate && endDateString && eventDate <= endDateString) {
+        pushAcquaCandidate({
+          title: 'Blackpool Fisters',
+          eventDate,
+          startTime: '12:00',
+          raw: 'Blackpool Fisters at Acqua Sauna. Last Tuesday monthly, 12:00pm-5:00pm.',
+          href: 'https://acquasaunas.com/blackpool-fisters/',
+        })
+      }
+
+      month.setUTCMonth(month.getUTCMonth() + 1)
     }
   }
 
@@ -4588,7 +4596,7 @@ function isClubZeusAllowedPage(pageUrl: string) {
     const host = url.hostname.replace(/^www\./, '').toLowerCase()
     const path = url.pathname.replace(/\/+$/, '') || '/'
 
-    return host === 'clubzeus.co.uk' && path === '/'
+    return host === 'clubzeus.co.uk' && path.toLowerCase() === '/mansfield'
   } catch {
     return false
   }
@@ -4596,8 +4604,8 @@ function isClubZeusAllowedPage(pageUrl: string) {
 
 function discoverClubZeusEventPages(sourceUrl: string) {
   const urls = new Set<string>()
-  const home = absoluteUrl(sourceUrl, '/') || 'https://clubzeus.co.uk/'
-  urls.add(home)
+  const mansfield = absoluteUrl(sourceUrl, '/mansfield') || 'https://clubzeus.co.uk/mansfield'
+  urls.add(mansfield)
   return [...urls].filter(isClubZeusAllowedPage)
 }
 
@@ -4679,7 +4687,7 @@ function extractClubZeusEvents(html: string, baseUrl: string) {
   }
 
   if (pageText.includes('every wednesday') || pageText.includes('naked wednesday') || pageText.includes('let it all hang out')) {
-    const endDate = new Date(Date.UTC(today.getUTCFullYear(), 11, 31))
+    const endDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + 120))
 
     for (const eventDate of nextWeekdayDates(today, endDate, 3)) {
       if (eventDate < todayString) continue
@@ -5406,9 +5414,8 @@ function extractSweetWednesdayEvents(html: string, baseUrl: string) {
     })
   }
 
-  for (let monthIndex = today.getUTCMonth(); monthIndex <= 11; monthIndex++) {
-    addCandidate(nthWeekdayOfMonthUtc(today.getUTCFullYear(), monthIndex, 3, 1))
-    addCandidate(nthWeekdayOfMonthUtc(today.getUTCFullYear(), monthIndex, 3, 3))
+  for (const eventDate of parseSweetWednesdayDates(cleanText(html), todayString)) {
+    addCandidate(eventDate)
   }
 
   return candidates
@@ -14886,6 +14893,8 @@ async function runScrapeRequest(request: Request) {
               ? targetVenueDiscoveredUrls
             : isClubCollaredSource(source.venue_id, source.source_url)
               ? targetVenueDiscoveredUrls
+            : isClubZeusSource(source.venue_id, source.source_url)
+              ? targetVenueDiscoveredUrls
             : isAcquaSource(source.venue_id, source.source_url)
               ? acquaDiscoveredUrls
               : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
@@ -14924,6 +14933,8 @@ async function runScrapeRequest(request: Request) {
             ? 2
           : isClubCollaredSource(source.venue_id, source.source_url)
             ? 3
+          : isClubZeusSource(source.venue_id, source.source_url)
+            ? 1
           : isNo3ClubSource(source.venue_id, source.source_url)
             ? 3
           : isCupidsSource(source.venue_id, source.source_url)
