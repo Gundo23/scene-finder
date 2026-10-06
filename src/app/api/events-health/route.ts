@@ -2,6 +2,7 @@
 // Call independently from the scraper, at least hourly, with Authorization: Bearer <CRON_SECRET>.
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { queueRoutineAlert, sendRoutineDigest } from '@/lib/routine-alerts'
 
 export const runtime = 'nodejs'
 
@@ -106,13 +107,25 @@ export async function GET(request: Request) {
       now.getTime() - new Date(state.last_notified_at).getTime() >= repeatAfterMs
   })
 
-  if (toNotify.length > 0) {
+  const critical = toNotify.filter((issue) => issue.issue_kind === 'zero_events')
+  const routine = toNotify.filter((issue) => issue.issue_kind !== 'zero_events')
+  for (const issue of routine) {
+    const error = await queueRoutineAlert(supabase,
+      `health:${issue.venue_id}:${issue.issue_kind}`,
+      `${issue.venue_id}: ${issue.issue_kind}`, issue.detail)
+    if (error) {
+      console.error('EVENT HEALTH: routine queue failed', error)
+      return Response.json({ error: 'Routine alert queue unavailable' }, { status: 503 })
+    }
+  }
+
+  if (critical.length > 0) {
     if (!process.env.RESEND_API_KEY) {
       return Response.json({ error: 'RESEND_API_KEY is missing', issue_count: issues.length },
         { status: 503 })
     }
     const resend = new Resend(process.env.RESEND_API_KEY)
-    const lines = toNotify.map((issue) =>
+    const lines = critical.map((issue) =>
       `<li><strong>${escapeHtml(issue.venue_id)}</strong> — ` +
       `${escapeHtml(issue.issue_kind)}: ${escapeHtml(issue.detail)}</li>`
     ).join('')
@@ -120,8 +133,8 @@ export async function GET(request: Request) {
       const { error } = await resend.emails.send({
         from: process.env.NOTIFY_FROM_EMAIL || 'Scene Finder <notifications@scenefinder.co.uk>',
         to: [process.env.ADMIN_NOTIFY_EMAIL || 'info@scenefinder.co.uk'],
-        subject: `Scene Finder event health: ${toNotify.length} issue(s)`,
-        html: `<p>Checked ${escapeHtml(now.toISOString())}. These active venues need attention:</p><ul>${lines}</ul>`,
+        subject: `Scene Finder CRITICAL: ${critical.length} venue(s) have zero events`,
+        html: `<p>Checked ${escapeHtml(now.toISOString())}. These venues have no visible future events:</p><ul>${lines}</ul>`,
       })
       if (error) throw new Error(error.message)
     } catch (error) {
@@ -146,6 +159,18 @@ export async function GET(request: Request) {
         updated_at: now.toISOString() })
     }
   }
+  const resolvedRoutineKeys = (oldStates as AlertState[])
+    .filter((state) => state.active && state.issue_kind !== 'zero_events' &&
+      !currentKeys.has(key(state.venue_id, state.issue_kind)))
+    .map((state) => `health:${state.venue_id}:${state.issue_kind}`)
+  if (resolvedRoutineKeys.length) {
+    const { error } = await supabase.from('scene_finder_routine_alert_queue')
+      .delete().in('alert_key', resolvedRoutineKeys)
+    if (error) {
+      console.error('EVENT HEALTH: resolved alert cleanup failed', error)
+      return Response.json({ error: 'Routine alert queue unavailable' }, { status: 503 })
+    }
+  }
   if (updates.length > 0) {
     const { error } = await supabase.from('venue_event_health_alert_state')
       .upsert(updates, { onConflict: 'venue_id,issue_kind' })
@@ -155,10 +180,20 @@ export async function GET(request: Request) {
     }
   }
 
+  const digest = await sendRoutineDigest(supabase, now)
+  if (digest.error) {
+    console.error('EVENT HEALTH: routine digest failed', digest.error)
+    return Response.json({ error: 'Routine digest delivery failed', issue_count: issues.length },
+      { status: 503 })
+  }
+
   const issueCounts = Object.fromEntries(
     (['zero_events', 'stale_scrape', 'short_runway', 'missing_source'] as IssueKind[])
       .map((kind) => [kind, issues.filter((issue) => issue.issue_kind === kind).length])
   )
   return Response.json({ checked_venues: health.length,
-    issue_count: issues.length, issues_by_kind: issueCounts, alerts_sent: toNotify.length })
+    issue_count: issues.length, issues_by_kind: issueCounts,
+    critical_alerts_sent: critical.length, routine_alerts_queued: routine.length,
+    routine_digest_sent: digest.sent, routine_digest_items: digest.count,
+    alerts_sent: critical.length + (digest.sent ? 1 : 0) })
 }
