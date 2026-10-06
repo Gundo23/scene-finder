@@ -24,8 +24,8 @@ type AlertState = {
   last_notified_at: string | null
 }
 
-const repeatAfterMs = 24 * 60 * 60 * 1000
-const missingSourceRepeatAfterMs = 7 * repeatAfterMs
+// New issues alert immediately; unresolved issues are reminders, not new incidents.
+const repeatAfterMs = 7 * 24 * 60 * 60 * 1000
 const staleAfterMs = 48 * 60 * 60 * 1000
 
 function escapeHtml(value: string) {
@@ -102,10 +102,8 @@ export async function GET(request: Request) {
   const currentKeys = new Set(issues.map((issue) => key(issue.venue_id, issue.issue_kind)))
   const toNotify = issues.filter((issue) => {
     const state = previous.get(key(issue.venue_id, issue.issue_kind))
-    const repeatInterval = issue.issue_kind === 'missing_source'
-      ? missingSourceRepeatAfterMs : repeatAfterMs
     return !state?.active || !state.last_notified_at ||
-      now.getTime() - new Date(state.last_notified_at).getTime() >= repeatInterval
+      now.getTime() - new Date(state.last_notified_at).getTime() >= repeatAfterMs
   })
 
   if (toNotify.length > 0) {
