@@ -13438,6 +13438,7 @@ async function sendScrapeSafetyAlert(input: {
   venueId: string
   previousCount: number
   stagedCount: number
+  liveCount?: number | null
   reasons: string[]
   status: string
 }) {
@@ -13446,6 +13447,11 @@ async function sendScrapeSafetyAlert(input: {
   }
 
   const now = new Date()
+  const urgent = input.status.startsWith('quarantined') ||
+    input.status === 'accepted_visibility_failure' ||
+    input.status === 'accepted_with_publish_errors' ||
+    input.reasons.some((reason) => /snapshot/i.test(reason))
+  const repeatAfterMs = (urgent ? 1 : 7) * 24 * 60 * 60 * 1000
   const reasonKey = createHash('sha256')
     .update(`${input.status}|${alertReasonKey(input.reasons)}`).digest('hex')
   const { data: previousAlert } = await supabaseAdmin
@@ -13455,14 +13461,13 @@ async function sendScrapeSafetyAlert(input: {
     .eq('reason_key', reasonKey)
     .maybeSingle()
   if (previousAlert?.last_notified_at &&
-      now.getTime() - new Date(previousAlert.last_notified_at).getTime() < 24 * 60 * 60 * 1000) {
+      now.getTime() - new Date(previousAlert.last_notified_at).getTime() < repeatAfterMs) {
     return { sent: false, error: null }
   }
 
-  const subject =
-    input.status.startsWith('quarantined')
-      ? `Scene Finder safety guard blocked ${input.venueId}`
-      : `Scene Finder scrape warning: ${input.venueId}`
+  const subject = urgent
+    ? `Scene Finder action needed: ${input.venueId}`
+    : `Scene Finder review: ${input.venueId} (${input.liveCount ?? 'unknown'} events still visible)`
 
   const action = input.reasons.some((reason) => /snapshot/i.test(reason))
     ? 'The recovery snapshot failed. Check the database error before retrying this venue.'
@@ -13470,7 +13475,9 @@ async function sendScrapeSafetyAlert(input: {
       ? 'The new batch was held. Check candidate titles and dates in the source before changing the scraper.'
       : input.reasons.some((reason) => /quality guard/i.test(reason))
         ? 'Approved events were processed. Review the held entries for this venue in the Supabase event_review_queue.'
-        : 'Check the source page and the latest venue scrape run. Published future events were retained.'
+        : input.status === 'accepted_stale_review'
+          ? 'No events disappeared in this run. Compare the listed dates with the official venue calendar; the scraper may need repair.'
+          : 'Check the source page and the latest venue scrape run. Published future events were retained.'
   const safe = (value: string) => value.replace(/[&<>"']/g, (character) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[character] || character)
@@ -13480,11 +13487,11 @@ async function sendScrapeSafetyAlert(input: {
     to: [ZERO_EVENT_ALERT_EMAIL],
     subject,
     html: `
-      <h2>Scene Finder scraper safety alert</h2>
+      <h2>${urgent ? 'Scene Finder scrape action needed' : 'Scene Finder scrape review'}</h2>
       <p><strong>${safe(input.venueId)}</strong></p>
       <p>Status: <strong>${safe(input.status)}</strong></p>
-      <p>Previous future events: <strong>${input.previousCount}</strong></p>
-      <p>New staged future events: <strong>${input.stagedCount}</strong></p>
+      <p><strong>Live future events after this run: ${input.liveCount ?? 'could not verify'}</strong></p>
+      <p>The previous count was ${input.previousCount}; this scrape found ${input.stagedCount} future event(s). The scrape count is not the live site count.</p>
       <p>Reason${input.reasons.length === 1 ? '' : 's'}:</p>
       <ul>${input.reasons.map((reason) => `<li>${safe(reason)}</li>`).join('')}</ul>
       <p><strong>What to do:</strong> ${safe(action)}</p>
@@ -13745,6 +13752,7 @@ async function finalizeVenueSafety(input: {
       venueId: input.venueId,
       previousCount,
       stagedCount,
+      liveCount: previousCount,
       reasons,
       status: 'quarantined',
     })
@@ -13795,6 +13803,7 @@ async function finalizeVenueSafety(input: {
       venueId: input.venueId,
       previousCount,
       stagedCount,
+      liveCount: previousCount,
       reasons: snapshotReasons,
       status: 'quarantined_snapshot_failure',
     })
@@ -13955,6 +13964,7 @@ async function finalizeVenueSafety(input: {
       venueId: input.venueId,
       previousCount,
       stagedCount,
+      liveCount: finalCount.error ? null : finalCount.count,
       reasons: finalReasons,
       status,
     })
