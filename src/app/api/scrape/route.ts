@@ -10,6 +10,7 @@ import { parseTownhouseLocation } from '@/lib/townhouse-location-calendar'
 import { sheWorldSchedule } from '@/lib/she-world-schedule'
 import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
 import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-event'
+import { queueRoutineAlert } from '@/lib/routine-alerts'
 
 export const runtime = 'nodejs'
 
@@ -13442,15 +13443,11 @@ async function sendScrapeSafetyAlert(input: {
   reasons: string[]
   status: string
 }) {
-  if (!resend) {
-    return { sent: false, error: 'RESEND_API_KEY is not configured' }
-  }
-
   const now = new Date()
-  const urgent = input.status.startsWith('quarantined') ||
-    input.status === 'accepted_visibility_failure' ||
+  const urgent = input.status === 'accepted_visibility_failure' ||
     input.status === 'accepted_with_publish_errors' ||
-    input.reasons.some((reason) => /snapshot/i.test(reason))
+    input.reasons.some((reason) => /snapshot/i.test(reason)) ||
+    (input.previousCount > 0 && input.liveCount === 0)
   const repeatAfterMs = (urgent ? 1 : 7) * 24 * 60 * 60 * 1000
   const reasonKey = createHash('sha256')
     .update(`${input.status}|${alertReasonKey(input.reasons)}`).digest('hex')
@@ -13481,6 +13478,23 @@ async function sendScrapeSafetyAlert(input: {
   const safe = (value: string) => value.replace(/[&<>"']/g, (character) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[character] || character)
+
+  if (!urgent) {
+    const queueError = await queueRoutineAlert(supabaseAdmin,
+      `scrape:${input.venueId}:${reasonKey}`, subject,
+      `Status: ${input.status}. Live future events: ${input.liveCount ?? 'unknown'}. ` +
+      `Previous: ${input.previousCount}; scrape found: ${input.stagedCount}. ` +
+      `Reason: ${input.reasons.join('; ')}. Next step: ${action}. ` +
+      `https://www.scenefinder.co.uk/venue/${encodeURIComponent(input.venueId)}`)
+    if (queueError) return { sent: false, error: `Routine queue failed: ${queueError}` }
+    const { error: stateError } = await supabaseAdmin.from('venue_scrape_alert_state').upsert({
+      venue_id: input.venueId, reason_key: reasonKey, status: input.status,
+      last_notified_at: now.toISOString(),
+    }, { onConflict: 'venue_id,reason_key' })
+    return { sent: false, error: stateError?.message || null }
+  }
+
+  if (!resend) return { sent: false, error: 'RESEND_API_KEY is not configured' }
 
   const { error } = await resend.emails.send({
     from: ZERO_EVENT_ALERT_FROM,
