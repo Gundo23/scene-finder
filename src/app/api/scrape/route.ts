@@ -10,6 +10,7 @@ import { parseTownhouseLocation } from '@/lib/townhouse-location-calendar'
 import { sheWorldSchedule } from '@/lib/she-world-schedule'
 import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
 import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-event'
+import { cupidsDetailDate, cupidsEventDetailLinks } from '@/lib/cupids-calendar'
 import { queueRoutineAlert } from '@/lib/routine-alerts'
 
 export const runtime = 'nodejs'
@@ -11734,10 +11735,7 @@ function isCupidsAllowedPage(pageUrl: string | null | undefined) {
 }
 
 function discoverCupidsEventPages(_sourceUrl: string) {
-  return [
-    'https://www.cupidsswingersclub.co.uk/',
-    'https://www.cupidsswingersclub.co.uk/events',
-  ]
+  return ['https://cupidsswingersclub.co.uk/events/']
 }
 
 function cleanCupidsTitle(value: string) {
@@ -11849,10 +11847,12 @@ function extractCupidsEvents(html: string, baseUrl: string) {
     })
   }
 
-  if (path.startsWith('/events/')) {
+  if (path.startsWith('/events/') ||
+      (path === '/events' && /^\d+$/.test(parsed.searchParams.get('event') || ''))) {
     const pageText = cleanText(html)
     const pageTitle = extractPageTitle(html)
-    const eventDate = extractDateFromHtml(html) || extractCupidsDate(pageText.slice(0, 7000))
+    const eventDate = cupidsDetailDate(html) || extractDateFromHtml(html) ||
+      extractCupidsDate(pageText.slice(0, 7000))
 
     const twelveHourTime = extractTime(pageText.slice(0, 3500))
     const twentyFourHourMatch = pageText
@@ -14979,7 +14979,7 @@ async function runScrapeRequest(request: Request) {
           : isNo3ClubSource(source.venue_id, source.source_url)
             ? 3
           : isCupidsSource(source.venue_id, source.source_url)
-            ? 12
+            ? 24
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
             : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
@@ -15027,6 +15027,14 @@ async function runScrapeRequest(request: Request) {
       }
 
       try {
+        if (isCupidsSource(source.venue_id, source.source_url) &&
+            new URL(pageUrl).pathname.replace(/\/+$/, '') === '/events' &&
+            !new URL(pageUrl).searchParams.has('event')) {
+          for (const link of cupidsEventDetailLinks(html, pageUrl)) {
+            if (!seenPages.has(link) && !queue.includes(link)) queue.push(link)
+          }
+        }
+
         if (source.venue_id === 'infusions_infusion_blackpool_blackpool' &&
             new URL(pageUrl).pathname.replace(/\/+$/, '') === '/events') {
           const monthLinks = infusionMonthLinks(html, pageUrl, londonToday())
