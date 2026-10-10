@@ -14064,7 +14064,10 @@ async function upsertEvent(input: {
   const safeDescription = cleanDescription(input.description)
   const eventName = input.venue_id === 'xtasia_west_bromwich'
     ? cleanXtasiaCalendarTitle(input.event_name)
-    : cleanSf10RescueCandidateTitle(input.event_name, safeDescription || input.description)
+    : input.venue_id === 'partners_manchester_bury_area'
+      // "Sinful Sunday Social" is the event's actual title, not a date suffix.
+      ? cleanText(input.event_name).replace(/\s+/g, ' ').trim()
+      : cleanSf10RescueCandidateTitle(input.event_name, safeDescription || input.description)
   const normalised = normalizeTitle(eventName)
   let safeImageUrl = validImageUrl(input.image_url)
   const safeTicketUrl = normalizeTicketUrl(input.ticket_url)
@@ -15583,7 +15586,9 @@ ${hu9HydratedText}`, pageUrl)
           if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
             found.push({
               venue_id: source.venue_id,
-              event_name: isHu9Source(source.venue_id, source.source_url) ? title : cleanEventName(title),
+              event_name: isHu9Source(source.venue_id, source.source_url) ||
+                source.venue_id === 'partners_manchester_bury_area'
+                ? title : cleanEventName(title),
               event_date: eventDate,
               event_url: ticketUrl,
               image_url: imageUrl,
