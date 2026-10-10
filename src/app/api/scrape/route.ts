@@ -11,6 +11,7 @@ import { sheWorldSchedule } from '@/lib/she-world-schedule'
 import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
 import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-event'
 import { cupidsDetailDate, cupidsEventDetailLinks } from '@/lib/cupids-calendar'
+import { parsePartnersCalendar } from '@/lib/partners-calendar'
 import { queueRoutineAlert } from '@/lib/routine-alerts'
 
 export const runtime = 'nodejs'
@@ -9953,6 +9954,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
   return (
+    venueId === 'partners_manchester_bury_area' ||
     combined.includes('afterdark_edinburgh_edinburgh') ||
     combined.includes('club_play_blackpool') ||
     combined.includes('le_boudoir_club_london') ||
@@ -10009,6 +10011,14 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (source.venue_id === 'partners_manchester_bury_area') {
+    try {
+      const url = new URL(pageUrl)
+      return url.protocol === 'https:' &&
+        url.hostname.replace(/^www\./, '') === 'partnersswingersclub.com' &&
+        url.pathname.replace(/\/+$/, '') === '/events'
+    } catch { return false }
+  }
   const canonicalHosts: Record<string, string> = {
     afterdark_edinburgh_edinburgh: 'afterdarkedinburgh.co.uk',
     club_play_blackpool: 'clubplay.net',
@@ -10138,6 +10148,10 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (source.venue_id === 'partners_manchester_bury_area') {
+    return ['https://partnersswingersclub.com/events/']
+  }
 
   if (source.venue_id === 'afterdark_edinburgh_edinburgh') {
     return ['https://www.afterdarkedinburgh.co.uk/club-nights-events-1']
@@ -10350,6 +10364,9 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (venueId === 'partners_manchester_bury_area') {
+    return parsePartnersCalendar(html, pageUrl, londonToday())
+  }
   if (venueId === 'afterdark_edinburgh_edinburgh') return extractAfterdarkEdinburghEvents(html, pageUrl)
   if (venueId === 'club_play_blackpool') return extractClubPlayEvents(html, pageUrl)
   if (venueId === 'le_boudoir_club_london') return extractLeBoudoirListingEvents(html, pageUrl)
@@ -14904,6 +14921,7 @@ async function runScrapeRequest(request: Request) {
     const queue = source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
       : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+        source.venue_id === 'partners_manchester_bury_area' ||
         source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
         source.venue_id === 'dv8_kent_kent' ||
         source.venue_id === 'ignite_west_drayton_heathrow' ||
@@ -14980,6 +14998,8 @@ async function runScrapeRequest(request: Request) {
             ? 3
           : isCupidsSource(source.venue_id, source.source_url)
             ? 24
+          : source.venue_id === 'partners_manchester_bury_area'
+            ? 1
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
             ? Math.max(MAX_PAGES_PER_SOURCE, 30)
             : isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)
@@ -15076,6 +15096,7 @@ async function runScrapeRequest(request: Request) {
 
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          source.venue_id === 'partners_manchester_bury_area' ||
           source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
           source.venue_id === 'dv8_kent_kent' ||
           source.venue_id === 'ignite_west_drayton_heathrow' ||
@@ -16032,6 +16053,10 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (source.venue_id === 'partners_manchester_bury_area') {
+            skipped++
+            continue
+          }
           if (isHellfireSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
             skipped++
             continue
