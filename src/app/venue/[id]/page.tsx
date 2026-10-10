@@ -911,19 +911,19 @@ export default async function VenuePage({
 
                   <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-amber-300">
 
-                    Last updated
+                    Check current details
 
                   </p>
 
                   <p className="mt-1 text-sm font-bold text-white sm:text-base">
 
-                    {formatDate(today)}
+                    On the venue website
 
                   </p>
 
                   <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
 
-                    Information up to date
+                    Event listings can change. Confirm details with the organiser before travelling.
 
                   </p>
 
