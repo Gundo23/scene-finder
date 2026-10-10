@@ -15,7 +15,8 @@ GRANT SELECT ON public.official_event_page_cache TO service_role;
 
 CREATE TABLE IF NOT EXISTS public.partners_calendar_fetch_requests (
   request_id bigint PRIMARY KEY,
-  enqueued_at timestamptz NOT NULL DEFAULT now()
+  enqueued_at timestamptz NOT NULL DEFAULT now(),
+  processed_at timestamptz
 );
 
 ALTER TABLE public.partners_calendar_fetch_requests ENABLE ROW LEVEL SECURITY;
@@ -42,17 +43,20 @@ RETURNS void LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 DECLARE
   latest record;
 BEGIN
-  SELECT r.request_id, h.status_code, h.content
+  SELECT r.request_id, r.enqueued_at, h.status_code, h.content
   INTO latest
   FROM public.partners_calendar_fetch_requests r
   LEFT JOIN net._http_response h ON h.id = r.request_id
+  WHERE r.processed_at IS NULL
   ORDER BY r.request_id DESC
   LIMIT 1;
 
   IF NOT FOUND THEN RETURN; END IF;
   IF latest.status_code IS NULL THEN
-    DELETE FROM public.partners_calendar_fetch_requests
-    WHERE enqueued_at < now() - interval '30 minutes';
+    IF latest.enqueued_at < now() - interval '30 minutes' THEN
+      UPDATE public.partners_calendar_fetch_requests
+      SET processed_at = now() WHERE request_id = latest.request_id;
+    END IF;
     RETURN;
   END IF;
 
@@ -70,8 +74,9 @@ BEGIN
           source_url = EXCLUDED.source_url;
   END IF;
 
-  DELETE FROM public.partners_calendar_fetch_requests
-  WHERE request_id <= latest.request_id OR enqueued_at < now() - interval '30 minutes';
+  UPDATE public.partners_calendar_fetch_requests
+  SET processed_at = now()
+  WHERE request_id <= latest.request_id AND processed_at IS NULL;
 END $$;
 
 REVOKE ALL ON FUNCTION public.enqueue_partners_official_calendar() FROM PUBLIC, anon, authenticated;
