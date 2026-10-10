@@ -10955,6 +10955,30 @@ async function fetchHtml(url: string, reportFailure?: (reason: string) => void) 
   }
 }
 
+async function fetchPartnersOfficialCalendar(pageUrl: string, reportFailure?: (reason: string) => void) {
+  // Supabase's scheduled fetch uses the same declared bot User-Agent and can
+  // currently reach the official page. Vercel's direct request receives 403.
+  // Only a recently fetched, structurally valid copy may enter the parser.
+  const { data, error } = await supabaseAdmin
+    .from('official_event_page_cache')
+    .select('source_url, html, fetched_at')
+    .eq('venue_id', 'partners_manchester_bury_area')
+    .maybeSingle()
+
+  if (!error && data?.source_url === pageUrl &&
+      typeof data.html === 'string' &&
+      data.html.includes('partners-event-month-heading') &&
+      data.html.includes('partners-event-detail-card') &&
+      Number.isFinite(Date.parse(data.fetched_at)) &&
+      Date.now() - Date.parse(data.fetched_at) < 30 * 60 * 60 * 1000) {
+    return data.html
+  }
+
+  // Keep direct fetching as a recovery route if the official site's access
+  // rules change. A failed fetch is reported to the normal safety guard.
+  return fetchHtml(pageUrl, reportFailure)
+}
+
 async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,application/xml,text/xml,text/calendar,text/plain,application/json,*/*') {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -15029,7 +15053,9 @@ async function runScrapeRequest(request: Request) {
       checkedPages++
 
       let fetchFailureReason = 'fetchHtml returned empty/null'
-      const html = await fetchHtml(pageUrl, (reason) => { fetchFailureReason = reason })
+      const html = source.venue_id === 'partners_manchester_bury_area'
+        ? await fetchPartnersOfficialCalendar(pageUrl, (reason) => { fetchFailureReason = reason })
+        : await fetchHtml(pageUrl, (reason) => { fetchFailureReason = reason })
 
       if (!html) {
         failed++
