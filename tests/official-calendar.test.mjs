@@ -26,6 +26,22 @@ test('Private Club calendar reads dated headings with the adjacent party name', 
   assert.equal(events[1].start_time, '20:00')
 })
 
+test('Private Club strips long WordPress image and section tags before naming events', () => {
+  const html = `<h3>Thursday 15th October</h3>
+    <img decoding="async" class="wp-image-9971 ${'a'.repeat(1800)}" src="poster.jpg">
+    <section class="av_textblock_section ${'b'.repeat(1800)}" itemscope="itemscope">
+      <p>HOT &amp; HORNY WIVES ANAL Party Featuring TWO HOT HOSTESSES. 8PM</p>
+    </section><h3>Sunday 18th October</h3>
+    <p>SEXY SUNDAY NIGHT There is still time to PARTY! 8 PM – 11 PM</p>`
+  const events = parseOfficialHeadingCalendar(html, 'the_private_club_birmingham_birmingham',
+    'https://www.theprivateclub.com/gangbang-party-birmingham/', '2026-10-12')
+  assert.deepEqual(events.map(e => e.text), [
+    'HOT & HORNY WIVES ANAL Party Featuring TWO HOT HOSTESSES',
+    'SEXY SUNDAY NIGHT There is still time to PARTY',
+  ])
+  assert.ok(events.every(e => !e.text.includes('<')))
+})
+
 test('prioritizes only same-origin official calendar navigation', () => {
   const links = `<a href="/events/">Events</a><a href="https://different.example/calendar">Calendar</a>
     <a href="/events/other-club/">Events</a><a href="/diary/">Diary</a>`
