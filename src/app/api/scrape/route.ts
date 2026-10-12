@@ -14,6 +14,9 @@ import { cupidsDetailDate, cupidsEventDetailLinks } from '@/lib/cupids-calendar'
 import { parsePartnersCalendar } from '@/lib/partners-calendar'
 import { queueRoutineAlert } from '@/lib/routine-alerts'
 import { parseRiotPartyOrganiser } from '@/lib/riot-party-events'
+import { parseStructuredEvents } from '@/lib/structured-events'
+import { isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
+import { readBoundedResponse } from '@/lib/bounded-response'
 
 export const runtime = 'nodejs'
 
@@ -22,10 +25,13 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const MAX_VENUES_PER_REQUEST = 1
+const MAX_VENUES_PER_REQUEST = 2
 const MAX_PAGES_PER_SOURCE = 8
 const MAX_EVENTS_RETURNED = 150
 const FETCH_TIMEOUT_MS = 20000
+// Leave time for per-venue publication, snapshots and the HTTP response before
+// the 310-second pg_net request deadline. A partial source stays reviewable.
+const MAX_SCRAPE_WORK_MS = 210000
 
 type StagedEventRecord = {
   venue_id: string
@@ -1088,42 +1094,7 @@ function extractCalendarDateFromRaw(raw: string) {
 }
 
 function extractJsonLdEvents(html: string, baseUrl: string) {
-  const events: any[] = []
-  const scriptRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
-
-  let match
-
-  while ((match = scriptRegex.exec(html)) !== null) {
-    try {
-      const parsed = JSON.parse(match[1].trim())
-      const items = Array.isArray(parsed) ? parsed : [parsed]
-
-      for (const item of items) {
-        const graph = item['@graph'] || [item]
-
-        for (const node of graph) {
-          const type = node['@type']
-
-          if (type === 'Event' || type?.includes?.('Event')) {
-            events.push({
-              name: cleanText(node.name),
-              description: cleanText(node.description),
-              date: node.startDate ? String(node.startDate).slice(0, 10) : null,
-              start_time: node.startDate ? String(node.startDate).slice(11, 16) : null,
-              url: absoluteUrl(baseUrl, node.url) || baseUrl,
-              image_url: Array.isArray(node.image)
-                ? validImageUrl(absoluteUrl(baseUrl, node.image[0]))
-                : validImageUrl(absoluteUrl(baseUrl, node.image)),
-            })
-          }
-        }
-      }
-    } catch {
-      continue
-    }
-  }
-
-  return events
+  return parseStructuredEvents(html, baseUrl, londonToday())
 }
 
 function extractCalendarEventLinks(html: string, baseUrl: string) {
@@ -10771,8 +10742,6 @@ async function fetchHtml(url: string, reportFailure?: (reason: string) => void) 
       cache: 'no-store',
     })
 
-    clearTimeout(timeout)
-
     if (!response.ok) {
       console.log('FAILED:', response.status, response.statusText, url)
       reportFailure?.(`HTTP ${response.status} ${response.statusText}`.trim())
@@ -10780,7 +10749,7 @@ async function fetchHtml(url: string, reportFailure?: (reason: string) => void) 
     }
 
     const contentType = response.headers.get('content-type') || ''
-    const body = await response.text()
+    const body = await readBoundedResponse(response)
 
     if (!body || body.trim().length === 0) {
       console.log('EMPTY BODY:', url)
@@ -10801,8 +10770,6 @@ async function fetchHtml(url: string, reportFailure?: (reason: string) => void) 
 
     return body
   } catch (err: any) {
-    clearTimeout(timeout)
-
     console.log(
       'FETCH ERROR:',
       url,
@@ -10813,6 +10780,8 @@ async function fetchHtml(url: string, reportFailure?: (reason: string) => void) 
     reportFailure?.(`${err?.name || 'UnknownError'}: ${err?.message || 'Unknown fetch error'}`.slice(0, 250))
 
     return null
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -10859,14 +10828,12 @@ async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,
       cache: 'no-store',
     })
 
-    clearTimeout(timeout)
-
     if (!response.ok) {
       console.log('FETCH TEXT FAILED:', response.status, response.statusText, url)
       return null
     }
 
-    const body = await response.text()
+    const body = await readBoundedResponse(response)
     if (!body || body.trim().length === 0) {
       console.log('FETCH TEXT EMPTY:', url)
       return null
@@ -10874,7 +10841,6 @@ async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,
 
     return body
   } catch (err: any) {
-    clearTimeout(timeout)
     console.log(
       'FETCH TEXT ERROR:',
       url,
@@ -10882,6 +10848,8 @@ async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,
       err?.message || 'Unknown fetch text error'
     )
     return null
+  } finally {
+    clearTimeout(timeout)
   }
 }
 
@@ -14243,7 +14211,7 @@ async function runScrapeRequest(request: Request) {
 
   let sourcesQuery = supabaseAdmin
     .from('event_sources')
-    .select('source_id, venue_id, source_url, active, collection_method', { count: 'exact' })
+    .select('source_id, venue_id, source_url, active, collection_method, last_checked', { count: 'exact' })
     .eq('active', true)
 
   if (targetVenueId) {
@@ -14266,11 +14234,20 @@ async function runScrapeRequest(request: Request) {
       { status: 503 })
   }
 
-  const selectedVenueIds = new Set<string>()
-  for (const source of allSources || []) {
-    if (selectedVenueIds.size >= maxVenues) break
-    selectedVenueIds.add(source.venue_id)
+  const prioritySlot = !targetVenueId && isPrioritySlot(new Date())
+  let healthRows: VenueHealth[] = []
+  if (prioritySlot) {
+    const { data: health, error: healthError } = await supabaseAdmin.rpc('get_venue_event_health')
+    if (healthError) console.log('PRIORITY SCHEDULING UNAVAILABLE:', healthError.message)
+    else healthRows = (health || []).map((item: any) => ({
+      venue_id: item.venue_id,
+      visible_future_count: Number(item.visible_future_count || 0),
+      last_future_event_date: item.last_future_event_date,
+    }))
   }
+  const selectedVenueIds = new Set(selectVenueIds(
+    allSources || [], healthRows, maxVenues, new Date(), prioritySlot && healthRows.length > 0
+  ))
   const sources = (allSources || []).filter((source) => selectedVenueIds.has(source.venue_id))
 
   if (targetVenueId && (!sources || sources.length === 0)) {
@@ -14365,6 +14342,18 @@ async function runScrapeRequest(request: Request) {
   }
 
   for (const configuredSource of orderedSources) {
+    if (Date.now() - startedAt >= MAX_SCRAPE_WORK_MS) {
+      failed++
+      timedOutOrEmpty++
+      failedPages.push({
+        venue_id: configuredSource.venue_id,
+        page_url: configuredSource.source_url,
+        reason: 'Scrape time budget reached before this source was checked',
+      })
+      await completeSource(configuredSource.venue_id)
+      continue
+    }
+
     const sourceKey = `${configuredSource.venue_id}|${configuredSource.source_url}`
     if (seenSourceKeys.has(sourceKey)) {
       // The same source was just checked for this venue; do not fetch it twice.
@@ -14432,7 +14421,7 @@ async function runScrapeRequest(request: Request) {
       }
 
       for (const item of result.failed_pages) {
-        if (failedPages.length < 30) failedPages.push(item)
+        failedPages.push(item)
       }
 
       console.log('SOURCE DONE:', source.source_url)
@@ -14512,13 +14501,11 @@ async function runScrapeRequest(request: Request) {
           failed++
           timedOutOrEmpty++
 
-          if (failedPages.length < 30) {
-            failedPages.push({
-              venue_id: source.venue_id,
-              page_url: pageUrl,
-              reason: 'Pandora fetch returned empty/null',
-            })
-          }
+          failedPages.push({
+            venue_id: source.venue_id,
+            page_url: pageUrl,
+            reason: 'Pandora fetch returned empty/null',
+          })
 
           continue
         }
@@ -14676,13 +14663,11 @@ async function runScrapeRequest(request: Request) {
           failed++
           timedOutOrEmpty++
 
-          if (failedPages.length < 30) {
-            failedPages.push({
-              venue_id: source.venue_id,
-              page_url: pageUrl,
-              reason: 'Townhouse fast fetch returned empty/null',
-            })
-          }
+          failedPages.push({
+            venue_id: source.venue_id,
+            page_url: pageUrl,
+            reason: 'Townhouse fast fetch returned empty/null',
+          })
 
           continue
         }
@@ -14905,6 +14890,17 @@ async function runScrapeRequest(request: Request) {
               : MAX_PAGES_PER_SOURCE
 
     while (queue.length && seenPages.size < maxPagesForSource) {
+      if (Date.now() - startedAt >= MAX_SCRAPE_WORK_MS) {
+        failed++
+        timedOutOrEmpty++
+        failedPages.push({
+          venue_id: source.venue_id,
+          page_url: queue[0],
+          reason: 'Scrape time budget reached; remaining pages were not checked',
+        })
+        break
+      }
+
       const pageUrl = queue.shift()
 
       if (!pageUrl || seenPages.has(pageUrl)) continue
@@ -14925,13 +14921,11 @@ async function runScrapeRequest(request: Request) {
         failed++
         timedOutOrEmpty++
 
-        if (failedPages.length < 30) {
-          failedPages.push({
-            venue_id: source.venue_id,
-            page_url: pageUrl,
-            reason: fetchFailureReason,
-          })
-        }
+        failedPages.push({
+          venue_id: source.venue_id,
+          page_url: pageUrl,
+          reason: fetchFailureReason,
+        })
 
         continue
       }
@@ -14950,7 +14944,7 @@ async function runScrapeRequest(request: Request) {
           const monthLinks = infusionMonthLinks(html, pageUrl, londonToday())
           if (monthLinks.length === 0) {
             failed++
-            if (failedPages.length < 30) failedPages.push({
+            failedPages.push({
               venue_id: source.venue_id, page_url: pageUrl,
               reason: 'Official events page has no current or upcoming monthly calendars',
             })
@@ -15026,9 +15020,7 @@ async function runScrapeRequest(request: Request) {
           } catch (error) {
             failed++
             const reason = error instanceof Error ? error.message : 'Route69 PDF extraction failed'
-            if (failedPages.length < 30) {
-              failedPages.push({ venue_id: source.venue_id, page_url: pageUrl, reason })
-            }
+            failedPages.push({ venue_id: source.venue_id, page_url: pageUrl, reason })
           }
         }
 
@@ -16190,8 +16182,12 @@ ${hu9HydratedText}`, pageUrl)
       max_venues: maxVenues,
       max_pages_per_source: MAX_PAGES_PER_SOURCE,
       fetch_timeout_ms: FETCH_TIMEOUT_MS,
+      max_scrape_work_ms: MAX_SCRAPE_WORK_MS,
     },
     target_venue_id: targetVenueId,
+    selection_mode: !targetVenueId && prioritySlot && healthRows.length > 0
+      ? 'zero_or_short_runway_priority' : 'oldest_source_attempt',
+    selected_venues: [...selectedVenueIds],
     checked_sources: sources?.length || 0,
     checked_pages: checkedPages,
     candidates_found: candidatesFound,
@@ -16202,7 +16198,8 @@ ${hu9HydratedText}`, pageUrl)
     skipped,
     failed,
     timedOutOrEmpty,
-    failed_pages: failedPages,
+    failed_pages: failedPages.slice(0, 30),
+    failed_pages_total: failedPages.length,
     found,
     debug_skipped: debugSkipped,
     scrape_safety: scrapeSafety,
