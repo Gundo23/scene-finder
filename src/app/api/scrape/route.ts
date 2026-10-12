@@ -14934,7 +14934,8 @@ async function runScrapeRequest(request: Request) {
       try {
         // Give a site's own calendar priority before generic links consume the
         // per-source page budget. Do not cross hosts or override dedicated feeds.
-        if (seenPages.size === 1 && !isTargetVenueSource(source.venue_id, source.source_url)) {
+        if (seenPages.size === 1 && new URL(pageUrl).pathname.replace(/\/+$/, '') === '' &&
+            !isTargetVenueSource(source.venue_id, source.source_url)) {
           for (const calendarUrl of officialCalendarNavigation(html, pageUrl).reverse()) {
             if (allowedSourcePageForVenue(source, calendarUrl) &&
                 !seenPages.has(calendarUrl) && !queue.includes(calendarUrl)) queue.unshift(calendarUrl)
