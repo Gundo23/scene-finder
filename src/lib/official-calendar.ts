@@ -68,9 +68,11 @@ export function parseOfficialHeadingCalendar(html: string, venueId: string, page
   const seen = new Set<string>()
   for (let index = 0; index < headings.length && events.length < 40; index++) {
     const heading = plainText(headings[index][2])
+    // WordPress image tags can exceed 1,500 characters. Strip complete markup
+    // before limiting the text, or a truncated <img>/<section> becomes a title.
     const body = html.slice((headings[index].index || 0) + headings[index][0].length,
-      headings[index + 1]?.index || html.length).slice(0, 1500)
-    const bodyText = plainText(body)
+      headings[index + 1]?.index || html.length)
+    const bodyText = plainText(body).slice(0, 1500)
     const date = kind === 'jaydees' ? datedHeading(bodyText.slice(0, 140), today) : datedHeading(heading, today)
     if (!date) continue
     const title = kind === 'jaydees' ? heading : bodyText.split(/[.!?]/)[0].trim().slice(0, 96)
