@@ -25,7 +25,8 @@ type AlertState = {
   last_notified_at: string | null
 }
 
-// New issues alert immediately; unresolved issues are reminders, not new incidents.
+// Only a transition from an observed healthy venue to zero is a critical incident.
+// Existing zero venues are tracked in the routine digest.
 const repeatAfterMs = 7 * 24 * 60 * 60 * 1000
 const staleAfterMs = 48 * 60 * 60 * 1000
 
@@ -107,8 +108,10 @@ export async function GET(request: Request) {
       now.getTime() - new Date(state.last_notified_at).getTime() >= repeatAfterMs
   })
 
-  const critical = toNotify.filter((issue) => issue.issue_kind === 'zero_events')
-  const routine = toNotify.filter((issue) => issue.issue_kind !== 'zero_events')
+  const critical = toNotify.filter((issue) => issue.issue_kind === 'zero_events' &&
+    previous.get(key(issue.venue_id, 'zero_events'))?.active === false)
+  const criticalKeys = new Set(critical.map((issue) => key(issue.venue_id, issue.issue_kind)))
+  const routine = toNotify.filter((issue) => !criticalKeys.has(key(issue.venue_id, issue.issue_kind)))
   for (const issue of routine) {
     const error = await queueRoutineAlert(supabase,
       `health:${issue.venue_id}:${issue.issue_kind}`,
@@ -133,8 +136,8 @@ export async function GET(request: Request) {
       const { error } = await resend.emails.send({
         from: process.env.NOTIFY_FROM_EMAIL || 'Scene Finder <notifications@scenefinder.co.uk>',
         to: [process.env.ADMIN_NOTIFY_EMAIL || 'info@scenefinder.co.uk'],
-        subject: `Scene Finder CRITICAL: ${critical.length} venue(s) have zero events`,
-        html: `<p>Checked ${escapeHtml(now.toISOString())}. These venues have no visible future events:</p><ul>${lines}</ul>`,
+        subject: `Scene Finder CRITICAL: ${critical.length} venue(s) just dropped to zero events`,
+        html: `<p>Checked ${escapeHtml(now.toISOString())}. These venues had future events at the previous health check and now have none. Check whether the dates expired or a source failed:</p><ul>${lines}</ul>`,
       })
       if (error) throw new Error(error.message)
     } catch (error) {
@@ -159,8 +162,19 @@ export async function GET(request: Request) {
         updated_at: now.toISOString() })
     }
   }
+  // Record a healthy baseline even for venues that have never had a zero-event
+  // issue. Without this, the first detected zero cannot be distinguished from
+  // a venue that was already empty before monitoring began.
+  for (const row of health as HealthRow[]) {
+    const issueKey = key(row.venue_id, 'zero_events')
+    if (Number(row.visible_future_count) > 0 &&
+        Number(row.historical_event_count) > 0 && !previous.has(issueKey)) {
+      updates.push({ venue_id: row.venue_id, issue_kind: 'zero_events',
+        active: false, last_notified_at: null, updated_at: now.toISOString() })
+    }
+  }
   const resolvedRoutineKeys = (oldStates as AlertState[])
-    .filter((state) => state.active && state.issue_kind !== 'zero_events' &&
+    .filter((state) => state.active &&
       !currentKeys.has(key(state.venue_id, state.issue_kind)))
     .map((state) => `health:${state.venue_id}:${state.issue_kind}`)
   if (resolvedRoutineKeys.length) {
