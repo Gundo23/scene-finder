@@ -13,6 +13,7 @@ import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-eve
 import { cupidsDetailDate, cupidsEventDetailLinks } from '@/lib/cupids-calendar'
 import { parsePartnersCalendar } from '@/lib/partners-calendar'
 import { queueRoutineAlert } from '@/lib/routine-alerts'
+import { parseRiotPartyOrganiser } from '@/lib/riot-party-events'
 
 export const runtime = 'nodejs'
 
@@ -4301,162 +4302,22 @@ function isRiotPartySource(venueId: string | null | undefined, sourceUrl: string
 
 function isRiotPartyAllowedPage(pageUrl: string | null | undefined) {
   try {
-    const parsed = new URL(String(pageUrl || ''))
-    const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
-    const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
-
-    if (host === 'riotparty.co.uk') return path === '/upcoming-events'
-    if (host === 'outsavvy.com') {
-      return (
-        path === '/organiser/riot-party-uk' ||
-        path === '/event/36426/riot-london-for-pride-weekend' ||
-        path === '/event/34413/riot-bristol-pride-afterparty' ||
-        path === '/event/37291/riot-ldn-july-summer-social' ||
-        path === '/event/36289/riot-manchester-july' ||
-        path === '/event/37486/riot-london-august' ||
-        path === '/event/37488/riot-x-one-night-swer-pride-festival'
-      )
-    }
-
-    return false
+    const url = new URL(String(pageUrl || ''))
+    return url.hostname.replace(/^www\./, '').toLowerCase() === 'outsavvy.com' &&
+      url.pathname.replace(/\/+$/, '').toLowerCase() === '/organiser/riot-party-uk'
   } catch {
     return false
   }
 }
 
-function discoverRiotPartyEventPages(sourceUrl: string) {
-  const urls = [
-    'https://www.outsavvy.com/organiser/riot-party-uk',
-  ].filter(Boolean) as string[]
-
-  return [...new Set(urls)].filter((url) => isRiotPartyAllowedPage(url) && !isJunkUrl(url))
+function discoverRiotPartyEventPages() {
+  return ['https://www.outsavvy.com/organiser/riot-party-uk']
 }
 
 function extractRiotPartyEvents(html: string, baseUrl: string) {
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
-
-  if (!isRiotPartyAllowedPage(baseUrl)) return candidates
-
-  const pageText = cleanText(html).toLowerCase()
-  const parsed = new URL(baseUrl)
-  const host = parsed.hostname.replace(/^www\./, '').toLowerCase()
-
-  const hasRiotSchedule =
-    host === 'riotparty.co.uk' ||
-    pageText.includes('riot party uk') ||
-    pageText.includes('riot london for pride weekend') ||
-    pageText.includes('riot bristol pride afterparty') ||
-    pageText.includes('riot manchester july') ||
-    pageText.includes('riot x one night swer pride festival')
-
-  if (!hasRiotSchedule) return candidates
-
-  const now = new Date()
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const todayString = datePartsToString(today)
-  if (!todayString) return candidates
-
-  const events: {
-    title: string
-    eventDate: string
-    startTime: string
-    venue: string
-    city: string
-    href: string
-  }[] = [
-    {
-      title: 'Riot London for Pride Weekend',
-      eventDate: '2026-07-05',
-      startTime: '16:00',
-      venue: 'Electrowerkz',
-      city: 'London',
-      href: 'https://www.outsavvy.com/event/36426/riot-london-for-pride-weekend',
-    },
-    {
-      title: 'Riot Bristol Pride Afterparty',
-      eventDate: '2026-07-11',
-      startTime: '20:00',
-      venue: 'Loco Klub',
-      city: 'Bristol',
-      href: 'https://www.outsavvy.com/event/34413/riot-bristol-pride-afterparty',
-    },
-    {
-      title: 'Riot London July Summer Social',
-      eventDate: '2026-07-16',
-      startTime: '19:00',
-      venue: 'The Brixton Courtyard',
-      city: 'London',
-      href: 'https://www.outsavvy.com/event/37291/riot-ldn-july-summer-social',
-    },
-    {
-      title: 'Riot Manchester July',
-      eventDate: '2026-07-24',
-      startTime: '20:00',
-      venue: 'Area Manchester',
-      city: 'Manchester',
-      href: 'https://www.outsavvy.com/event/36289/riot-manchester-july',
-    },
-    {
-      title: 'Riot London August',
-      eventDate: '2026-08-02',
-      startTime: '16:00',
-      venue: 'Electrowerkz',
-      city: 'London',
-      href: 'https://www.outsavvy.com/event/37486/riot-london-august',
-    },
-    {
-      title: 'Riot x One Night SWer Pride Festival',
-      eventDate: '2026-09-04',
-      startTime: '20:00',
-      venue: 'Electrowerkz',
-      city: 'London',
-      href: 'https://www.outsavvy.com/event/37488/riot-x-one-night-swer-pride-festival',
-    },
-  ]
-
-  const seen = new Set<string>()
-
-  for (const event of events) {
-    const eventDate = validDateOrNull(event.eventDate)
-    if (!eventDate || eventDate < todayString) continue
-
-    const title = cleanEventName(event.title)
-    if (!title || isJunkTitle(title)) continue
-
-    const titleNeedle = normalizeTitle(event.title)
-    const venueNeedle = normalizeTitle(event.venue)
-    const pageMentionsEvent =
-      host === 'riotparty.co.uk' ||
-      pageText.includes(titleNeedle) ||
-      pageText.includes(venueNeedle) ||
-      baseUrl.toLowerCase().includes(event.href.toLowerCase().replace('https://www.outsavvy.com', ''))
-
-    if (!pageMentionsEvent) continue
-
-    const key = `${normalizeTitle(title)}|${eventDate}|${normalizeTicketUrl(event.href)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-
-    candidates.push({
-      href: event.href,
-      text: title,
-      event_date: eventDate,
-      start_time: event.startTime,
-      raw: cleanText(`${event.title}. ${event.eventDate}. ${event.startTime}. ${event.venue}, ${event.city}. OutSavvy / Riot Party UK event listing.`),
-      image_url: null,
-      method: 'riot-party-outsavvy-schedule',
-    })
-  }
-
-  return candidates
+  return isRiotPartyAllowedPage(baseUrl)
+    ? parseRiotPartyOrganiser(html, londonToday())
+    : []
 }
 
 
