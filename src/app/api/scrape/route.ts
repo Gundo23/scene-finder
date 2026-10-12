@@ -17,6 +17,7 @@ import { parseRiotPartyOrganiser } from '@/lib/riot-party-events'
 import { parseStructuredEvents } from '@/lib/structured-events'
 import { isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
 import { readBoundedResponse } from '@/lib/bounded-response'
+import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHeadingCalendar } from '@/lib/official-calendar'
 
 export const runtime = 'nodejs'
 
@@ -14931,6 +14932,15 @@ async function runScrapeRequest(request: Request) {
       }
 
       try {
+        // Give a site's own calendar priority before generic links consume the
+        // per-source page budget. Do not cross hosts or override dedicated feeds.
+        if (seenPages.size === 1 && !isTargetVenueSource(source.venue_id, source.source_url)) {
+          for (const calendarUrl of officialCalendarNavigation(html, pageUrl).reverse()) {
+            if (allowedSourcePageForVenue(source, calendarUrl) &&
+                !seenPages.has(calendarUrl) && !queue.includes(calendarUrl)) queue.unshift(calendarUrl)
+          }
+        }
+
         if (isCupidsSource(source.venue_id, source.source_url) &&
             new URL(pageUrl).pathname.replace(/\/+$/, '') === '/events' &&
             !new URL(pageUrl).searchParams.has('event')) {
@@ -14980,6 +14990,7 @@ async function runScrapeRequest(request: Request) {
 
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          isOfficialHeadingCalendar(source.venue_id, pageUrl) ||
           source.venue_id === 'partners_manchester_bury_area' ||
           source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
           source.venue_id === 'dv8_kent_kent' ||
@@ -15010,7 +15021,9 @@ async function runScrapeRequest(request: Request) {
             ? extractVanillaAlternativeEvents(html, pageUrl)
             : []
         let targetVenueEvents =
-          source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, `${source.source_url} ${pageUrl}`) || isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
+          isOfficialHeadingCalendar(source.venue_id, pageUrl)
+            ? parseOfficialHeadingCalendar(html, source.venue_id, pageUrl, londonToday())
+            : source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, `${source.source_url} ${pageUrl}`) || isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
 
