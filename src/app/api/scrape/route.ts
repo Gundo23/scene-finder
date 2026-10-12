@@ -10087,7 +10087,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
   }
 
   if (isRiotPartySource(source.venue_id, source.source_url)) {
-    return discoverRiotPartyEventPages(source.source_url)
+    return discoverRiotPartyEventPages()
   }
 
   if (isTortureGardenSource(source.venue_id, source.source_url)) {
