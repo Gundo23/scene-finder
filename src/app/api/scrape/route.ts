@@ -6,7 +6,8 @@ import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEven
 import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
-import { parseTownhouseLocation } from '@/lib/townhouse-location-calendar'
+import { parseTownhouseCalendar } from '@/lib/townhouse-location-calendar'
+import { parseFSocietyNextEvent } from '@/lib/f-society-calendar'
 import { sheWorldSchedule } from '@/lib/she-world-schedule'
 import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
 import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-event'
@@ -2682,32 +2683,8 @@ function isLeBoudoirJunkEventTitle(value: string | null | undefined) {
 }
 
 function extractFSocietyNextEvent(html: string, pageUrl: string) {
-  if (!/^https:\/\/(?:www\.)?f-society\.uk\/events\/?$/i.test(pageUrl)) return []
-
-  // The homepage displays a loading placeholder. The Events page renders its
-  // confirmed next date in this card, while the detail URL describes a recurring
-  // monthly social without an occurrence date.
-  const card = html.match(/<span[^>]*>Next Event<\/span>([\s\S]{0,4500})/i)?.[1]
-  const title = cleanText(card?.match(/<h3[^>]*class=["'][^"']*buy-ticket__title[^"']*["'][^>]*>([\s\S]*?)<\/h3>/i)?.[1])
-  const date = cleanText(card).match(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),?\s+(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b/i)
-  const link = card?.match(/<a\b[^>]*href=["'](\/events\/[a-z0-9-]+)["'][^>]*>\s*View Event Details?\b/i)?.[1]
-  if (!title || isJunkTitle(title) || !date || !link) return []
-
-  const month = monthNameToNumber(date[3])
-  const eventDate = month ? validDateOrNull(`${date[4]}-${month}-${date[2].padStart(2, '0')}`) : null
-  const href = absoluteUrl(pageUrl, link)
-  const weekday = eventDate ? new Date(`${eventDate}T00:00:00Z`).getUTCDay() : -1
-  if (!eventDate || eventDate < londonToday() ||
-      weekday !== ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'].indexOf(date[1].toLowerCase()) ||
-      !href || !/^https:\/\/(?:www\.)?f-society\.uk\/events\/[a-z0-9-]+$/i.test(href)) return []
-
-  return [{
-    href, text: title, event_date: eventDate,
-    start_time: validTimeOrNull(cleanText(card).match(/\b(\d{1,2}):(\d{2})\s*-\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i)?.[0]
-      ?.replace(/\s*-.*$/, '')?.padStart(5, '0') || null),
-    raw: `${title} at Zerox, Newcastle upon Tyne, ${eventDate}`,
-    image_url: null, method: 'f-society-next-event',
-  }]
+  const today = londonToday()
+  return parseFSocietyNextEvent(html, pageUrl, today, parseStructuredEvents(html, pageUrl, today))
 }
 
 function isLeBoudoirJunkExistingEvent(event: {
@@ -11648,115 +11625,6 @@ function extractCupidsEvents(html: string, baseUrl: string) {
 }
 
 
-function isTownhouseEventOnJunkTitle(value: string | null | undefined) {
-  const cleaned = normalizeTitle(value || '')
-
-  if (!cleaned) return true
-  if (isJunkTitle(cleaned)) return true
-
-  const junk = [
-    'closed for private party',
-    'private party',
-    'private event',
-    'details coming soon',
-    'coming soon',
-    'test event',
-    'draft',
-  ]
-
-  return junk.some((item) => cleaned === item || cleaned.includes(item))
-}
-
-async function fetchTownhouseEventOnApiEvents(sourceUrl: string) {
-  const apiUrls = [
-    'https://townhouseswingers.com/wp-json/wp/v2/ajde_events?per_page=100&_embed=1',
-    'https://townhouseswingers.com/wp-json/wp/v2/ajde_events?per_page=100',
-  ]
-
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
-
-  const seen = new Set<string>()
-
-  for (const apiUrl of apiUrls) {
-    const jsonText = await fetchText(apiUrl, 'application/json,text/plain,*/*')
-    if (!jsonText) continue
-
-    let parsed: any
-
-    try {
-      parsed = JSON.parse(jsonText)
-    } catch (err: any) {
-      console.log('TOWNHOUSE EVENTON API PARSE ERROR:', err?.message || 'Unknown parse error')
-      continue
-    }
-
-    const items = Array.isArray(parsed) ? parsed : []
-    if (items.length === 0) continue
-
-    for (const item of items) {
-      if (!item || item.status === 'trash' || item.status === 'draft') continue
-
-      const title = cleanEventName(cleanWordPressRendered(item.title))
-      if (!title || isTownhouseEventOnJunkTitle(title)) continue
-
-      const eventUrl =
-        absoluteUrl(sourceUrl, item.link) ||
-        absoluteUrl(sourceUrl, item.guid?.rendered) ||
-        eventUrlWithAnchor(sourceUrl, title)
-
-      if (!eventUrl || !eventUrl.includes('/events/')) continue
-
-      const contentHtml = typeof item.content?.rendered === 'string' ? item.content.rendered : ''
-      const excerptHtml = typeof item.excerpt?.rendered === 'string' ? item.excerpt.rendered : ''
-      const description = cleanDescription(`${contentHtml} ${excerptHtml}`) || title
-
-      const embeddedImage =
-        validImageUrl(item?._embedded?.['wp:featuredmedia']?.[0]?.source_url) ||
-        validImageUrl(item?._embedded?.['wp:featuredmedia']?.[0]?.media_details?.sizes?.large?.source_url) ||
-        validImageUrl(item?._embedded?.['wp:featuredmedia']?.[0]?.media_details?.sizes?.medium_large?.source_url) ||
-        null
-
-      const imageUrl =
-        embeddedImage ||
-        extractImageFromWpRenderedContent(contentHtml, eventUrl) ||
-        null
-
-      // The public WP REST payload exposes the EventON posts, titles, content and images.
-      // Some installs do not expose EventON's private start-date meta through REST, so only
-      // use an explicit date if it appears in the title/content/link. Otherwise save as TBC.
-      const dateSource = `${title} ${description} ${eventUrl}`
-      const eventDate = extractDate(dateSource)
-      const startTime = extractTime(dateSource)
-      const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(eventUrl)}`
-
-      if (seen.has(key)) continue
-      seen.add(key)
-
-      candidates.push({
-        href: eventUrl,
-        text: title,
-        event_date: eventDate,
-        start_time: startTime,
-        raw: description || title,
-        image_url: imageUrl,
-        method: 'townhouse-eventon-api',
-      })
-    }
-
-    if (candidates.length > 0) break
-  }
-
-  return candidates
-}
-
 async function discoverTownhouseEventUrls(sourceUrl: string) {
   const discovered = new Set<string>()
 
@@ -14449,70 +14317,9 @@ async function runScrapeRequest(request: Request) {
     }
 
     if (source.venue_id === 'townhouse_wirral_near_liverpool') {
-      const townhouseApiEvents = await fetchTownhouseEventOnApiEvents(source.source_url)
-
-      for (const townhouseApiEvent of townhouseApiEvents) {
-        candidatesFound++
-
-        const title = townhouseApiEvent.text
-        const description = townhouseApiEvent.raw || townhouseApiEvent.text
-        const ticketUrl = townhouseApiEvent.href || eventUrlWithAnchor(source.source_url, title)
-        const dedupeKey = eventDedupeKey(source.venue_id, title, townhouseApiEvent.event_date, ticketUrl)
-
-        if (runSeen.has(dedupeKey)) {
-          skipped++
-          continue
-        }
-
-        runSeen.add(dedupeKey)
-
-        const result = await upsertEvent({
-          venue_id: source.venue_id,
-          event_name: title,
-          event_date: townhouseApiEvent.event_date,
-          start_time: townhouseApiEvent.start_time,
-          description,
-          ticket_url: ticketUrl,
-          image_url: townhouseApiEvent.image_url,
-          source_url: source.source_url,
-        })
-
-        if (result.action === 'created') created++
-        else if (result.action === 'updated') updated++
-        else if (result.action === 'skipped') skipped++
-        else {
-          failed++
-
-          if (errors.length < 20) {
-            errors.push({
-              venue_id: source.venue_id,
-              event_name: title,
-              event_date: townhouseApiEvent.event_date,
-              error: result.error?.message || 'Unknown upsert error',
-            })
-          }
-        }
-
-        if (townhouseApiEvent.image_url) {
-          const venueImageResult = await updateVenueImageIfEmpty(source.venue_id, townhouseApiEvent.image_url)
-          if (venueImageResult.updated) venueImagesUpdated++
-        }
-
-        if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
-          found.push({
-            venue_id: source.venue_id,
-            event_name: cleanEventName(title),
-            event_date: townhouseApiEvent.event_date,
-            event_url: ticketUrl,
-            image_url: townhouseApiEvent.image_url,
-            method: townhouseApiEvent.method,
-          })
-        }
-      }
-
-      // The old /event-directory/ is now an empty shell. The official venue
-      // location page has fully dated EventON rows for upcoming months.
-      const townhouseUrls = ['https://townhouseswingers.com/event-location/townhouse/']
+      // Townhouse replaced WordPress/EventON with a dated Svelte calendar.
+      // The retired location and REST paths now return an empty application shell.
+      const townhouseUrls = ['https://townhouseswingers.com/events']
 
       for (const pageUrl of townhouseUrls) {
         checkedPages++
@@ -14539,7 +14346,12 @@ async function runScrapeRequest(request: Request) {
           if (venueImageResult.updated) venueImagesUpdated++
         }
 
-        const townhouseEvents = parseTownhouseLocation(html, pageUrl, londonToday())
+        const townhouseEvents = parseTownhouseCalendar(html, pageUrl, londonToday())
+        if (townhouseEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official Townhouse calendar yielded no confirmed dated events' })
+        }
 
         for (const townhouseEvent of townhouseEvents) {
           candidatesFound++
@@ -14590,7 +14402,7 @@ async function runScrapeRequest(request: Request) {
               event_date: townhouseEvent.event_date,
               event_url: ticketUrl,
               image_url: pageImage,
-              method: 'townhouse-location-calendar',
+              method: 'townhouse-calendar',
             })
           }
         }
@@ -14915,6 +14727,12 @@ async function runScrapeRequest(request: Request) {
             : source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, `${source.source_url} ${pageUrl}`) || isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
+
+        if (source.venue_id === 'f_society_newcastle_upon_tyne_north_east' && targetVenueEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official F-Society next-event card has no matching confirmed future date' })
+        }
 
         if (isRoute69Source(source.venue_id, pageUrl) && isRoute69AllowedPage(pageUrl)) {
           try {
