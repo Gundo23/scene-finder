@@ -18,6 +18,9 @@ import { parseStructuredEvents } from '@/lib/structured-events'
 import { isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
 import { readBoundedResponse } from '@/lib/bounded-response'
 import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHeadingCalendar } from '@/lib/official-calendar'
+import { parseXtasiaEvents } from '@/lib/xtasia-events'
+import { parseSwampDates } from '@/lib/swamp-dates'
+import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations-calendar'
 
 export const runtime = 'nodejs'
 
@@ -1575,20 +1578,6 @@ function extractQuestEvents(html: string, baseUrl: string) {
 }
 
 
-function discoverXtasiaEventPages(sourceUrl: string) {
-  // Xtasia has multiple aliases for the same Google Calendar embeds. Only scan
-  // the canonical public diary pages once, otherwise each source/page repeats
-  // the same recurring entries and inflates the venue count.
-  const pages = [
-    'https://www.xtasia.co.uk/page/swingers-diary',
-    'https://www.xtasia.co.uk/page/fetish-diary',
-  ]
-
-  return [...new Set(pages)]
-    .map((url) => absoluteUrl(sourceUrl, url))
-    .filter(Boolean) as string[]
-}
-
 function unfoldIcsLines(ics: string) {
   const lines = ics.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
   const output: string[] = []
@@ -1995,145 +1984,6 @@ function parseIcsEvents(ics: string, baseUrl: string, diaryName: string, options
   }
 
   return candidates
-}
-
-
-function extractGoogleCalendarIds(html: string, baseUrl: string) {
-  const ids = new Set<string>()
-
-  const iframeMatches = [
-    ...html.matchAll(/<iframe[^>]+src=["']([^"']*calendar\.google\.com\/calendar\/embed[^"']+)["'][^>]*>/gi),
-    ...html.matchAll(/<iframe[^>]+src=["']([^"']*google\.com\/calendar\/embed[^"']+)["'][^>]*>/gi),
-  ]
-
-  for (const match of iframeMatches) {
-    const iframeUrl = absoluteUrl(baseUrl, match[1])
-    if (!iframeUrl) continue
-
-    try {
-      const parsed = new URL(iframeUrl)
-      const srcValues = parsed.searchParams.getAll('src')
-
-      for (const src of srcValues) {
-        if (src) ids.add(src)
-      }
-    } catch {
-      continue
-    }
-  }
-
-  const encodedSrcMatches = [...html.matchAll(/src=([^&"'<>]+@[^&"'<>]+)/gi)]
-
-  for (const match of encodedSrcMatches) {
-    try {
-      ids.add(decodeURIComponent(match[1]))
-    } catch {
-      ids.add(match[1])
-    }
-  }
-
-  return [...ids]
-}
-
-async function extractXtasiaEvents(html: string, baseUrl: string) {
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-  }[] = []
-
-  const diaryName = baseUrl.includes('fetish') ? 'Fetish Diary' : 'Swingers Diary'
-  const calendarIds = extractGoogleCalendarIds(html, baseUrl)
-
-  for (const calendarId of calendarIds) {
-    const encodedId = encodeURIComponent(calendarId)
-    const icsUrls = [
-      `https://calendar.google.com/calendar/ical/${encodedId}/public/basic.ics`,
-      `https://calendar.google.com/calendar/ical/${encodedId}/private/basic.ics`,
-    ]
-
-    for (const icsUrl of icsUrls) {
-      const ics = await fetchText(icsUrl, 'text/calendar,text/plain,*/*')
-      if (!ics || !ics.includes('BEGIN:VCALENDAR')) continue
-
-      candidates.push(...parseIcsEvents(ics, baseUrl, diaryName, { preserveRawTitle: true }))
-      break
-    }
-  }
-
-  if (candidates.length === 0) {
-    const text = cleanText(html)
-    const currentYear = new Date().getFullYear()
-    const monthMap: Record<string, string> = {
-      jan: '01',
-      january: '01',
-      feb: '02',
-      february: '02',
-      mar: '03',
-      march: '03',
-      apr: '04',
-      april: '04',
-      may: '05',
-      jun: '06',
-      june: '06',
-      jul: '07',
-      july: '07',
-      aug: '08',
-      august: '08',
-      sep: '09',
-      sept: '09',
-      september: '09',
-      oct: '10',
-      october: '10',
-      nov: '11',
-      november: '11',
-      dec: '12',
-      december: '12',
-    }
-
-    const pattern = /\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\s+(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+(.{6,100}?)(?=\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\s+\d{1,2}\s+(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)|$)/gi
-
-    let match
-
-    while ((match = pattern.exec(text)) !== null) {
-      const day = match[1].padStart(2, '0')
-      const month = monthMap[match[2].toLowerCase()]
-      const eventDate = validDateOrNull(`${currentYear}-${month}-${day}`)
-      let title = cleanEventName(match[3]).replace(/^[-–:]+/g, '').trim()
-
-      if (!eventDate || !title || isJunkTitle(title)) continue
-
-      candidates.push({
-        href: eventUrlWithAnchor(baseUrl, title),
-        text: title,
-        event_date: eventDate,
-        start_time: extractTime(match[3]),
-        raw: `${title} ${diaryName}`,
-      })
-    }
-  }
-
-  const today = new Date()
-  const todayDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
-  const maxDate = new Date(todayDate)
-  maxDate.setUTCDate(maxDate.getUTCDate() + 120)
-  const minDateString = todayDate.toISOString().slice(0, 10)
-  const maxDateString = maxDate.toISOString().slice(0, 10)
-  const seen = new Set<string>()
-
-  return candidates.filter((event) => {
-    if (!event.event_date) return false
-    if (event.event_date < minDateString || event.event_date > maxDateString) return false
-    if (isXtasiaMalformedEvent(event.text, event.raw)) return false
-
-    const key = `${normalizeTitle(event.text)}|${event.event_date}`
-    if (seen.has(key)) return false
-    seen.add(key)
-
-    return true
-  })
 }
 
 
@@ -14355,7 +14205,16 @@ async function runScrapeRequest(request: Request) {
       continue
     }
 
-    const sourceKey = `${configuredSource.venue_id}|${configuredSource.source_url}`
+    // Retired Xtasia diary URLs and ICS aliases all represent the same venue.
+    // Route every one through its current official calendar, once per run.
+    const sourceUrl = configuredSource.venue_id === 'xtasia_west_bromwich'
+      ? 'https://xtasia.co.uk/events'
+      : configuredSource.venue_id === 'temptations_2_eccles_manchester'
+        ? 'https://temptations2.co.uk/events/'
+      : configuredSource.venue_id === 'swamp_in_bristol_bristol'
+        ? `https://www.swampinbristol.org.uk/${londonToday().slice(0, 4)}-dates/`
+      : configuredSource.source_url
+    const sourceKey = `${configuredSource.venue_id}|${sourceUrl}`
     if (seenSourceKeys.has(sourceKey)) {
       // The same source was just checked for this venue; do not fetch it twice.
       await supabaseAdmin
@@ -14368,7 +14227,7 @@ async function runScrapeRequest(request: Request) {
     }
     seenSourceKeys.add(sourceKey)
 
-    const source = configuredSource
+    const source = { ...configuredSource, source_url: sourceUrl }
 
     // This is an attempt timestamp, not a completed scrape timestamp. Advance
     // the queue before fetching so a source that hangs cannot starve every
@@ -14753,9 +14612,7 @@ async function runScrapeRequest(request: Request) {
         : []
 
     const xtasiaDiscoveredUrls =
-      source.venue_id === 'xtasia_west_bromwich'
-        ? discoverXtasiaEventPages(source.source_url)
-        : []
+      source.venue_id === 'xtasia_west_bromwich' ? [source.source_url] : []
 
     const wixDiscoveredUrls =
       isWixLikeSource(source.source_url) || source.collection_method === 'User Submission'
@@ -14845,7 +14702,9 @@ async function runScrapeRequest(request: Request) {
         : source.venue_id === 'f_society_newcastle_upon_tyne_north_east'
           ? 1
         : source.venue_id === 'xtasia_west_bromwich'
-          ? 2
+          ? 1
+        : source.venue_id === 'temptations_2_eccles_manchester'
+          ? 4
           : isHu9Source(source.venue_id, source.source_url)
             ? 1
           : isMe1SaunaSource(source.venue_id, source.source_url)
@@ -14950,6 +14809,13 @@ async function runScrapeRequest(request: Request) {
           }
         }
 
+        if (source.venue_id === 'temptations_2_eccles_manchester') {
+          const nextCalendar = nextTemptationsPage(html, pageUrl)
+          if (nextCalendar && !seenPages.has(nextCalendar) && !queue.includes(nextCalendar)) {
+            queue.unshift(nextCalendar)
+          }
+        }
+
         if (source.venue_id === 'infusions_infusion_blackpool_blackpool' &&
             new URL(pageUrl).pathname.replace(/\/+$/, '') === '/events') {
           const monthLinks = infusionMonthLinks(html, pageUrl, londonToday())
@@ -14997,6 +14863,9 @@ async function runScrapeRequest(request: Request) {
           source.venue_id === 'dv8_kent_kent' ||
           source.venue_id === 'ignite_west_drayton_heathrow' ||
           source.venue_id === 'club_play_blackpool' ||
+          source.venue_id === 'xtasia_west_bromwich' ||
+          source.venue_id === 'swamp_in_bristol_bristol' ||
+          source.venue_id === 'temptations_2_eccles_manchester' ||
           source.venue_id === 'le_boudoir_club_london' ||
           source.venue_id === 'f_society_newcastle_upon_tyne_north_east'
         const jsonLdEvents = dedicatedCalendar ? [] : extractJsonLdEvents(html, pageUrl)
@@ -15011,8 +14880,27 @@ async function runScrapeRequest(request: Request) {
             : []
         const xtasiaEvents =
           source.venue_id === 'xtasia_west_bromwich'
-            ? await extractXtasiaEvents(html, pageUrl)
+            ? parseXtasiaEvents(html, pageUrl, londonToday())
             : []
+        const swampEvents = source.venue_id === 'swamp_in_bristol_bristol'
+          ? parseSwampDates(html, pageUrl, londonToday()) : []
+        const temptationsEvents = source.venue_id === 'temptations_2_eccles_manchester'
+          ? parseTemptationsCalendar(html, pageUrl, londonToday()) : []
+        if (source.venue_id === 'xtasia_west_bromwich' && xtasiaEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official Xtasia calendar yielded no confirmed dated events' })
+        }
+        if (source.venue_id === 'swamp_in_bristol_bristol' && swampEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official SWAMP annual dates page yielded no future dated events' })
+        }
+        if (source.venue_id === 'temptations_2_eccles_manchester' && temptationsEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official Temptations calendar page yielded no dated event cards' })
+        }
         const wixTileEvents =
           !dedicatedCalendar && isWixLikeSource(`${source.source_url} ${html}`)
             ? extractWixCalendarTileEvents(html, pageUrl)
@@ -15550,14 +15438,15 @@ ${hu9HydratedText}`, pageUrl)
           }
         }
 
-        for (const xtasiaEvent of xtasiaEvents) {
+        for (const xtasiaEvent of [...xtasiaEvents, ...swampEvents, ...temptationsEvents]) {
           candidatesFound++
 
-          const title = cleanXtasiaCalendarTitle(xtasiaEvent.text)
-          const description = xtasiaEvent.raw || `${xtasiaEvent.text} Xtasia diary`
+          const isXtasia = source.venue_id === 'xtasia_west_bromwich'
+          const title = isXtasia ? cleanXtasiaCalendarTitle(xtasiaEvent.text) : xtasiaEvent.text
+          const description = xtasiaEvent.raw
           const ticketUrl = xtasiaEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (!title || !xtasiaEvent.event_date || isXtasiaMalformedEvent(title, description)) {
+          if (!title || !xtasiaEvent.event_date || (isXtasia && isXtasiaMalformedEvent(title, description))) {
             skipped++
             continue
           }
@@ -15581,7 +15470,7 @@ ${hu9HydratedText}`, pageUrl)
             start_time: xtasiaEvent.start_time,
             description,
             ticket_url: ticketUrl,
-            image_url: pageImage,
+            image_url: null,
             source_url: source.source_url,
           })
 
@@ -15596,8 +15485,9 @@ ${hu9HydratedText}`, pageUrl)
               event_name: title,
               event_date: xtasiaEvent.event_date,
               event_url: ticketUrl,
-              image_url: pageImage,
-              method: 'xtasia-calendar',
+              image_url: null,
+              method: isXtasia ? 'xtasia-official-events' :
+                source.venue_id === 'swamp_in_bristol_bristol' ? 'swamp-official-dates' : 'temptations-calendar-card',
             })
           }
         }

@@ -1,0 +1,44 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { parseXtasiaEvents } from '../src/lib/xtasia-events.ts'
+
+const page = 'https://xtasia.co.uk/events'
+const html = `
+  <section><h3>Today</h3><h5><a href="/events/20261016/hot-wives">Hot Wives</a></h5></section>
+  <script>"href":"/events/20261019/explore-whats-on"</script>
+  <section><h4>Fri 16 Oct</h4><p>Swing event</p><h5>Hot Wives</h5>
+    <p>Fri 16 Oct 2026 8:00pm – 3:00am Xtasia</p>
+    <a href="/events/20261016/hot-wives">View Event</a></section>
+  <section><h4>Sat 17 Oct</h4><h5>Flirts closed</h5><p>Sat 17 Oct 2026 Closed</p></section>
+  <section><h4>Fri 20 Nov</h4><p>Fetish event</p><h5>7 Deadly Sins</h5>
+    <p>Fri 20 Nov 2026 8:00pm – 2:00am Flirts</p>
+    <a href="https://xtasia.co.uk/events/20261120/7-deadly-sins">View Event</a></section>
+  <section><h4>Fri 18 Dec</h4><h5>7 Deadly Sins</h5>
+    <p>Fri 18 Dec 2026 8:00pm – 2:00am Flirts</p>
+    <a href="/events/20261218/7-deadly-sins">View Event</a></section>
+  <section><h4>Fri 20 Nov</h4><h5>7 Deadly Sins</h5>
+    <p>Fri 20 Nov 2026 8:00pm – 2:00am Flirts</p>
+    <a href="https://elsewhere.example/events/20261120/7-deadly-sins">View Event</a></section>
+`
+
+test('reads only dated official event cards, with year, title and URL from the same listing', () => {
+  assert.deepEqual(parseXtasiaEvents(html, page, '2026-10-15')
+    .map(({ event_date, text, start_time, href }) => [event_date, text, start_time, href]), [
+      ['2026-10-16', 'Hot Wives', '20:00', 'https://xtasia.co.uk/events/20261016/hot-wives'],
+      ['2026-11-20', '7 Deadly Sins', '20:00', 'https://xtasia.co.uk/events/20261120/7-deadly-sins'],
+      ['2026-12-18', '7 Deadly Sins', '20:00', 'https://xtasia.co.uk/events/20261218/7-deadly-sins'],
+    ])
+})
+
+test('does not infer a date from a URL alone or turn a redirected homepage into events', () => {
+  const mismatch = '<h5>Flirts - 7 Deadly Sins</h5><p>Fri 16 Oct 2026 8:00pm</p><a href="/events/20261120/7-deadly-sins">View Event</a>'
+  assert.deepEqual(parseXtasiaEvents(mismatch, page, '2026-10-15'), [])
+  assert.deepEqual(parseXtasiaEvents('<h3>Explore what\'s on</h3><a href="/events">Events</a>', page, '2026-10-15'), [])
+  assert.deepEqual(parseXtasiaEvents(html, 'https://xtasia.co.uk/', '2026-10-15'), [])
+})
+
+test('requires the official day and excludes past and distant events', () => {
+  const markup = '<h5>Bad date</h5><p>Thu 16 Oct 2026 8:00pm</p><a href="/events/20261016/bad-date">View Event</a>'
+  assert.deepEqual(parseXtasiaEvents(markup, page, '2026-10-15'), [])
+  assert.deepEqual(parseXtasiaEvents(html, page, '2027-01-01'), [])
+})
