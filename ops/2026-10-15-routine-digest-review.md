@@ -1,6 +1,6 @@
 # Routine digest review — 15 October 2026
 
-Read the original Gmail message `1a1412d1d0ffff82` (20:07 UTC). It contains 18 distinct venue issues. The last seven days of Gmail contain one matching Scene Finder message; the repository has no open PR duplicating this repair.
+Read the original routine digest in Gmail (20:07 UTC). It contains 18 distinct venue issues. The last seven days of Gmail contain one matching Scene Finder message; the repository has no open PR duplicating this repair.
 
 ## Verified repair
 
@@ -40,7 +40,13 @@ Public counts below were read directly from Scene Finder on 15 October. These ar
 - Local production build fails in this workspace with `ENOENT: uv_resident_set_memory` before application build completes. Hosted Vercel build remains the release gate.
 - Vercel lists `scene-finder` / `prj_UYAmayUNk6iho6r3o5fxgeqtdb3r`, but reading that project under `team_cFOALld9wMzV6snI1ST9ILyl` returns **403**, explicitly lacking access to `gundo23s-projects`. No Vercel CLI is installed for the mapped fallback.
 - Public `/api/events-health` returns **401 Unauthorized**, as expected. No cron secret was requested, exposed, or bypassed.
-- The only connected Supabase project is `nwgichgyqplfsrtgwbbr`, named `enquiries@u-print.org's Project`, created 13 October 2026. It is **not verified as Scene Finder**; no SQL was run against it. Production source registration, health-run inspection and targeted scrapes are unavailable in this run.
+- The only connected Supabase project is **not verified as Scene Finder**; no SQL was run against it. Production source registration, health-run inspection and targeted scrapes are unavailable in this run.
 - Parser changes use the existing active F Society/Townhouse source rows and override the retired fetch path; no SQL migration is required for these two repairs. After a successful hosted build/deploy, run targeted authenticated scrapes for both venues, inspect `failed_pages` and `scrape_safety`, then verify the public dated listings. Monitor exclusion takes effect on the next health invocation.
 
 No production events, sources, secrets or schedules were directly changed during investigation.
+
+## Release result
+
+[PR #33](https://github.com/Gundo23/scene-finder/pull/33) merged as `11777ef0b0ac96c36005241735baf4f71c75ddbf`. GitHub verification and Vercel preview succeeded for the exact PR head. GitHub verification and Vercel production deployment succeeded for the merged commit. [Production deployment](https://vercel.com/gundo23s-projects/scene-finder/39txcbs5K91fDZow4Zc1mvFVZajq).
+
+This confirms the code release, not that a production scrape has imported the new records. Authenticated targeted scraper/health execution and exact preserved-row inspection remain blocked by production access. The recurring scraper and health jobs can pick up the code on their next invocation.
