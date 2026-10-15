@@ -3,6 +3,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { queueRoutineAlert, sendRoutineDigest } from '@/lib/routine-alerts'
+import { monitorsEventCalendar } from '@/lib/event-monitoring'
 
 export const runtime = 'nodejs'
 
@@ -62,6 +63,20 @@ export async function GET(request: Request) {
     return Response.json({ error: 'Health metrics unavailable' }, { status: 503 })
   }
 
+  // The coverage RPC filters venue.status, while location curation records
+  // closed venues and directory leads in location_kind. Keep those historical
+  // records available without repeatedly treating them as failed live calendars.
+  const { data: venueKinds, error: venueKindError } = await supabase
+    .from('venues').select('venue_id, location_kind')
+  if (venueKindError || !venueKinds) {
+    console.error('EVENT HEALTH: venue classification failed', venueKindError)
+    return Response.json({ error: 'Venue classification unavailable' }, { status: 503 })
+  }
+  const excludedVenues = new Set(venueKinds
+    .filter((venue) => !monitorsEventCalendar(venue.location_kind))
+    .map((venue) => venue.venue_id))
+  const monitoredHealth = (health as HealthRow[]).filter((row) => !excludedVenues.has(row.venue_id))
+
   const { data: oldStates, error: stateError } = await supabase
     .from('venue_event_health_alert_state')
     .select('venue_id, issue_kind, active, last_notified_at')
@@ -71,7 +86,7 @@ export async function GET(request: Request) {
   }
 
   const issues: Issue[] = []
-  for (const row of health as HealthRow[]) {
+  for (const row of monitoredHealth) {
     const visible = Number(row.visible_future_count)
     const historical = Number(row.historical_event_count)
     const successAt = row.last_completed_success
@@ -165,7 +180,7 @@ export async function GET(request: Request) {
   // Record a healthy baseline even for venues that have never had a zero-event
   // issue. Without this, the first detected zero cannot be distinguished from
   // a venue that was already empty before monitoring began.
-  for (const row of health as HealthRow[]) {
+  for (const row of monitoredHealth) {
     const issueKey = key(row.venue_id, 'zero_events')
     if (Number(row.visible_future_count) > 0 &&
         Number(row.historical_event_count) > 0 && !previous.has(issueKey)) {
@@ -205,7 +220,7 @@ export async function GET(request: Request) {
     (['zero_events', 'stale_scrape', 'short_runway', 'missing_source'] as IssueKind[])
       .map((kind) => [kind, issues.filter((issue) => issue.issue_kind === kind).length])
   )
-  return Response.json({ checked_venues: health.length,
+  return Response.json({ checked_venues: monitoredHealth.length,
     issue_count: issues.length, issues_by_kind: issueCounts,
     critical_alerts_sent: critical.length, routine_alerts_queued: routine.length,
     routine_digest_sent: digest.sent, routine_digest_items: digest.count,
