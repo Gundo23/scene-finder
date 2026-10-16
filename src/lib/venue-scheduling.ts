@@ -13,8 +13,8 @@ const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
 /**
- * Two slots out of three remain oldest-first, so every active venue gets its
- * turn. The third slot brings empty and nearly expired calendars forward.
+ * Eleven slots out of twelve remain oldest-first, so every active venue gets
+ * its turn. The twelfth slot can bring urgent calendars forward.
  */
 export function selectVenueIds(
   sources: ScrapeSource[], health: VenueHealth[], maxVenues: number,
@@ -65,5 +65,5 @@ export function selectVenueIds(
 }
 
 export function isPrioritySlot(now: Date) {
-  return Math.floor(now.getTime() / (10 * 60 * 1000)) % 3 === 0
+  return Math.floor(now.getTime() / (10 * 60 * 1000)) % 12 === 0
 }
