@@ -42,3 +42,37 @@ test('requires the official day and excludes past and distant events', () => {
   assert.deepEqual(parseXtasiaEvents(markup, page, '2026-10-15'), [])
   assert.deepEqual(parseXtasiaEvents(html, page, '2027-01-01'), [])
 })
+
+test('accepts official punctuation in literal and percent-encoded event slugs', () => {
+  const markup = `<h5>Blood, Sweat and Tears</h5><p>Sun 18 Oct 2026 2:00pm – 8:00pm Xtasia</p>
+    <a href="/events/20261018/blood%2C-sweat-and-tears">View Event</a>
+    <h5>Paint and Play: Fright Night</h5><p>Fri 30 Oct 2026 8:30pm – 1:00am Flirts</p>
+    <a href="/events/20261030/paint-and-play:-fright-night">View Event</a>`
+  assert.deepEqual(parseXtasiaEvents(markup, page, '2026-10-16').map(({text, start_time}) => [text, start_time]), [
+    ['Blood, Sweat and Tears', '14:00'], ['Paint and Play: Fright Night', '20:30'],
+  ])
+})
+
+test('time belongs to the last validated date, not an earlier unlinked/closed card', () => {
+  const markup = `<h5>Flirts closed</h5><p>Sun 18 Oct 2026 2:00pm – 8:00pm</p>
+    <h5>7 Deadly Sins</h5><p>Fri 20 Nov 2026 8:00pm – 2:00am Flirts</p>
+    <a href="/events/20261120/7-deadly-sins">View Event</a>`
+  assert.equal(parseXtasiaEvents(markup, page, '2026-10-16')[0].start_time, '20:00')
+})
+
+test('uses Midday rather than the end time and leaves absent/invalid starts unknown', () => {
+  const card = (time) => `<h5>CherriPie Gangbang</h5><p>Wed 21 Oct 2026 ${time} Flirts</p>
+    <a href="/events/20261021/cherripie-gangbang">View Event</a>`
+  assert.equal(parseXtasiaEvents(card('Midday – 2:00pm'), page, '2026-10-16')[0].start_time, '12:00')
+  assert.equal(parseXtasiaEvents(card('Midnight – 3am'), page, '2026-10-16')[0].start_time, '00:00')
+  assert.equal(parseXtasiaEvents(card('TBC – 2:00pm'), page, '2026-10-16')[0].start_time, null)
+  assert.equal(parseXtasiaEvents(card('25:00pm – 2:00pm'), page, '2026-10-16')[0].start_time, null)
+})
+
+test('punctuation support never admits encoded separators, controls or another host', () => {
+  for (const href of ['/events/20261018/blood%2Fother', '/events/20261018/blood%5Cother',
+    '/events/20261018/blood%00other', 'https://elsewhere.example/events/20261018/blood,-sweat-and-tears']) {
+    const markup = `<h5>Blood, Sweat and Tears</h5><p>Sun 18 Oct 2026 2:00pm</p><a href="${href}">View Event</a>`
+    assert.deepEqual(parseXtasiaEvents(markup, page, '2026-10-16'), [])
+  }
+})
