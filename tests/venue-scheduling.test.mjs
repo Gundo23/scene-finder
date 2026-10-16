@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { selectVenueIds, isPrioritySlot } from '../src/lib/venue-scheduling.ts'
+import { dailyCoverageBatchSize, selectVenueIds, isPrioritySlot } from '../src/lib/venue-scheduling.ts'
 
 const now = new Date('2026-10-12T18:00:00Z')
 const sources = [
@@ -33,24 +33,30 @@ test('priority uses a fixed one-in-twelve rotation; missing health falls back to
   assert.deepEqual(selectVenueIds(sources, [], 1, now, true), ['normal'])
 })
 
-test('routine scrapes wait twelve hours without delaying new sources', () => {
-  assert.deepEqual(selectVenueIds(sources, health, 2, now, false, 12 * 60 * 60 * 1000),
-    ['normal', 'runway'])
+test('routine scrapes wait twenty-four hours without delaying new sources', () => {
+  assert.deepEqual(selectVenueIds(sources, health, 2, now, false, 24 * 60 * 60 * 1000),
+    ['normal'])
   assert.deepEqual(selectVenueIds([
     { venue_id: 'due', last_checked: '2026-10-11T11:00:00Z' },
-  ], [], 2, now, false, 12 * 60 * 60 * 1000), ['due'])
+  ], [], 2, now, false, 24 * 60 * 60 * 1000), ['due'])
   assert.deepEqual(selectVenueIds([
     { venue_id: 'new', last_checked: null },
     { venue_id: 'recent', last_checked: '2026-10-12T17:00:00Z' },
-  ], [], 2, now, false, 12 * 60 * 60 * 1000), ['new'])
+  ], [], 2, now, false, 24 * 60 * 60 * 1000), ['new'])
   assert.deepEqual(selectVenueIds([
     { venue_id: 'recent', last_checked: '2026-10-12T17:00:00Z' },
-  ], [], 2, now, false, 12 * 60 * 60 * 1000), [])
+  ], [], 2, now, false, 24 * 60 * 60 * 1000), [])
 })
 
 test('priority slots retry empty and short-runway venues before the routine age', () => {
-  assert.deepEqual(selectVenueIds(sources, health, 2, now, true, 12 * 60 * 60 * 1000),
+  assert.deepEqual(selectVenueIds(sources, health, 2, now, true, 24 * 60 * 60 * 1000),
     ['empty', 'runway'])
-  assert.deepEqual(selectVenueIds(sources, [], 2, now, true, 12 * 60 * 60 * 1000),
-    ['normal', 'runway'])
+  assert.deepEqual(selectVenueIds(sources, [], 2, now, true, 24 * 60 * 60 * 1000),
+    ['normal'])
+})
+
+test('scheduled batches grow only when one venue per call cannot cover the daily queue', () => {
+  assert.equal(dailyCoverageBatchSize(120, 1), 1)
+  assert.equal(dailyCoverageBatchSize(121, 1), 2)
+  assert.equal(dailyCoverageBatchSize(120, 2), 2)
 })

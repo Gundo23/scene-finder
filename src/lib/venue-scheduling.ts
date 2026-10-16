@@ -13,6 +13,15 @@ const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
 /**
+ * At a ten-minute cadence there are 144 requests a day. Allowing for one
+ * priority request in twelve leaves 132 oldest-first slots; use 120 for
+ * headroom. Increase a one-venue batch when the active queue outgrows that.
+ */
+export function dailyCoverageBatchSize(activeVenues: number, requestedBatchSize: number) {
+  return Math.max(requestedBatchSize, activeVenues > 120 ? 2 : 1)
+}
+
+/**
  * Eleven slots out of twelve remain oldest-first, so every active venue gets
  * its turn. The twelfth slot can bring urgent calendars forward.
  */
