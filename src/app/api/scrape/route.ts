@@ -7,6 +7,7 @@ import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
 import { parseTownhouseCalendar } from '@/lib/townhouse-location-calendar'
+import { parseQuestCalendar, QUEST_CALENDAR_URL } from '@/lib/quest-calendar'
 import { parseFSocietyNextEvent } from '@/lib/f-society-calendar'
 import { parseBacchusCalendar } from '@/lib/bacchus-calendar'
 import { isMonkeyBusinessEventUrl } from '@/lib/monkey-business-events'
@@ -14031,7 +14032,9 @@ async function runScrapeRequest(request: Request) {
 
     // Retired Xtasia diary URLs and ICS aliases all represent the same venue.
     // Route every one through its current official calendar, once per run.
-    const sourceUrl = configuredSource.venue_id === 'xtasia_west_bromwich'
+    const sourceUrl = configuredSource.venue_id === 'quest_leeds_leeds'
+      ? QUEST_CALENDAR_URL
+      : configuredSource.venue_id === 'xtasia_west_bromwich'
       ? 'https://xtasia.co.uk/events'
       : configuredSource.venue_id === 'temptations_2_eccles_manchester'
         ? 'https://temptations2.co.uk/events/'
@@ -14272,12 +14275,14 @@ async function runScrapeRequest(request: Request) {
       continue
     }
 
-    if (source.venue_id === 'townhouse_wirral_near_liverpool') {
-      // Townhouse replaced WordPress/EventON with a dated Svelte calendar.
-      // The retired location and REST paths now return an empty application shell.
-      const townhouseUrls = ['https://townhouseswingers.com/events']
+    if (source.venue_id === 'townhouse_wirral_near_liverpool' || source.venue_id === 'quest_leeds_leeds') {
+      // Both venues replaced their calendars. Fetch their canonical listing once,
+      // without feeding retired pages or generic navigation into event staging.
+      const isQuest = source.venue_id === 'quest_leeds_leeds'
+      const calendarName = isQuest ? 'Quest' : 'Townhouse'
+      const calendarUrls = [isQuest ? QUEST_CALENDAR_URL : 'https://townhouseswingers.com/events']
 
-      for (const pageUrl of townhouseUrls) {
+      for (const pageUrl of calendarUrls) {
         checkedPages++
 
         const html = await fetchHtml(pageUrl)
@@ -14289,7 +14294,7 @@ async function runScrapeRequest(request: Request) {
           failedPages.push({
             venue_id: source.venue_id,
             page_url: pageUrl,
-            reason: 'Townhouse fast fetch returned empty/null',
+            reason: `${calendarName} calendar fetch returned empty/null`,
           })
 
           continue
@@ -14302,20 +14307,22 @@ async function runScrapeRequest(request: Request) {
           if (venueImageResult.updated) venueImagesUpdated++
         }
 
-        const townhouseEvents = parseTownhouseCalendar(html, pageUrl, londonToday())
-        if (townhouseEvents.length === 0) {
+        const calendarEvents = isQuest
+          ? parseQuestCalendar(html, pageUrl, londonToday())
+          : parseTownhouseCalendar(html, pageUrl, londonToday())
+        if (calendarEvents.length === 0) {
           failed++
           failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
-            reason: 'Official Townhouse calendar yielded no confirmed dated events' })
+            reason: `Official ${calendarName} calendar yielded no confirmed dated events` })
         }
 
-        for (const townhouseEvent of townhouseEvents) {
+        for (const calendarEvent of calendarEvents) {
           candidatesFound++
 
-          const title = townhouseEvent.text
-          const description = townhouseEvent.raw || townhouseEvent.text
-          const ticketUrl = townhouseEvent.href || eventUrlWithAnchor(pageUrl, title)
-          const dedupeKey = eventDedupeKey(source.venue_id, title, townhouseEvent.event_date, ticketUrl)
+          const title = calendarEvent.text
+          const description = calendarEvent.raw || calendarEvent.text
+          const ticketUrl = calendarEvent.href || eventUrlWithAnchor(pageUrl, title)
+          const dedupeKey = eventDedupeKey(source.venue_id, title, calendarEvent.event_date, ticketUrl)
 
           if (runSeen.has(dedupeKey)) {
             skipped++
@@ -14327,8 +14334,8 @@ async function runScrapeRequest(request: Request) {
           const result = await upsertEvent({
             venue_id: source.venue_id,
             event_name: title,
-            event_date: townhouseEvent.event_date,
-            start_time: townhouseEvent.start_time,
+            event_date: calendarEvent.event_date,
+            start_time: calendarEvent.start_time,
             description,
             ticket_url: ticketUrl,
             image_url: pageImage,
@@ -14345,7 +14352,7 @@ async function runScrapeRequest(request: Request) {
               errors.push({
                 venue_id: source.venue_id,
                 event_name: title,
-                event_date: townhouseEvent.event_date,
+                event_date: calendarEvent.event_date,
                 error: result.error?.message || 'Unknown upsert error',
               })
             }
@@ -14355,10 +14362,10 @@ async function runScrapeRequest(request: Request) {
             found.push({
               venue_id: source.venue_id,
               event_name: cleanEventName(title),
-              event_date: townhouseEvent.event_date,
+              event_date: calendarEvent.event_date,
               event_url: ticketUrl,
               image_url: pageImage,
-              method: 'townhouse-calendar',
+              method: isQuest ? 'quest-calendar' : 'townhouse-calendar',
             })
           }
         }
