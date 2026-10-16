@@ -18,7 +18,7 @@ const DAY = 24 * HOUR
  */
 export function selectVenueIds(
   sources: ScrapeSource[], health: VenueHealth[], maxVenues: number,
-  now: Date, prioritySlot: boolean
+  now: Date, prioritySlot: boolean, minimumRefreshAgeMs = 0
 ): string[] {
   const oldestByVenue = new Map<string, number>()
   for (const source of sources) {
@@ -28,12 +28,8 @@ export function selectVenueIds(
       Math.min(oldestByVenue.get(source.venue_id) ?? Infinity, timestamp))
   }
 
-  const oldest = [...oldestByVenue.keys()].sort((a, b) =>
-    oldestByVenue.get(a)! - oldestByVenue.get(b)!)
-  if (!prioritySlot) return oldest.slice(0, maxVenues)
-
   const healthByVenue = new Map(health.map((item) => [item.venue_id, item]))
-  const priority = oldest.filter((venueId) => {
+  const isUrgent = (venueId: string) => {
     const item = healthByVenue.get(venueId)
     if (!item) return false
     const age = now.getTime() - oldestByVenue.get(venueId)!
@@ -43,7 +39,19 @@ export function selectVenueIds(
       return runway >= 0 && runway <= 14 * DAY && age >= 12 * HOUR
     }
     return false
-  })
+  }
+
+  // Leave recently attempted venues alone on routine slots. A priority slot
+  // may still retry an empty or nearly expired calendar earlier. Missing
+  // timestamps remain due immediately so new sources are not delayed.
+  const oldest = [...oldestByVenue.keys()]
+    .filter((venueId) =>
+      now.getTime() - oldestByVenue.get(venueId)! >= minimumRefreshAgeMs ||
+      (prioritySlot && isUrgent(venueId)))
+    .sort((a, b) => oldestByVenue.get(a)! - oldestByVenue.get(b)!)
+  if (!prioritySlot) return oldest.slice(0, maxVenues)
+
+  const priority = oldest.filter(isUrgent)
 
   // Empty venues go first, then venues close to running out. Oldest within
   // each group wins, preventing one repeatedly failing source monopolising it.
