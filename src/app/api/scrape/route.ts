@@ -13912,7 +13912,8 @@ async function runScrapeRequest(request: Request) {
     }))
   }
   const selectedVenueIds = new Set(selectVenueIds(
-    allSources || [], healthRows, maxVenues, new Date(), prioritySlot && healthRows.length > 0
+    allSources || [], healthRows, maxVenues, new Date(), prioritySlot && healthRows.length > 0,
+    targetVenueId ? 0 : 20 * 60 * 60 * 1000
   ))
   const sources = (allSources || []).filter((source) => selectedVenueIds.has(source.venue_id))
 
