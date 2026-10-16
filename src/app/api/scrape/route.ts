@@ -18,7 +18,7 @@ import { parsePartnersCalendar } from '@/lib/partners-calendar'
 import { queueRoutineAlert } from '@/lib/routine-alerts'
 import { parseRiotPartyOrganiser } from '@/lib/riot-party-events'
 import { parseStructuredEvents } from '@/lib/structured-events'
-import { isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
+import { dailyCoverageBatchSize, isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
 import { readBoundedResponse } from '@/lib/bounded-response'
 import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHeadingCalendar } from '@/lib/official-calendar'
 import { parseXtasiaEvents } from '@/lib/xtasia-events'
@@ -13871,7 +13871,7 @@ async function runScrapeRequest(request: Request) {
   const { searchParams } = new URL(request.url)
   const targetVenueId = searchParams.get('venue_id')
   const requestedBatchSize = Number(searchParams.get('batch_size'))
-  const maxVenues = Number.isInteger(requestedBatchSize) && requestedBatchSize >= 1
+  let maxVenues = Number.isInteger(requestedBatchSize) && requestedBatchSize >= 1
     ? Math.min(requestedBatchSize, MAX_VENUES_PER_REQUEST)
     : MAX_VENUES_PER_REQUEST
 
@@ -13900,6 +13900,14 @@ async function runScrapeRequest(request: Request) {
       { status: 503 })
   }
 
+  const activeVenueCount = new Set((allSources || []).map((source) => source.venue_id)).size
+  if (!targetVenueId) {
+    maxVenues = dailyCoverageBatchSize(activeVenueCount, maxVenues)
+    if (activeVenueCount > 264) {
+      console.warn('SCRAPE DAILY CAPACITY EXCEEDED:', activeVenueCount, 'active venues')
+    }
+  }
+
   const prioritySlot = !targetVenueId && isPrioritySlot(new Date())
   let healthRows: VenueHealth[] = []
   if (prioritySlot) {
@@ -13913,7 +13921,7 @@ async function runScrapeRequest(request: Request) {
   }
   const selectedVenueIds = new Set(selectVenueIds(
     allSources || [], healthRows, maxVenues, new Date(), prioritySlot && healthRows.length > 0,
-    targetVenueId ? 0 : 12 * 60 * 60 * 1000
+    targetVenueId ? 0 : 24 * 60 * 60 * 1000
   ))
   const sources = (allSources || []).filter((source) => selectedVenueIds.has(source.venue_id))
 
