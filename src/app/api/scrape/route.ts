@@ -13913,7 +13913,7 @@ async function runScrapeRequest(request: Request) {
   }
   const selectedVenueIds = new Set(selectVenueIds(
     allSources || [], healthRows, maxVenues, new Date(), prioritySlot && healthRows.length > 0,
-    targetVenueId ? 0 : 30 * 60 * 60 * 1000
+    targetVenueId ? 0 : 12 * 60 * 60 * 1000
   ))
   const sources = (allSources || []).filter((source) => selectedVenueIds.has(source.venue_id))
 
