@@ -32,3 +32,21 @@ test('priority uses a fixed one-in-three rotation; missing health falls back to 
   assert.deepEqual(slots, [true, false, false, true, false, false])
   assert.deepEqual(selectVenueIds(sources, [], 1, now, true), ['normal'])
 })
+
+test('routine scrapes wait twenty hours without delaying new sources', () => {
+  assert.deepEqual(selectVenueIds(sources, health, 2, now, false, 20 * 60 * 60 * 1000), ['normal'])
+  assert.deepEqual(selectVenueIds([
+    { venue_id: 'new', last_checked: null },
+    { venue_id: 'recent', last_checked: '2026-10-12T17:00:00Z' },
+  ], [], 2, now, false, 20 * 60 * 60 * 1000), ['new'])
+  assert.deepEqual(selectVenueIds([
+    { venue_id: 'recent', last_checked: '2026-10-12T17:00:00Z' },
+  ], [], 2, now, false, 20 * 60 * 60 * 1000), [])
+})
+
+test('priority slots retry empty and short-runway venues before the routine age', () => {
+  assert.deepEqual(selectVenueIds(sources, health, 2, now, true, 20 * 60 * 60 * 1000),
+    ['empty', 'runway'])
+  assert.deepEqual(selectVenueIds(sources, [], 2, now, true, 20 * 60 * 60 * 1000),
+    ['normal'])
+})
