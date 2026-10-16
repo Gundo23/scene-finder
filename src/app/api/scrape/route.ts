@@ -8,6 +8,8 @@ import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
 import { parseTownhouseCalendar } from '@/lib/townhouse-location-calendar'
 import { parseFSocietyNextEvent } from '@/lib/f-society-calendar'
+import { parseBacchusCalendar } from '@/lib/bacchus-calendar'
+import { isMonkeyBusinessEventUrl } from '@/lib/monkey-business-events'
 import { sheWorldSchedule } from '@/lib/she-world-schedule'
 import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
 import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-event'
@@ -10190,71 +10192,9 @@ function pushTargetCandidate(
 }
 
 function extractClubBacchusEvents(html: string, baseUrl: string) {
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
-
-  const seen = new Set<string>()
-  const text = cleanText(html)
-  const today = londonToday()
-  const currentYear = Number(today.slice(0, 4))
-  const months =
-    'jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december'
-  const monthSectionPattern = new RegExp(
-    `\\b(${months})\\b\\s+([\\s\\S]{0,6000}?)(?=\\b(?:${months})\\b\\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|\\d{1,2})|©|Privacy Settings|$)`,
-    'gi'
-  )
-
-  let monthMatch
-
-  while ((monthMatch = monthSectionPattern.exec(text)) !== null) {
-    const month = monthNameToNumber(monthMatch[1])
-    if (!month) continue
-
-    const section = monthMatch[2]
-    const eventPattern =
-      /\b(?:(monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)\s*)?(\d{1,2})(?:st|nd|rd|th)?\s+(.{5,130}?)(?:\s+(\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm))(?:\s*[-–—]\s*(?:late|\d{1,2}(?:[:.]\d{2})?\s*(?:am|pm)))?)?(?=\s+(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun)?\s*\d{1,2}(?:st|nd|rd|th)?\s+|$)/gi
-
-    let eventMatch
-
-    while ((eventMatch = eventPattern.exec(section)) !== null) {
-      const day = eventMatch[2].padStart(2, '0')
-      // The page has month headings but no year. A past September block must
-      // not roll into September next year just to become a future event.
-      const eventDate = validDateOrNull(`${currentYear}-${month}-${day}`)
-      const raw = cleanText(eventMatch[0])
-      let title = cleanTargetVenueTitle(eventMatch[3])
-
-      title = title
-        .replace(/\b(?:wear|come|open to all|subs in uniform|doms as teachers)\b[\s\S]*$/i, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-
-      if (!eventDate || eventDate < today || !title || title.length < 5) continue
-      // A weekday on the listing is an independent check on the inferred year.
-      const weekday = eventMatch[1]?.slice(0, 3).toLowerCase()
-      if (weekday && ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(weekday) !==
-          new Date(`${eventDate}T00:00:00Z`).getUTCDay()) continue
-
-      pushTargetCandidate(candidates, seen, {
-        href: eventUrlWithAnchor(baseUrl, title),
-        text: title,
-        event_date: eventDate,
-        start_time: extractTime(raw),
-        raw,
-        image_url: extractBestImage(html, baseUrl),
-        method: 'club-bacchus-custom',
-      })
-    }
-  }
-
-  return candidates
+  const events = parseBacchusCalendar(html, baseUrl, londonToday())
+  const imageUrl = extractBestImage(html, baseUrl)
+  return events.map((event) => ({ ...event, image_url: imageUrl }))
 }
 
 function extractPlaygroundsEvents(html: string, baseUrl: string) {
@@ -12546,6 +12486,13 @@ function candidateRejectionReason(input: {
   if (/^[A-Za-z0-9+/]{80,}={0,2}$/.test(eventName.replace(/\s+/g, ''))) return 'rejected_encoded_garbage'
   if (/(wp-|elementor|container|stylesheet|font-size|margin|padding|rgba|\.tb-|data-|class=|<[^>]+>)/i.test(eventName)) return 'rejected_css_html_garbage'
   if (/^(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/i.test(cleanText(input.event_name || ''))) return 'rejected_day_only_title'
+
+  // Promotional prose (including an organiser's holiday return date) is not
+  // evidence for a dated Wix event. This affects new candidates only; existing
+  // published rows remain preserved for explicit review.
+  if (input.venue_id === 'monkey_business_essex' && !isMonkeyBusinessEventUrl(input.ticket_url)) {
+    return 'rejected_monkey_business_non_event_page'
+  }
 
   const safeRescueCandidate = isSf10SafeRescueCandidate({
     ...input,

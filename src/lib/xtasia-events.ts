@@ -53,9 +53,14 @@ export function parseXtasiaEvents(html: string, pageUrl: string, today: string):
     try {
       href = new URL(anchor[1].replace(/&amp;/gi, '&'), page)
     } catch { continue }
-    const match = href.pathname.match(/^\/events\/(20\d{2})(\d{2})(\d{2})\/([a-z0-9-]+)\/?$/i)
+    const match = href.pathname.match(/^\/events\/(20\d{2})(\d{2})(\d{2})\/([^/]+)\/?$/i)
     if (href.protocol !== 'https:' || href.hostname.replace(/^www\./, '') !== 'xtasia.co.uk' ||
         !match || href.search || href.hash) continue
+    // The official slugs include encoded commas and colons (e.g. Blood,
+    // Sweat and Tears). Decode only the slug and reject separators/controls.
+    let slug: string
+    try { slug = decodeURIComponent(match[4]) } catch { continue }
+    if (!/^[a-z0-9][a-z0-9 .,:!'&()_-]*$/i.test(slug) || slug.trim() !== slug) continue
 
     const eventDate = isoDate(Number(match[1]), Number(match[2]), Number(match[3]))
     if (!eventDate || eventDate.getTime() < start || eventDate.getTime() > end) continue
@@ -64,7 +69,8 @@ export function parseXtasiaEvents(html: string, pageUrl: string, today: string):
     // preceding listing, bounded by the previous dated-event link.
     const block = markup.slice(Math.max(previous, index - 2400), index)
     previous = index
-    const dated = [...plain(block).matchAll(/\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)(?:day)?\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(20\d{2})\b/gi)].at(-1)
+    const blockText = plain(block)
+    const dated = [...blockText.matchAll(/\b(Sun|Mon|Tue|Wed|Thu|Fri|Sat)(?:day)?\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(20\d{2})\b/gi)].at(-1)
     if (!dated || Number(dated[2]) !== eventDate.getUTCDate() ||
         months[dated[3].slice(0, 3).toLowerCase()] !== eventDate.getUTCMonth() + 1 ||
         Number(dated[4]) !== eventDate.getUTCFullYear() ||
@@ -75,14 +81,18 @@ export function parseXtasiaEvents(html: string, pageUrl: string, today: string):
     if (!title || title.length > 130 || /^(?:view event|events|what'?s on|explore what'?s on|\w{3}\s+\d{1,2}\s+\w{3})$/i.test(title) ||
         /<|>|\bclosed\b/i.test(title)) continue
 
-    const time = plain(block).match(/\b(?:20\d{2})\s+(\d{1,2}):(\d{2})(am|pm)\b/i)
-    const hour = time ? Number(time[1]) % 12 + (time[3].toLowerCase() === 'pm' ? 12 : 0) : null
+    // Read only the START immediately after this listing's validated date.
+    // A preceding closed/unparseable card can still be inside the block.
+    const afterDate = blockText.slice(dated.index! + dated[0].length)
+    const time = afterDate.match(/^\s*(?:(midday|noon|midnight)\b|(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*(am|pm)\b)/i)
+    const hour = !time ? null : time[1] ? (time[1].toLowerCase() === 'midnight' ? 0 : 12)
+      : Number(time[2]) % 12 + (time[4].toLowerCase() === 'pm' ? 12 : 0)
     const key = `${eventDate.toISOString().slice(0, 10)}|${title.toLowerCase()}`
     events.set(key, {
       href: href.href,
       text: title,
       event_date: eventDate.toISOString().slice(0, 10),
-      start_time: hour === null ? null : `${String(hour).padStart(2, '0')}:${time![2]}`,
+      start_time: hour === null ? null : `${String(hour).padStart(2, '0')}:${time![3] || '00'}`,
       raw: `${title}. ${plain(block).slice(-300)}`,
     })
   }
