@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { parseEagleCalendar, EAGLE_CALENDAR_URL } from '../src/lib/eagle-calendar.ts'
+import vm from 'node:vm'
+import ts from 'typescript'
+import { cleanText } from '../src/lib/cleanText.ts'
+import { parseEagleCalendar, EAGLE_CALENDAR_URL, isEagleNumericTitle, isVerifiedEagleNumericTitle } from '../src/lib/eagle-calendar.ts'
 
 const actual = fs.readFileSync(new URL('./fixtures/eagle-home-2026-10-17.html', import.meta.url), 'utf8')
 const parse = (html = actual, today = '2026-10-17', url = EAGLE_CALENDAR_URL) => parseEagleCalendar(html, url, today)
@@ -48,4 +51,36 @@ test('a recurrence rule or unrelated JSON object cannot project additional occur
     events.push({ ...events[1], slug: 'unlisted-occurrence' })
   })
   assert.deepEqual(parse(changed), parse())
+})
+
+test('the actual scraper cleanup preserves 80:20 instead of replacing it with description prose', () => {
+  const source = fs.readFileSync(new URL('../src/app/api/scrape/route.ts', import.meta.url), 'utf8')
+  const extract = (name) => {
+    const start = source.indexOf(`function ${name}(`)
+    assert.ok(start >= 0)
+    const end = source.indexOf('\nfunction ', start + 1)
+    return source.slice(start, end < 0 ? source.length : end)
+  }
+  const code = ts.transpileModule(extract('cleanEventName') + '\n' + extract('cleanSf10RescueCandidateTitle'),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+  const context = vm.createContext({ cleanText, isEagleNumericTitle,
+    normalizeTitle: value => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() })
+  vm.runInContext(code, context)
+  assert.equal(context.cleanEventName('80:20'), '80:20')
+  assert.equal(context.cleanSf10RescueCandidateTitle('80:20', '80:20. Official Eagle London event listing.'), '80:20')
+  assert.equal(context.cleanSf10RescueCandidateTitle('21:00 Club Night'), 'Club Night')
+  assert.notEqual(context.cleanEventName('80:21'), '80:21')
+})
+
+test('numeric-title publication exception requires Eagle, its exact official event URL and a real date', () => {
+  const input = { venue_id: 'eagle_london_london', event_name: '80:20',
+    event_date: '2026-10-17', ticket_url: 'https://www.eaglelondon.com/event-details/80-20-50' }
+  assert.equal(isVerifiedEagleNumericTitle(input), true)
+  for (const change of [
+    { venue_id: 'another_venue' }, { event_name: '21:00' }, { event_date: null },
+    { event_date: '2026-02-31' }, { ticket_url: 'https://other.example/event-details/80-20-50' },
+    { ticket_url: 'https://www.eaglelondon.com/' },
+    { ticket_url: 'https://www.eaglelondon.com/event-details/80-20-50?other=1' },
+    { ticket_url: 'https://www.eaglelondon.com/event-details/horse-meat-disco' },
+  ]) assert.equal(isVerifiedEagleNumericTitle({ ...input, ...change }), false)
 })

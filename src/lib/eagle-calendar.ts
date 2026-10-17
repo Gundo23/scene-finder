@@ -1,5 +1,25 @@
 export const EAGLE_CALENDAR_URL = 'https://www.eaglelondon.com/'
 
+// This is the official event name, not an accidentally captured start time.
+export function isEagleNumericTitle(value: string) {
+  return value.trim() === '80:20'
+}
+
+export function isVerifiedEagleNumericTitle(input: {
+  venue_id: string; event_name: string; event_date: string | null; ticket_url: string
+}) {
+  if (input.venue_id !== 'eagle_london_london' || !isEagleNumericTitle(input.event_name) ||
+      !input.event_date || !/^20\d{2}-\d{2}-\d{2}$/.test(input.event_date)) return false
+  const date = new Date(`${input.event_date}T12:00:00Z`)
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== input.event_date) return false
+  try {
+    const url = new URL(input.ticket_url)
+    return url.protocol === 'https:' && !url.username && !url.password && !url.port &&
+      url.hostname.replace(/^www\./, '') === 'eaglelondon.com' && !url.search && !url.hash &&
+      /^\/event-details\/80-20-\d+\/?$/.test(url.pathname)
+  } catch { return false }
+}
+
 type RecordValue = Record<string, unknown>
 type EagleEvent = { href: string; text: string; event_date: string; start_time: string; raw: string }
 const record = (value: unknown): value is RecordValue => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
