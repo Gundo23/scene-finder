@@ -8,6 +8,7 @@ import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
 import { parseTownhouseCalendar } from '@/lib/townhouse-location-calendar'
 import { parseQuestCalendar, QUEST_CALENDAR_URL } from '@/lib/quest-calendar'
+import { parseEagleCalendar, EAGLE_CALENDAR_URL } from '@/lib/eagle-calendar'
 import { parseFSocietyNextEvent } from '@/lib/f-society-calendar'
 import { parseBacchusCalendar } from '@/lib/bacchus-calendar'
 import { isMonkeyBusinessEventUrl } from '@/lib/monkey-business-events'
@@ -14032,7 +14033,9 @@ async function runScrapeRequest(request: Request) {
 
     // Retired Xtasia diary URLs and ICS aliases all represent the same venue.
     // Route every one through its current official calendar, once per run.
-    const sourceUrl = configuredSource.venue_id === 'quest_leeds_leeds'
+    const sourceUrl = configuredSource.venue_id === 'eagle_london_london'
+      ? EAGLE_CALENDAR_URL
+      : configuredSource.venue_id === 'quest_leeds_leeds'
       ? QUEST_CALENDAR_URL
       : configuredSource.venue_id === 'xtasia_west_bromwich'
       ? 'https://xtasia.co.uk/events'
@@ -14275,12 +14278,14 @@ async function runScrapeRequest(request: Request) {
       continue
     }
 
-    if (source.venue_id === 'townhouse_wirral_near_liverpool' || source.venue_id === 'quest_leeds_leeds') {
-      // Both venues replaced their calendars. Fetch their canonical listing once,
+    if (source.venue_id === 'townhouse_wirral_near_liverpool' || source.venue_id === 'quest_leeds_leeds' ||
+        source.venue_id === 'eagle_london_london') {
+      // Fetch each dedicated venue's canonical listing once,
       // without feeding retired pages or generic navigation into event staging.
       const isQuest = source.venue_id === 'quest_leeds_leeds'
-      const calendarName = isQuest ? 'Quest' : 'Townhouse'
-      const calendarUrls = [isQuest ? QUEST_CALENDAR_URL : 'https://townhouseswingers.com/events']
+      const isEagle = source.venue_id === 'eagle_london_london'
+      const calendarName = isEagle ? 'Eagle London' : isQuest ? 'Quest' : 'Townhouse'
+      const calendarUrls = [isEagle ? EAGLE_CALENDAR_URL : isQuest ? QUEST_CALENDAR_URL : 'https://townhouseswingers.com/events']
 
       for (const pageUrl of calendarUrls) {
         checkedPages++
@@ -14307,7 +14312,9 @@ async function runScrapeRequest(request: Request) {
           if (venueImageResult.updated) venueImagesUpdated++
         }
 
-        const calendarEvents = isQuest
+        const calendarEvents = isEagle
+          ? parseEagleCalendar(html, pageUrl, londonToday())
+          : isQuest
           ? parseQuestCalendar(html, pageUrl, londonToday())
           : parseTownhouseCalendar(html, pageUrl, londonToday())
         if (calendarEvents.length === 0) {
@@ -14365,7 +14372,7 @@ async function runScrapeRequest(request: Request) {
               event_date: calendarEvent.event_date,
               event_url: ticketUrl,
               image_url: pageImage,
-              method: isQuest ? 'quest-calendar' : 'townhouse-calendar',
+              method: isEagle ? 'eagle-calendar' : isQuest ? 'quest-calendar' : 'townhouse-calendar',
             })
           }
         }
