@@ -12486,6 +12486,11 @@ function candidateRejectionReason(input: {
 }) {
   const eventName = cleanSf10RescueCandidateTitle(input.event_name, input.description)
 
+  // Do not let generic description-keyword rescue widen this numeric-name exception.
+  if (isEagleNumericTitle(eventName) && !isVerifiedEagleNumericTitle({ ...input, event_name: eventName })) {
+    return 'rejected_unverified_numeric_title'
+  }
+
   // Final brand-safety guard before anything reaches Supabase.
   // Keep this narrow so legitimate titles such as T-Girl Social and F-Society survive.
   if (!eventName) return 'rejected_empty_after_cleaning'

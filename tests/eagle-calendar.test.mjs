@@ -61,15 +61,18 @@ test('the actual scraper cleanup preserves 80:20 instead of replacing it with de
     const end = source.indexOf('\nfunction ', start + 1)
     return source.slice(start, end < 0 ? source.length : end)
   }
-  const code = ts.transpileModule(extract('cleanEventName') + '\n' + extract('cleanSf10RescueCandidateTitle'),
+  const code = ts.transpileModule(extract('cleanEventName') + '\n' + extract('cleanSf10RescueCandidateTitle') + '\n' + extract('candidateRejectionReason'),
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
-  const context = vm.createContext({ cleanText, isEagleNumericTitle,
+  const context = vm.createContext({ cleanText, isEagleNumericTitle, isVerifiedEagleNumericTitle,
     normalizeTitle: value => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() })
   vm.runInContext(code, context)
   assert.equal(context.cleanEventName('80:20'), '80:20')
   assert.equal(context.cleanSf10RescueCandidateTitle('80:20', '80:20. Official Eagle London event listing.'), '80:20')
   assert.equal(context.cleanSf10RescueCandidateTitle('21:00 Club Night'), 'Club Night')
   assert.notEqual(context.cleanEventName('80:21'), '80:21')
+  assert.equal(context.candidateRejectionReason({ venue_id: 'another_venue', event_name: '80:20',
+    event_date: '2026-10-17', ticket_url: 'https://www.eaglelondon.com/event-details/80-20-50',
+    description: 'Party event listing' }), 'rejected_unverified_numeric_title')
 })
 
 test('numeric-title publication exception requires Eagle, its exact official event URL and a real date', () => {
