@@ -8,7 +8,7 @@ import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
 import { parseTownhouseCalendar } from '@/lib/townhouse-location-calendar'
 import { parseQuestCalendar, QUEST_CALENDAR_URL } from '@/lib/quest-calendar'
-import { parseEagleCalendar, EAGLE_CALENDAR_URL } from '@/lib/eagle-calendar'
+import { parseEagleCalendar, EAGLE_CALENDAR_URL, isEagleNumericTitle, isVerifiedEagleNumericTitle } from '@/lib/eagle-calendar'
 import { parseFSocietyNextEvent } from '@/lib/f-society-calendar'
 import { parseBacchusCalendar } from '@/lib/bacchus-calendar'
 import { isMonkeyBusinessEventUrl } from '@/lib/monkey-business-events'
@@ -821,6 +821,10 @@ function cleanEventName(title: string) {
     .replace(/^\s*\/+\s*/g, '')
     .replace(/\s+/g, ' ')
     .trim()
+
+  // Eagle's verified "80:20" night is a title, not date/time page chrome.
+  // The final publication guard still requires its exact venue and detail URL.
+  if (isEagleNumericTitle(cleaned)) return cleaned
 
   // Turn page headings into a presentable generic title instead of saving
   // "What's on at ..." as the event name.
@@ -12482,6 +12486,11 @@ function candidateRejectionReason(input: {
 }) {
   const eventName = cleanSf10RescueCandidateTitle(input.event_name, input.description)
 
+  // Do not let generic description-keyword rescue widen this numeric-name exception.
+  if (isEagleNumericTitle(eventName) && !isVerifiedEagleNumericTitle({ ...input, event_name: eventName })) {
+    return 'rejected_unverified_numeric_title'
+  }
+
   // Final brand-safety guard before anything reaches Supabase.
   // Keep this narrow so legitimate titles such as T-Girl Social and F-Society survive.
   if (!eventName) return 'rejected_empty_after_cleaning'
@@ -12524,7 +12533,8 @@ function candidateRejectionReason(input: {
   if (isAcquaSafeDatedEvent({ ...input, event_name: eventName })) return null
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return 'rejected_blacklisted_tbc'
-  if (isJunkTitle(eventName) && !safeRescueCandidate) return 'rejected_junk_title'
+  if (isJunkTitle(eventName) && !safeRescueCandidate &&
+      !isVerifiedEagleNumericTitle({ ...input, event_name: eventName })) return 'rejected_junk_title'
   if (isJunkUrl(input.ticket_url) && !isOfficialSweetWednesdayCalendarEvent({
     venueId: input.venue_id, title: eventName,
     eventDate: input.event_date, ticketUrl: input.ticket_url,
