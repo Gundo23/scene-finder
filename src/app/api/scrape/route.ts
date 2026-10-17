@@ -4715,17 +4715,31 @@ function extractSteelCliffeEvents(html: string, baseUrl: string) {
 
   if (!isSteelCliffeAllowedPage(baseUrl)) return candidates
 
-  const pageText = normalizeTitle(html)
+  const visibleHtml = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  const pageText = normalizeTitle(visibleHtml)
   const hasSteelCliffeSignals =
     pageText.includes('steelcliffe') ||
     pageText.includes('steel cliffe') ||
     pageText.includes('380 attercliffe road')
 
-  if (!hasSteelCliffeSignals || !pageText.includes('upcoming events')) return candidates
+  if (!hasSteelCliffeSignals) return candidates
 
-  const lineText = html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  // The official homepage renamed "Upcoming events" to "Events". Require
+  // an actual visible heading, and keep dates in that section rather than
+  // accepting unrelated dated copy elsewhere on the homepage.
+  const headings = [...visibleHtml.matchAll(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi)]
+  const calendarIndex = headings.findIndex((heading) =>
+    ['events', 'upcoming events'].includes(normalizeTitle(heading[2])))
+  if (calendarIndex < 0) return candidates
+  const heading = headings[calendarIndex]
+  const nextSection = headings.slice(calendarIndex + 1)
+    .find((next) => Number(next[1]) <= Number(heading[1]))
+  const calendarHtml = visibleHtml.slice(
+    heading.index! + heading[0].length, nextSection?.index)
+
+  const lineText = calendarHtml
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(h1|h2|h3|h4|h5|h6|p|div|li|section|article)>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')
@@ -14649,6 +14663,7 @@ async function runScrapeRequest(request: Request) {
 
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          isSteelCliffeSource(source.venue_id, pageUrl) ||
           isOfficialHeadingCalendar(source.venue_id, pageUrl) ||
           source.venue_id === 'partners_manchester_bury_area' ||
           source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
@@ -14712,6 +14727,12 @@ async function runScrapeRequest(request: Request) {
           failed++
           failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
             reason: 'Official F-Society next-event card has no matching confirmed future date' })
+        }
+
+        if (isSteelCliffeSource(source.venue_id, pageUrl) && targetVenueEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official Steel Cliffe events section yielded no confirmed dated events' })
         }
 
         if (isRoute69Source(source.venue_id, pageUrl) && isRoute69AllowedPage(pageUrl)) {
