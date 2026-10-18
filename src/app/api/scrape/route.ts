@@ -15,7 +15,7 @@ import { isMonkeyBusinessEventUrl } from '@/lib/monkey-business-events'
 import { sheWorldSchedule } from '@/lib/she-world-schedule'
 import { parseSweetWednesdayDates } from '@/lib/sweet-wednesday-dates'
 import { isOfficialSweetWednesdayCalendarEvent } from '@/lib/sweet-wednesday-event'
-import { cupidsDetailDate, cupidsEventDetailLinks } from '@/lib/cupids-calendar'
+import { cupidsDetailDate, parseCupidsCalendar, isVerifiedCupidsShortTitle, cupidsCanonicalDetailUrl } from '@/lib/cupids-calendar'
 import { parsePartnersCalendar } from '@/lib/partners-calendar'
 import { queueRoutineAlert } from '@/lib/routine-alerts'
 import { parseRiotPartyOrganiser } from '@/lib/riot-party-events'
@@ -11467,6 +11467,9 @@ function extractCupidsEvents(html: string, baseUrl: string) {
   }
 
   const path = parsed.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+  if (path === '/events' && !parsed.searchParams.has('event')) {
+    return parseCupidsCalendar(html, baseUrl, londonToday())
+  }
   const seen = new Set<string>()
   const now = new Date()
   const todayString = validDateOrNull(
@@ -12229,6 +12232,10 @@ function eventDedupeKey(venueId: string, eventName: string, eventDate: string | 
 function normalizeTicketUrl(url: string) {
   try {
     const parsed = new URL(url)
+    // Cupids identifies events by this one validated query parameter. Removing
+    // it turns every booking link into the generic calendar and loses identity.
+    const cupidsDetail = cupidsCanonicalDetailUrl(parsed.href)
+    if (cupidsDetail) return cupidsDetail
 
     parsed.hash = ''
     parsed.search = ''
@@ -12504,6 +12511,9 @@ function candidateRejectionReason(input: {
   if (isEagleNumericTitle(eventName) && !isVerifiedEagleNumericTitle({ ...input, event_name: eventName })) {
     return 'rejected_unverified_numeric_title'
   }
+  if (eventName === 'MOTD' && !isVerifiedCupidsShortTitle({ ...input, event_name: eventName })) {
+    return 'rejected_unverified_short_title'
+  }
 
   // Final brand-safety guard before anything reaches Supabase.
   // Keep this narrow so legitimate titles such as T-Girl Social and F-Society survive.
@@ -12548,6 +12558,7 @@ function candidateRejectionReason(input: {
 
   if (isBlacklistedTbcEvent(input.venue_id, eventName, input.event_date)) return 'rejected_blacklisted_tbc'
   if (isJunkTitle(eventName) && !safeRescueCandidate &&
+      !isVerifiedCupidsShortTitle({ ...input, event_name: eventName }) &&
       !isVerifiedEagleNumericTitle({ ...input, event_name: eventName })) return 'rejected_junk_title'
   if (isJunkUrl(input.ticket_url) && !isOfficialSweetWednesdayCalendarEvent({
     venueId: input.venue_id, title: eventName,
@@ -14536,7 +14547,7 @@ async function runScrapeRequest(request: Request) {
           : isNo3ClubSource(source.venue_id, source.source_url)
             ? 3
           : isCupidsSource(source.venue_id, source.source_url)
-            ? 24
+            ? 1
           : source.venue_id === 'partners_manchester_bury_area'
             ? 1
           : isClubAlchemySource(source.source_url) || source.venue_id === 'club_alchemy_northwich'
@@ -14607,14 +14618,6 @@ async function runScrapeRequest(request: Request) {
           }
         }
 
-        if (isCupidsSource(source.venue_id, source.source_url) &&
-            new URL(pageUrl).pathname.replace(/\/+$/, '') === '/events' &&
-            !new URL(pageUrl).searchParams.has('event')) {
-          for (const link of cupidsEventDetailLinks(html, pageUrl)) {
-            if (!seenPages.has(link) && !queue.includes(link)) queue.push(link)
-          }
-        }
-
         if (source.venue_id === 'temptations_2_eccles_manchester') {
           const nextCalendar = nextTemptationsPage(html, pageUrl)
           if (nextCalendar && !seenPages.has(nextCalendar) && !queue.includes(nextCalendar)) {
@@ -14663,6 +14666,7 @@ async function runScrapeRequest(request: Request) {
 
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          isCupidsSource(source.venue_id, pageUrl) ||
           isSteelCliffeSource(source.venue_id, pageUrl) ||
           isOfficialHeadingCalendar(source.venue_id, pageUrl) ||
           source.venue_id === 'partners_manchester_bury_area' ||
@@ -14733,6 +14737,11 @@ async function runScrapeRequest(request: Request) {
           failed++
           failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
             reason: 'Official Steel Cliffe events section yielded no confirmed dated events' })
+        }
+        if (isCupidsSource(source.venue_id, pageUrl) && targetVenueEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official Cupids calendar yielded no confirmed future dated cards' })
         }
 
         if (isRoute69Source(source.venue_id, pageUrl) && isRoute69AllowedPage(pageUrl)) {
@@ -15072,6 +15081,7 @@ ${hu9HydratedText}`, pageUrl)
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
 
           if (source.venue_id !== 'afterdark_edinburgh_edinburgh' &&
+              !isCupidsSource(source.venue_id, source.source_url) &&
               source.venue_id !== 'ignite_west_drayton_heathrow' &&
               source.venue_id !== 'club_play_blackpool' &&
               source.venue_id !== 'le_boudoir_club_london' &&
