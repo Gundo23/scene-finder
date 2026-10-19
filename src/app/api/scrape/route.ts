@@ -8498,7 +8498,9 @@ function extractCarberrysEvents(html: string, baseUrl: string) {
     if (!month) continue
 
     const day = dateMatch[1].padStart(2, '0')
-    const year = futureSafeYear(month, day, dateMatch[3] || null)
+    // This page keeps past, yearless dates under "Upcoming". Do not turn them
+    // into next-year events without a year published by the venue.
+    const year = dateMatch[3] || String(today.getFullYear())
     const eventDate = validDateOrNull(`${year}-${month}-${day}`)
     if (!eventDate) continue
     if (todayString && eventDate < todayString) continue
