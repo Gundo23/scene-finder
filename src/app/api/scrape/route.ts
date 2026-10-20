@@ -2838,6 +2838,40 @@ function extractKlubVerbotenEvents(html: string, baseUrl: string) {
     })
     .filter((link) => !isJunkUrl(link.href))
 
+  // Current cards put a full numeric date below the title and a city after it.
+  // Only cards explicitly located in London belong to this venue.
+  const currentDateLine = /^(\d{1,2})\/(\d{1,2})\/(20\d{2}|\d{2})$/
+  const archiveStart = lines.findIndex((line) => normalizeTitle(line) === 'previous events')
+  const currentEnd = archiveStart < 0 ? lines.length : archiveStart
+  for (let index = 1; index < currentEnd; index++) {
+    const match = lines[index].match(currentDateLine)
+    if (!match) continue
+    const nextDate = lines.findIndex((line, next) => next > index && currentDateLine.test(line))
+    const block = lines.slice(index + 1, nextDate < 0 ? currentEnd : Math.min(nextDate, currentEnd))
+    const city = block.slice(0, 8).find((line) => /^(?:LONDON|BERLIN|MANCHESTER|WARSAW)\b/i.test(line))
+    if (!city || !/^LONDON\b/i.test(city)) continue
+    const sourceTitle = cleanText(lines[index - 1])
+    if (!/^(?:Klub Verboten|Verboten Social)\b/i.test(sourceTitle)) continue
+    const year = match[3].length === 2 ? `20${match[3]}` : match[3]
+    const eventDate = validDateOrNull(`${year}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`)
+    if (!eventDate || eventDate < londonToday()) continue
+    const baseTitle = cleanKlubVerbotenTitle(sourceTitle, 'London')
+    const title = /\bLondon\b/i.test(baseTitle) ? baseTitle : `${baseTitle}: LONDON`
+    const doors = block.slice(0, 8).join(' ').match(/\bDOORS\s+(\d{1,2}:[0-5]\d)\b/i)
+    const key = `${normalizeTitle(title)}|${eventDate}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    candidates.push({
+      href: eventUrlWithAnchor(baseUrl, title),
+      text: title,
+      event_date: eventDate,
+      start_time: doors ? doors[1].padStart(5, '0') : null,
+      raw: `${title}. Official Klub Verboten London listing for ${eventDate}.`,
+      image_url: pageImage,
+      method: 'klub-verboten-dates',
+    })
+  }
+
   for (let index = 0; index < lines.length; index++) {
     const dateMatch = lines[index].match(dateLinePattern)
     if (!dateMatch) continue
@@ -2914,6 +2948,29 @@ function extractKlubVerbotenEvents(html: string, baseUrl: string) {
   }
 
   return candidates
+}
+
+function extractUntamedNightsEvent(html: string, pageUrl: string) {
+  try {
+    const url = new URL(pageUrl)
+    if (url.protocol !== 'https:' || url.hostname.replace(/^www\./, '') !== 'untamednights.co.uk' ||
+        !url.pathname.startsWith('/event-details/')) return []
+  } catch { return [] }
+  const visible = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+  const title = cleanEventName(cleanText(visible.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || ''))
+  const text = cleanText(visible)
+  const details = text.match(/Time\s*&\s*Location\s+([^]{0,220})/i)?.[1] || ''
+  const date = details.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(20\d{2}),\s*(\d{1,2}):([0-5]\d)\b/i)
+  if (!title || isJunkTitle(title) || !date || !/\bBournemouth\b/i.test(details)) return []
+  const month = monthNameToNumber(date[2])
+  const eventDate = month && validDateOrNull(`${date[3]}-${month}-${date[1].padStart(2, '0')}`)
+  if (!eventDate || eventDate < londonToday()) return []
+  return [{
+    href: pageUrl, text: title, event_date: eventDate,
+    start_time: `${date[4].padStart(2, '0')}:${date[5]}`,
+    raw: `${title}. Official Untamed Nights detail for ${eventDate} in Bournemouth.`,
+    image_url: extractBestImage(html, pageUrl), method: 'untamed-official-detail',
+  }]
 }
 
 function isElectrowerkzSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
@@ -9685,7 +9742,8 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     isNumber52Source(venueId, sourceUrl) ||
     isClubZeusSource(venueId, sourceUrl) ||
     isOurPlace4FunSource(venueId, sourceUrl) ||
-    isSteelCliffeSource(venueId, sourceUrl)
+    isSteelCliffeSource(venueId, sourceUrl) ||
+    venueId === 'untamed_nights_bournemouth'
   )
 }
 
@@ -10051,6 +10109,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'partners_manchester_bury_area') {
     return parsePartnersCalendar(html, pageUrl, londonToday())
   }
+  if (venueId === 'untamed_nights_bournemouth') return extractUntamedNightsEvent(html, pageUrl)
   if (venueId === 'afterdark_edinburgh_edinburgh') return extractAfterdarkEdinburghEvents(html, pageUrl)
   if (venueId === 'club_play_blackpool') return extractClubPlayEvents(html, pageUrl)
   if (venueId === 'le_boudoir_club_london') return extractLeBoudoirListingEvents(html, pageUrl)
@@ -14457,6 +14516,10 @@ async function runScrapeRequest(request: Request) {
       isKlubVerbotenSource(source.venue_id, source.source_url)
         ? discoverKlubVerbotenEventPages(source.source_url)
         : []
+    const untamedNightsDiscoveredUrls =
+      source.venue_id === 'untamed_nights_bournemouth'
+        ? [absoluteUrl(source.source_url, '/events-tickets')].filter(Boolean) as string[]
+        : []
 
     const electrowerkzDiscoveredUrls =
       isElectrowerkzSource(source.venue_id, source.source_url)
@@ -14506,7 +14569,7 @@ async function runScrapeRequest(request: Request) {
               ? targetVenueDiscoveredUrls
             : isAcquaSource(source.venue_id, source.source_url)
               ? acquaDiscoveredUrls
-              : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
+              : [source.source_url, ...townhouseDiscoveredUrls, ...questDiscoveredUrls, ...xtasiaDiscoveredUrls, ...wixDiscoveredUrls, ...vanillaAlternativeDiscoveredUrls, ...clubAlchemyDiscoveredUrls, ...targetVenueDiscoveredUrls, ...klubVerbotenDiscoveredUrls, ...untamedNightsDiscoveredUrls, ...electrowerkzDiscoveredUrls, ...acquaDiscoveredUrls]
     const seenPages = new Set<string>()
 
     const maxPagesForSource =
@@ -14560,6 +14623,8 @@ async function runScrapeRequest(request: Request) {
               ? Math.max(MAX_PAGES_PER_SOURCE, 18)
             : isKlubVerbotenSource(source.venue_id, source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 6)
+            : source.venue_id === 'untamed_nights_bournemouth'
+              ? Math.max(MAX_PAGES_PER_SOURCE, 16)
             : isElectrowerkzSource(source.venue_id, source.source_url)
               ? Math.max(MAX_PAGES_PER_SOURCE, 6)
             : isAcquaSource(source.venue_id, source.source_url)
@@ -14655,6 +14720,17 @@ async function runScrapeRequest(request: Request) {
           }
         }
 
+        if (source.venue_id === 'untamed_nights_bournemouth' && /\/events-tickets\/?$/i.test(new URL(pageUrl).pathname)) {
+          for (const link of extractLinks(html, pageUrl)) {
+            try {
+              const url = new URL(link.href)
+              if (url.hostname.replace(/^www\./, '') === 'untamednights.co.uk' &&
+                  url.pathname.startsWith('/event-details/') &&
+                  !seenPages.has(url.href) && !queue.includes(url.href)) queue.push(url.href)
+            } catch { /* Ignore malformed event links. */ }
+          }
+        }
+
         const pageImage = extractBestImage(html, pageUrl)
 
         if (pageImage) {
@@ -14680,7 +14756,9 @@ async function runScrapeRequest(request: Request) {
           source.venue_id === 'swamp_in_bristol_bristol' ||
           source.venue_id === 'temptations_2_eccles_manchester' ||
           source.venue_id === 'le_boudoir_club_london' ||
-          source.venue_id === 'f_society_newcastle_upon_tyne_north_east'
+          source.venue_id === 'f_society_newcastle_upon_tyne_north_east' ||
+          source.venue_id === 'klub_verboten_london' ||
+          source.venue_id === 'untamed_nights_bournemouth'
         const jsonLdEvents = dedicatedCalendar ? [] : extractJsonLdEvents(html, pageUrl)
         const calendarLinks = dedicatedCalendar ? [] : extractCalendarEventLinks(html, pageUrl)
         const townhouseEvents =
@@ -15672,6 +15750,10 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (source.venue_id === 'klub_verboten_london' || source.venue_id === 'untamed_nights_bournemouth') {
+            skipped++
+            continue
+          }
           if (source.venue_id === 'partners_manchester_bury_area') {
             skipped++
             continue
