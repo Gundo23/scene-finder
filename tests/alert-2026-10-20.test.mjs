@@ -49,8 +49,8 @@ test('Klub Verboten current dates include London only and stop before archive', 
   assert.ok(events.every(e => /London/i.test(e.text)))
   assert.equal(events[1].start_time, '22:30')
   assert.equal(events[2].start_time, '19:00')
-  assert.deepEqual(context.extractKlubVerbotenEvents('<h1>Site Unavailable</h1>',
-    'https://klubverboten.com/dates'), [])
+  assert.equal(context.extractKlubVerbotenEvents('<h1>Site Unavailable</h1>',
+    'https://klubverboten.com/dates').length, 0)
 })
 
 function detail(title, date, location = 'Bournemouth, UK') {
@@ -66,12 +66,12 @@ test('Untamed detail requires an official Bournemouth start date and real future
   const dec = context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
     '27 Dec 2026, 20:00'), 'https://www.untamednights.co.uk/event-details/canvas-4-yule')
   assert.equal(dec[0].event_date, '2026-12-27')
-  assert.deepEqual(context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
-    '27 Dec 2026, 20:00'), 'https://other.example/event-details/canvas-4-yule'), [])
-  assert.deepEqual(context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
-    '27 Dec 2026, 20:00', 'London, UK'), 'https://www.untamednights.co.uk/event-details/canvas-4-yule'), [])
-  assert.deepEqual(context.extractUntamedNightsEvent(detail('Bad date',
-    '31 Feb 2027, 20:00'), 'https://www.untamednights.co.uk/event-details/bad-date'), [])
+  assert.equal(context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
+    '27 Dec 2026, 20:00'), 'https://other.example/event-details/canvas-4-yule').length, 0)
+  assert.equal(context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
+    '27 Dec 2026, 20:00', 'London, UK'), 'https://www.untamednights.co.uk/event-details/canvas-4-yule').length, 0)
+  assert.equal(context.extractUntamedNightsEvent(detail('Bad date',
+    '31 Feb 2027, 20:00'), 'https://www.untamednights.co.uk/event-details/bad-date').length, 0)
 })
 
 test('route discovers the official listing and keeps generic candidates out of both dedicated feeds', () => {
