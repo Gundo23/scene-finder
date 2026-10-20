@@ -26,6 +26,7 @@ import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHea
 import { parseXtasiaEvents } from '@/lib/xtasia-events'
 import { parseSwampDates } from '@/lib/swamp-dates'
 import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations-calendar'
+import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } from '@/lib/heroes-schedule'
 
 export const runtime = 'nodejs'
 
@@ -9695,6 +9696,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
   return (
+    venueId === 'heroes_health_club_stourbridge' ||
     venueId === 'partners_manchester_bury_area' ||
     combined.includes('afterdark_edinburgh_edinburgh') ||
     combined.includes('club_play_blackpool') ||
@@ -9762,6 +9764,7 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
     } catch { return false }
   }
   const canonicalHosts: Record<string, string> = {
+    heroes_health_club_stourbridge: 'heroessauna.co.uk',
     afterdark_edinburgh_edinburgh: 'afterdarkedinburgh.co.uk',
     club_play_blackpool: 'clubplay.net',
     le_boudoir_club_london: 'leboudoir.club',
@@ -9890,6 +9893,8 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
+
+  if (source.venue_id === 'heroes_health_club_stourbridge') return [HEROES_CALENDAR_URL]
 
   if (source.venue_id === 'partners_manchester_bury_area') {
     return ['https://partnersswingersclub.com/events/']
@@ -10106,6 +10111,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (venueId === 'heroes_health_club_stourbridge') return parseHeroesSchedule(html, pageUrl, londonToday())
   if (venueId === 'partners_manchester_bury_area') {
     return parsePartnersCalendar(html, pageUrl, londonToday())
   }
@@ -14534,6 +14540,7 @@ async function runScrapeRequest(request: Request) {
     const queue = source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
       : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+        source.venue_id === 'heroes_health_club_stourbridge' ||
         source.venue_id === 'partners_manchester_bury_area' ||
         source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
         source.venue_id === 'dv8_kent_kent' ||
@@ -14674,6 +14681,13 @@ async function runScrapeRequest(request: Request) {
         continue
       }
 
+      const identityError = venueSourceIdentityError(source.venue_id, pageUrl, html)
+      if (identityError) {
+        failed++
+        failedPages.push({ venue_id: source.venue_id, page_url: pageUrl, reason: identityError })
+        continue
+      }
+
       try {
         // Give a site's own calendar priority before generic links consume the
         // per-source page budget. Do not cross hosts or override dedicated feeds.
@@ -14744,6 +14758,7 @@ async function runScrapeRequest(request: Request) {
 
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          source.venue_id === 'heroes_health_club_stourbridge' ||
           isCupidsSource(source.venue_id, pageUrl) ||
           isSteelCliffeSource(source.venue_id, pageUrl) ||
           isOfficialHeadingCalendar(source.venue_id, pageUrl) ||
@@ -14806,6 +14821,12 @@ async function runScrapeRequest(request: Request) {
             : source.venue_id === 'club_f_birmingham' || isClubFSource(source.venue_id, `${source.source_url} ${pageUrl}`) || isTargetVenueSource(source.venue_id, `${source.source_url} ${pageUrl}`)
             ? extractTargetVenueEvents(html, pageUrl, source.venue_id)
             : []
+
+        if (source.venue_id === 'heroes_health_club_stourbridge' && targetVenueEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official Heroes Events section has no verified Thursday/Sunday schedule' })
+        }
 
         if (source.venue_id === 'f_society_newcastle_upon_tyne_north_east' && targetVenueEvents.length === 0) {
           failed++
@@ -15750,7 +15771,8 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
-          if (source.venue_id === 'klub_verboten_london' || source.venue_id === 'untamed_nights_bournemouth') {
+          if (source.venue_id === 'heroes_health_club_stourbridge' ||
+              source.venue_id === 'klub_verboten_london' || source.venue_id === 'untamed_nights_bournemouth') {
             skipped++
             continue
           }
