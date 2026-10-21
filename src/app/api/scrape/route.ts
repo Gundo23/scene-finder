@@ -14544,7 +14544,11 @@ async function runScrapeRequest(request: Request) {
         ? discoverAcquaEventPages(source.source_url)
         : []
 
-    const queue = source.venue_id === 'xtasia_west_bromwich'
+    // Untamed must start at its official listing so generic Wix discovery cannot
+    // consume the page budget before the detail links are queued.
+    const queue = source.venue_id === 'untamed_nights_bournemouth'
+      ? untamedNightsDiscoveredUrls
+      : source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
       : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
         source.venue_id === 'heroes_health_club_stourbridge' ||
