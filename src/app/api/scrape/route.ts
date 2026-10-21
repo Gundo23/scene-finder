@@ -27,6 +27,7 @@ import { parseXtasiaEvents } from '@/lib/xtasia-events'
 import { parseSwampDates } from '@/lib/swamp-dates'
 import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations-calendar'
 import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } from '@/lib/heroes-schedule'
+import { DECADANCE_CALENDAR_URL, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
 
 export const runtime = 'nodejs'
 
@@ -9698,6 +9699,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
   return (
     venueId === 'heroes_health_club_stourbridge' ||
     venueId === 'partners_manchester_bury_area' ||
+    isDecadanceSource(venueId, sourceUrl) ||
     combined.includes('afterdark_edinburgh_edinburgh') ||
     combined.includes('club_play_blackpool') ||
     combined.includes('le_boudoir_club_london') ||
@@ -9898,6 +9900,10 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (source.venue_id === 'partners_manchester_bury_area') {
     return ['https://partnersswingersclub.com/events/']
+  }
+
+  if (isDecadanceSource(source.venue_id, source.source_url)) {
+    return [DECADANCE_CALENDAR_URL]
   }
 
   if (source.venue_id === 'afterdark_edinburgh_edinburgh') {
@@ -10112,6 +10118,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
   if (venueId === 'heroes_health_club_stourbridge') return parseHeroesSchedule(html, pageUrl, londonToday())
+  if (isDecadanceSource(venueId, pageUrl)) return parseDecadanceEvent(html, pageUrl, londonToday())
   if (venueId === 'partners_manchester_bury_area') {
     return parsePartnersCalendar(html, pageUrl, londonToday())
   }
@@ -14745,6 +14752,13 @@ async function runScrapeRequest(request: Request) {
           }
         }
 
+        if (isDecadanceSource(source.venue_id, source.source_url) &&
+            new URL(pageUrl).pathname.replace(/\/+$/, '') === '/what-s-on-at-decadance') {
+          for (const link of decadanceEventLinks(html, pageUrl, londonToday())) {
+            if (!seenPages.has(link) && !queue.includes(link)) queue.push(link)
+          }
+        }
+
         const pageImage = extractBestImage(html, pageUrl)
 
         if (pageImage) {
@@ -14759,6 +14773,7 @@ async function runScrapeRequest(request: Request) {
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
           source.venue_id === 'heroes_health_club_stourbridge' ||
+          isDecadanceSource(source.venue_id, source.source_url) ||
           isCupidsSource(source.venue_id, pageUrl) ||
           isSteelCliffeSource(source.venue_id, pageUrl) ||
           isOfficialHeadingCalendar(source.venue_id, pageUrl) ||
@@ -14826,6 +14841,13 @@ async function runScrapeRequest(request: Request) {
           failed++
           failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
             reason: 'Official Heroes Events section has no verified Thursday/Sunday schedule' })
+        }
+
+        if (isDecadanceSource(source.venue_id, source.source_url) &&
+            /\/events-coming-soon\//i.test(new URL(pageUrl).pathname) && targetVenueEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official Decadance event page yielded no confirmed current dated event' })
         }
 
         if (source.venue_id === 'f_society_newcastle_upon_tyne_north_east' && targetVenueEvents.length === 0) {
