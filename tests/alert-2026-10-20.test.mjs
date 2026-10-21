@@ -77,4 +77,5 @@ test('Untamed detail requires an official Bournemouth start date and real future
 test('route discovers the official listing and keeps generic candidates out of both dedicated feeds', () => {
   assert.match(source, /absoluteUrl\(source\.source_url, '\/events-tickets'\)/)
   assert.match(source, /source\.venue_id === 'klub_verboten_london' \|\| source\.venue_id === 'untamed_nights_bournemouth'/)
+  assert.match(source, /const queue = source\.venue_id === 'untamed_nights_bournemouth'\s+\? untamedNightsDiscoveredUrls/)
 })
