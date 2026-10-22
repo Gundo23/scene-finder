@@ -39,7 +39,9 @@ function officialPage(pageUrl: string, host: string, path?: string) {
 function dateForPublishedDay(day: number, month: number, today: Date) {
   let year = today.getUTCFullYear()
   let candidate = new Date(Date.UTC(year, month - 1, day, 12))
-  if (candidate.getTime() < today.getTime() - 86400000 * 31) {
+  // Only bridge an ordinary Dec/Jan schedule boundary. Never turn a stale
+  // yearless listing into an event many months into the following year.
+  if (today.getUTCMonth() >= 10 && month <= 2 && candidate.getTime() < today.getTime()) {
     year++
     candidate = new Date(Date.UTC(year, month - 1, day, 12))
   }
@@ -59,13 +61,17 @@ export function parseAtlantisSchedule(html: string, pageUrl: string, today: stri
   const text = visibleText(html)
   if (!/\batlantis\s*EVOLUTION\b/i.test(text) || !/\bBurslem\b/i.test(text) || !/\bStoke on Trent\b/i.test(text)) return []
   if (/\b(?:events? cancelled|events? canceled|club closed|no events)\b/i.test(text)) return []
+  const publishedYear = Number(text.match(/\bLAST\s+UPDATE:\s+\d{1,2}\s+\w+\s+(20\d{2})\b/i)?.[1])
+  if (!publishedYear) return []
 
   const events: PublishedEvent[] = []
   const seen = new Set<string>()
   const pattern = /\b(\d{1,2})(?::([0-5]\d))?\s*(am|pm)\s*\|\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/gi
   for (const match of text.matchAll(pattern)) {
     const month = MONTHS[match[5].slice(0, 3).toLowerCase()]
-    const eventDate = month && dateForPublishedDay(Number(match[4]), month, current)
+    const candidate = month && new Date(Date.UTC(publishedYear, month - 1, Number(match[4]), 12))
+    const eventDate = candidate && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === Number(match[4])
+      ? candidate.toISOString().slice(0, 10) : null
     if (!eventDate || eventDate < today || seen.has(eventDate)) continue
     seen.add(eventDate)
     let hour = Number(match[1]) % 12

@@ -6,7 +6,7 @@ import { parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing } fro
 const scraperRoute = fs.readFileSync(new URL('../src/app/api/scrape/route.ts', import.meta.url), 'utf8')
 
 test('Atlantis extracts only future dated sessions from its verified official page', () => {
-  const html = `<h1>atlantisEVOLUTION</h1><p>Burslem Stoke on Trent</p>
+  const html = `<h1>atlantisEVOLUTION</h1><p>Burslem Stoke on Trent</p><p>LAST UPDATE: 18 October 2026</p>
     <p>9pm | Friday 23 October | 2am 9pm | Saturday 24 October | 2am
     the HALLOWEEN SCREAMS WEEKEND 9pm | Friday 30 October | 2am
     9pm | Saturday 31 October | 2am</p>`
@@ -14,6 +14,7 @@ test('Atlantis extracts only future dated sessions from its verified official pa
   assert.deepEqual(events.map(event => event.event_date), ['2026-10-23', '2026-10-24', '2026-10-30', '2026-10-31'])
   assert.ok(events.every(event => event.text === 'Halloween Screams Weekend' && event.start_time === '21:00'))
   assert.deepEqual(parseAtlantisSchedule(html.replace('Burslem Stoke on Trent', 'Elsewhere'), 'https://www.atlantisevolution.co.uk/', '2026-10-22'), [])
+  assert.deepEqual(parseAtlantisSchedule(html, 'https://www.atlantisevolution.co.uk/', '2026-12-22'), [])
   assert.deepEqual(parseAtlantisSchedule(html, 'https://example.com/', '2026-10-22'), [])
 })
 
