@@ -1,0 +1,156 @@
+export const ATLANTIS_CALENDAR_URL = 'https://www.atlantisevolution.co.uk/'
+export const SWEATBOX_CALENDAR_URL = 'https://www.sweatboxsoho.com/events/'
+
+type PublishedEvent = {
+  href: string
+  text: string
+  event_date: string
+  start_time: string | null
+  raw: string
+  image_url: null
+  method: string
+}
+
+function visibleText(html: string) {
+  return html
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&(?:nbsp|amp);|&#(?:160|38);/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function validToday(today: string) {
+  if (!/^20\d{2}-\d{2}-\d{2}$/.test(today)) return null
+  const date = new Date(`${today}T12:00:00Z`)
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === today ? date : null
+}
+
+function officialPage(pageUrl: string, host: string, path?: string) {
+  try {
+    const url = new URL(pageUrl)
+    return url.protocol === 'https:' && url.hostname.replace(/^www\./, '') === host &&
+      (!path || url.pathname.replace(/\/+$/, '') === path.replace(/\/+$/, ''))
+  } catch {
+    return false
+  }
+}
+
+function dateForPublishedDay(day: number, month: number, today: Date) {
+  let year = today.getUTCFullYear()
+  let candidate = new Date(Date.UTC(year, month - 1, day, 12))
+  // Only bridge an ordinary Dec/Jan schedule boundary. Never turn a stale
+  // yearless listing into an event many months into the following year.
+  if (today.getUTCMonth() >= 10 && month <= 2 && candidate.getTime() < today.getTime()) {
+    year++
+    candidate = new Date(Date.UTC(year, month - 1, day, 12))
+  }
+  return candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === day
+    ? candidate.toISOString().slice(0, 10) : null
+}
+
+const MONTHS: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+}
+
+export function parseAtlantisSchedule(html: string, pageUrl: string, today: string): PublishedEvent[] {
+  if (!officialPage(pageUrl, 'atlantisevolution.co.uk')) return []
+  const current = validToday(today)
+  if (!current) return []
+  const text = visibleText(html)
+  if (!/\batlantis\s*EVOLUTION\b/i.test(text) || !/\bBurslem\b/i.test(text) || !/\bStoke on Trent\b/i.test(text)) return []
+  if (/\b(?:events? cancelled|events? canceled|club closed|no events)\b/i.test(text)) return []
+  const publishedYear = Number(text.match(/\bLAST\s+UPDATE:\s+\d{1,2}\s+\w+\s+(20\d{2})\b/i)?.[1])
+  if (!publishedYear) return []
+
+  const events: PublishedEvent[] = []
+  const seen = new Set<string>()
+  const pattern = /\b(\d{1,2})(?::([0-5]\d))?\s*(am|pm)\s*\|\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/gi
+  for (const match of text.matchAll(pattern)) {
+    const month = MONTHS[match[5].slice(0, 3).toLowerCase()]
+    const candidate = month && new Date(Date.UTC(publishedYear, month - 1, Number(match[4]), 12))
+    const eventDate = candidate && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === Number(match[4])
+      ? candidate.toISOString().slice(0, 10) : null
+    if (!eventDate || eventDate < today || seen.has(eventDate)) continue
+    seen.add(eventDate)
+    let hour = Number(match[1]) % 12
+    if (match[3].toLowerCase() === 'pm') hour += 12
+    events.push({
+      href: `${ATLANTIS_CALENDAR_URL}#events`,
+      text: /HALLOWEEN SCREAMS WEEKEND/i.test(text) ? 'Halloween Screams Weekend' : 'Atlantis Evolution event',
+      event_date: eventDate,
+      start_time: `${String(hour).padStart(2, '0')}:${match[2] || '00'}`,
+      raw: `Official Atlantis Evolution schedule for ${eventDate} in Stoke-on-Trent.`,
+      image_url: null,
+      method: 'atlantis-published-schedule',
+    })
+  }
+  return events
+}
+
+export function parseSweatboxSchedule(html: string, pageUrl: string, today: string): PublishedEvent[] {
+  if (!officialPage(pageUrl, 'sweatboxsoho.com', '/events')) return []
+  const first = validToday(today)
+  if (!first) return []
+  const text = visibleText(html)
+  if (!/\bSweatbox\b/i.test(text) || !/\bSoho\b|\bCentral London\b/i.test(text)) return []
+  if (/\b(?:events? cancelled|events? canceled|events? suspended|no longer running)\b/i.test(text)) return []
+
+  const rules = [
+    { day: 1, name: 'Hard Up Mondays', proof: /Every Monday\s+Hard Up Mondays\b/i, start: null },
+    { day: 2, name: 'Towel Free Tuesdays', proof: /Every Tuesday\s+Towel Free Tuesdays[\s\S]{0,240}?4pm to midnight/i, start: '16:00' },
+    { day: 3, name: 'Mid Week Foam Party', proof: /Every Wednesday\s+Mid Week Foam Party[\s\S]{0,240}?8pm till 10pm/i, start: '20:00' },
+    { day: 4, name: 'Hard Up Thursdays', proof: /Every Thursday\s+Hard Up Thursdays\b/i, start: null },
+    { day: 0, name: 'Naked Workout', proof: /Every Sunday\s+Naked Workout[\s\S]{0,240}?2pm\s*-\s*4pm/i, start: '14:00' },
+  ].filter(rule => rule.proof.test(text))
+  if (rules.length === 0) return []
+
+  const events: PublishedEvent[] = []
+  for (let offset = 0; offset < 42; offset++) {
+    const date = new Date(first)
+    date.setUTCDate(date.getUTCDate() + offset)
+    const rule = rules.find(item => item.day === date.getUTCDay())
+    if (!rule) continue
+    const eventDate = date.toISOString().slice(0, 10)
+    events.push({
+      href: SWEATBOX_CALENDAR_URL,
+      text: rule.name,
+      event_date: eventDate,
+      start_time: rule.start,
+      raw: `Official Sweatbox Soho weekly programme: ${rule.name}.`,
+      image_url: null,
+      method: 'sweatbox-published-weekly',
+    })
+  }
+  return events
+}
+
+export function parseUntamedListing(html: string, pageUrl: string, today: string): PublishedEvent[] {
+  if (!officialPage(pageUrl, 'untamednights.co.uk', '/events-tickets')) return []
+  const current = validToday(today)
+  if (!current) return []
+  const text = visibleText(html)
+  if (!/\bEvents and tickets\b/i.test(text) || !/\bUntamed nights\b/i.test(text)) return []
+  const events: PublishedEvent[] = []
+  const pattern = /\b([A-Z][^]{2,100}?)\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(Bournemouth|Canvas|Confirmed after ticket purchase)\b/gi
+  for (const match of text.matchAll(pattern)) {
+    const title = match[1]
+      .replace(/^.*(?:Events and tickets|Untamed nights)\s+/i, '')
+      .replace(/^(?:Share|Multiple Dates)\s+/i, '')
+      .trim()
+    const month = MONTHS[match[3].toLowerCase()]
+    const eventDate = month && dateForPublishedDay(Number(match[2]), month, current)
+    if (!eventDate || eventDate < today || title.length > 100) continue
+    events.push({
+      href: 'https://www.untamednights.co.uk/events-tickets',
+      text: title,
+      event_date: eventDate,
+      start_time: null,
+      raw: `Official Untamed Nights listing for ${eventDate}; detail-page enrichment may add the time.`,
+      image_url: null,
+      method: 'untamed-official-listing',
+    })
+  }
+  return events
+}
