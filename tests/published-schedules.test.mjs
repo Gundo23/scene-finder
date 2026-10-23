@@ -102,3 +102,40 @@ test('scraper routes all three repaired venues through the dedicated parsers', (
   assert.match(scraperRoute, /return parseAtlantisSchedule\(html, pageUrl, londonToday\(\)\)/)
   assert.match(scraperRoute, /return parseSweatboxSchedule\(html, pageUrl, londonToday\(\)\)/)
 })
+
+test('Untamed publication retains a known time when only a listing is available', async () => {
+  const ast = ts.createSourceFile('route.ts', scraperRoute, ts.ScriptTarget.Latest, true)
+  const publisher = ast.statements.find(s => ts.isFunctionDeclaration(s) && s.name?.text === 'publishStagedEvent')
+  const code = ts.transpileModule(publisher.getText(ast),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
+  const base = { venue_id: 'untamed_nights_bournemouth', event_name: 'The Social at UN',
+    event_date: '2026-11-04', start_time: null,
+    ticket_url: 'https://www.untamednights.co.uk/event-details/the-social-at-un-2026-11-04-19-30' }
+  for (const matchBy of ['url', 'title']) {
+    for (const change of [{}, { start_time: '19:30' }, { venue_id: 'other_venue' }]) {
+      const input = { ...base, ...change }
+      let reads = 0
+      let update
+      const supabaseAdmin = { from() {
+        let write = false
+        const query = { select() { return query }, eq() { return query }, limit() { return query },
+          update(value) { update = value; write = true; return query },
+          then(resolve) {
+            if (write) return resolve({ error: null })
+            reads++
+            const found = matchBy === 'url' || reads === 2
+            return resolve({ data: found ? [{ event_id: 'existing', event_name: input.event_name,
+              event_date: input.event_date, start_time: '19:30' }] : [] })
+          } }
+        return query
+      } }
+      const context = vm.createContext({ supabaseAdmin, isUntamedDetailCandidate,
+        normalizeTitle: value => value.toLowerCase() })
+      vm.runInContext(code, context)
+      assert.equal((await context.publishStagedEvent(input, 'run')).action, 'updated')
+      if (change.start_time) assert.equal(update.start_time, '19:30')
+      else if (change.venue_id) assert.equal(update.start_time, null)
+      else assert.equal(Object.hasOwn(update, 'start_time'), false)
+    }
+  }
+})
