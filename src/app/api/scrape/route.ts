@@ -13215,7 +13215,7 @@ async function publishStagedEvent(input: StagedEventRecord, runId: string) {
       .update({
         event_name: input.event_name,
         event_date: input.event_date,
-        start_time: input.start_time,
+        ...(input.start_time || !isUntamedDetailCandidate(input) ? { start_time: input.start_time } : {}),
         description: input.description,
         ticket_url: input.ticket_url,
         image_url: input.image_url,
@@ -13251,7 +13251,8 @@ async function publishStagedEvent(input: StagedEventRecord, runId: string) {
         .from('events')
         .update({
           event_name: input.event_name,
-          start_time: input.start_time,
+          // A dated Untamed listing has no time; retain verified detail times.
+          ...(input.start_time || !isUntamedDetailCandidate(input) ? { start_time: input.start_time } : {}),
           ticket_url: input.ticket_url,
           description: input.description,
           image_url: input.image_url,
@@ -15243,7 +15244,18 @@ ${hu9HydratedText}`, pageUrl)
               !isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
             eventHtml = await fetchHtml(ticketUrl)
 
-            if (eventHtml) {
+            if (eventHtml && source.venue_id === 'untamed_nights_bournemouth') {
+              // The generic first-page time may be a ticket-sale deadline.
+              // Require the official detail's own date/location to match.
+              const detail = extractUntamedNightsEvent(eventHtml, ticketUrl)
+                .find((event) => event.event_date === eventDate)
+              if (detail) {
+                title = detail.text
+                description = detail.raw
+                startTime = detail.start_time
+                imageUrl = validImageUrl(detail.image_url) || imageUrl
+              }
+            } else if (eventHtml) {
               const detailTitle = extractPageTitle(eventHtml)
               const detailDescription = extractMetaDescription(eventHtml)
               const detailDate = extractDateFromHtml(eventHtml)
