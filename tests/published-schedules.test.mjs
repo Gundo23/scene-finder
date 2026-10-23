@@ -1,7 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import { parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing } from '../src/lib/published-schedules.ts'
+import vm from 'node:vm'
+import ts from 'typescript'
+import { parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, isUntamedDetailCandidate } from '../src/lib/published-schedules.ts'
+import { isEagleNumericTitle, isVerifiedEagleNumericTitle } from '../src/lib/eagle-calendar.ts'
+import { isVerifiedCupidsShortTitle } from '../src/lib/cupids-calendar.ts'
 
 const scraperRoute = fs.readFileSync(new URL('../src/app/api/scrape/route.ts', import.meta.url), 'utf8')
 
@@ -13,6 +17,7 @@ test('Atlantis extracts only future dated sessions from its verified official pa
   const events = parseAtlantisSchedule(html, 'https://www.atlantisevolution.co.uk/', '2026-10-22')
   assert.deepEqual(events.map(event => event.event_date), ['2026-10-23', '2026-10-24', '2026-10-30', '2026-10-31'])
   assert.ok(events.every(event => event.text === 'Halloween Screams Weekend' && event.start_time === '21:00'))
+  assert.deepEqual(parseAtlantisSchedule(html.replace('LAST UPDATE:', 'LAST UPDATE <span>:</span>'), 'https://www.atlantisevolution.co.uk/', '2026-10-22'), events)
   assert.deepEqual(parseAtlantisSchedule(html.replace('Burslem Stoke on Trent', 'Elsewhere'), 'https://www.atlantisevolution.co.uk/', '2026-10-22'), [])
   assert.deepEqual(parseAtlantisSchedule(html, 'https://www.atlantisevolution.co.uk/', '2026-12-22'), [])
   assert.deepEqual(parseAtlantisSchedule(html, 'https://example.com/', '2026-10-22'), [])
@@ -36,14 +41,59 @@ test('Sweatbox expands only the exact weekly programme published on its events p
 })
 
 test('Untamed listing is a safe fallback when dynamic detail-link discovery is incomplete', () => {
+  // Reduced fields from the actual Wix list-item markup fetched 23 Oct 2026.
+  const card = (name, slug, day, location) => `<li data-hook="side-by-side-item">
+    <p>Multiple Dates</p><a data-hook="title" href="https://www.untamednights.co.uk/event-details/${slug}">${name}</a>
+    <div data-hook="short-date">${day}</div><div data-hook="short-location">${location}</div>
+    <p>Share</p><a data-hook="ev-rsvp-button">Buy Tickets</a></li>`
   const html = `<h1>Events and tickets</h1><p>Untamed nights</p>
-    <h2>House of Hades: The Final Gate</h2><p>Fri 30 Oct</p><p>Bournemouth</p>
-    <p>Multiple Dates</p><h2>The Social at UN</h2><p>Wed 04 Nov</p><p>Canvas</p>
-    <h2>Canvas 4 Yule</h2><p>Sun 27 Dec</p><p>Confirmed after ticket purchase</p>`
+    <p>so it doesn't matter how you identify, everyone is welcome.</p>` +
+    card('House of Hades: The Final Gate', 'house-of-hades-the-final-gate', 'Fri 30 Oct', 'Bournemouth') +
+    card('The Social at UN', 'the-social-at-un-2026-11-04-19-30', 'Wed 04 Nov', 'Canvas') +
+    card('Canvas 4 Yule', 'canvas-4-yule', 'Sun 27 Dec', 'Confirmed after ticket purchase')
   const events = parseUntamedListing(html, 'https://www.untamednights.co.uk/events-tickets', '2026-10-22')
   assert.deepEqual(events.map(event => event.event_date), ['2026-10-30', '2026-11-04', '2026-12-27'])
   assert.deepEqual(events.map(event => event.text), ['House of Hades: The Final Gate', 'The Social at UN', 'Canvas 4 Yule'])
+  assert.ok(events.every(event => event.href.includes('/event-details/')))
+  assert.deepEqual(parseUntamedListing(html + html, 'https://www.untamednights.co.uk/events-tickets', '2026-10-22'), events)
+  assert.equal(parseUntamedListing(html.replace('Fri 30 Oct', 'Sat 30 Oct'), 'https://www.untamednights.co.uk/events-tickets', '2026-10-22').length, 2)
+  assert.equal(parseUntamedListing(html.replace('Bournemouth</div>', 'London</div>'), 'https://www.untamednights.co.uk/events-tickets', '2026-10-22').length, 2)
+  assert.equal(parseUntamedListing(html.replace('House of Hades: The Final Gate</a>', 'Cancelled</a>'), 'https://www.untamednights.co.uk/events-tickets', '2026-10-22').length, 2)
+  assert.deepEqual(parseUntamedListing('<script>' + html + '</script>', 'https://www.untamednights.co.uk/events-tickets', '2026-10-22'), [])
+  assert.deepEqual(parseUntamedListing(html.replaceAll('www.untamednights.co.uk/event-details', 'other.example/event-details'), 'https://www.untamednights.co.uk/events-tickets', '2026-10-22'), [])
   assert.deepEqual(parseUntamedListing(html, 'https://untamednights.co.uk/other', '2026-10-22'), [])
+})
+
+test('the actual publication guard ignores only a verified Untamed detail URL when checking junk words', () => {
+  const ast = ts.createSourceFile('route.ts', scraperRoute, ts.ScriptTarget.Latest, true)
+  const names = new Set(['cleanText', 'normalizeTitle', 'isJunkTitle', 'cleanEventName',
+    'cleanSf10RescueCandidateTitle', 'candidateRejectionReason', 'hasBadEventPattern'])
+  const declarations = ast.statements.filter(s =>
+    (ts.isFunctionDeclaration(s) && names.has(s.name?.text)) ||
+    (ts.isVariableStatement(s) && s.declarationList.declarations.some(d =>
+      ['JUNK_TITLES', 'BAD_EVENT_PATTERNS'].includes(d.name.getText(ast)))))
+  const unrelated = ['isSf10SafeRescueCandidate', 'isLeBoudoirSource', 'isMinistryStudiosJunkEvent',
+    'isChunkyMuffinsJunkEvent', 'isCarberrysJunkEvent', 'isSheWorldJunkEvent', 'isMirageLincolnJunkEvent',
+    'isCjsTownhouseJunkEvent', 'isGgsLoungeJunkEvent', 'isPurpleMambaSource', 'isAcquaSafeDatedEvent',
+    'isBlacklistedTbcEvent', 'isJunkUrl', 'looksLikeEvent']
+  const context = vm.createContext({ URL, isUntamedDetailCandidate, isEagleNumericTitle,
+    isVerifiedEagleNumericTitle, isVerifiedCupidsShortTitle,
+    ...Object.fromEntries(unrelated.map(name => [name, () => false])) })
+  vm.runInContext(ts.transpileModule(declarations.map(d => d.getText(ast)).join('\n'),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context)
+  const candidate = { venue_id: 'untamed_nights_bournemouth', event_name: 'Canvas Yule',
+    event_date: '2026-12-27', ticket_url: 'https://www.untamednights.co.uk/event-details/canvas-4-yule',
+    description: 'Canvas Yule. Official Untamed Nights detail for 2026-12-27 in Bournemouth.' }
+  assert.equal(context.candidateRejectionReason(candidate), null)
+  assert.equal(context.candidateRejectionReason({ ...candidate, event_name: 'House of Hades: The Final Gate',
+    event_date: '2026-10-30', ticket_url: 'https://www.untamednights.co.uk/event-details/house-of-hades-the-final-gate' }), null)
+  assert.equal(context.candidateRejectionReason({ ...candidate, description: 'Join now for membership' }), 'rejected_bad_pattern')
+  for (const change of [{ venue_id: 'other' }, { event_date: '2026-02-31' },
+    { ticket_url: 'https://other.example/event-details/canvas-4-yule' },
+    { ticket_url: 'https://name@www.untamednights.co.uk/event-details/canvas-4-yule' },
+    { ticket_url: 'https://www.untamednights.co.uk/event-details/canvas-4-yule?next=1' },
+    { ticket_url: 'https://www.untamednights.co.uk/event-details/canvas-4-yule#next' },
+  ]) assert.equal(context.candidateRejectionReason({ ...candidate, ...change }), 'rejected_bad_pattern')
 })
 
 test('scraper routes all three repaired venues through the dedicated parsers', () => {
