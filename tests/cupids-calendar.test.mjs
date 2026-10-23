@@ -5,6 +5,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import { cupidsDetailDate, cupidsEventDetailLinks, parseCupidsCalendar, isVerifiedCupidsShortTitle, cupidsCanonicalDetailUrl } from '../src/lib/cupids-calendar.ts'
 import { isEagleNumericTitle, isVerifiedEagleNumericTitle } from '../src/lib/eagle-calendar.ts'
+import { isUntamedDetailCandidate } from '../src/lib/published-schedules.ts'
 
 const actual = fs.readFileSync(new URL('./fixtures/cupids-cards-2026-10-18.html', import.meta.url), 'utf8')
 const parse = (html = actual, today = '2026-10-18', url = 'https://cupidsswingersclub.co.uk/events/') =>
@@ -78,7 +79,7 @@ test('actual cleanup and publication guard permit verified MOTD, without widenin
     'isGgsLoungeJunkEvent', 'isPurpleMambaSource', 'isAcquaSafeDatedEvent',
     'isBlacklistedTbcEvent', 'isJunkUrl', 'hasBadEventPattern', 'looksLikeEvent']
   const context = vm.createContext({ ...Object.fromEntries(unrelatedGuards.map(n => [n, () => false])),
-    URL, isEagleNumericTitle, isVerifiedEagleNumericTitle, isVerifiedCupidsShortTitle, cupidsCanonicalDetailUrl })
+    URL, isEagleNumericTitle, isVerifiedEagleNumericTitle, isVerifiedCupidsShortTitle, cupidsCanonicalDetailUrl, isUntamedDetailCandidate })
   vm.runInContext(ts.transpileModule(declarations.map(d => d.getText(ast)).join('\n'),
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context)
   const input = { venue_id: 'cupids_health_club_swinton_manchester', event_name: 'MOTD',
