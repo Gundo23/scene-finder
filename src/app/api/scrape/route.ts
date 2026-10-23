@@ -28,7 +28,7 @@ import { parseSwampDates } from '@/lib/swamp-dates'
 import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations-calendar'
 import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } from '@/lib/heroes-schedule'
 import { DECADANCE_CALENDAR_URL, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
-import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing } from '@/lib/published-schedules'
+import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, isUntamedDetailCandidate } from '@/lib/published-schedules'
 
 export const runtime = 'nodejs'
 
@@ -12662,7 +12662,9 @@ function candidateRejectionReason(input: {
 
   const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
 
-  if (hasBadEventPattern(combined) && !safeRescueCandidate) return 'rejected_bad_pattern'
+  const patternText = isUntamedDetailCandidate(input)
+    ? `${eventName} ${input.description || ''}` : combined
+  if (hasBadEventPattern(patternText) && !safeRescueCandidate) return 'rejected_bad_pattern'
 
   if (!input.event_date && !looksLikeStrongUndatedEvent(`${eventName} ${input.description || ''}`)) {
     return 'rejected_missing_date'

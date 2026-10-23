@@ -61,7 +61,7 @@ export function parseAtlantisSchedule(html: string, pageUrl: string, today: stri
   const text = visibleText(html)
   if (!/\batlantis\s*EVOLUTION\b/i.test(text) || !/\bBurslem\b/i.test(text) || !/\bStoke on Trent\b/i.test(text)) return []
   if (/\b(?:events? cancelled|events? canceled|club closed|no events)\b/i.test(text)) return []
-  const publishedYear = Number(text.match(/\bLAST\s+UPDATE:\s+\d{1,2}\s+\w+\s+(20\d{2})\b/i)?.[1])
+  const publishedYear = Number(text.match(/\bLAST\s+UPDATE\s*:\s+\d{1,2}\s+\w+\s+(20\d{2})\b/i)?.[1])
   if (!publishedYear) return []
 
   const events: PublishedEvent[] = []
@@ -130,20 +130,33 @@ export function parseUntamedListing(html: string, pageUrl: string, today: string
   if (!officialPage(pageUrl, 'untamednights.co.uk', '/events-tickets')) return []
   const current = validToday(today)
   if (!current) return []
-  const text = visibleText(html)
+  const page = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, ' ')
+  const text = visibleText(page)
   if (!/\bEvents and tickets\b/i.test(text) || !/\bUntamed nights\b/i.test(text)) return []
   const events: PublishedEvent[] = []
-  const pattern = /\b([A-Z][^]{2,100}?)\s+(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(Bournemouth|Canvas|Confirmed after ticket purchase)\b/gi
-  for (const match of text.matchAll(pattern)) {
-    const title = match[1]
-      .replace(/^.*(?:Events and tickets|Untamed nights)\s+/i, '')
-      .replace(/^(?:Share|Multiple Dates)\s+/i, '')
-      .trim()
-    const month = MONTHS[match[3].toLowerCase()]
-    const eventDate = month && dateForPublishedDay(Number(match[2]), month, current)
-    if (!eventDate || eventDate < today || title.length > 100) continue
+  const seen = new Set<string>()
+  // Wix's visible list items keep title, date, location and detail URL together.
+  // Flat page text can prepend the introduction or the previous card's CTA.
+  for (const match of page.matchAll(/<li\b[^>]*data-hook=["']side-by-side-item["'][^>]*>([\s\S]*?)<\/li>/gi)) {
+    const card = match[1]
+    const anchor = card.match(/<a\b([^>]*data-hook=["']title["'][^>]*)>([\s\S]*?)<\/a>/i)
+    const title = visibleText(anchor?.[2] || '')
+    const href = anchor?.[1].match(/\bhref=["']([^"']+)["']/i)?.[1]?.replace(/&amp;/gi, '&') || ''
+    const dateText = visibleText(card.match(/<[^>]+data-hook=["']short-date["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] || '')
+    const location = visibleText(card.match(/<[^>]+data-hook=["']short-location["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] || '')
+    const date = dateText.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/i)
+    if (!date || !title || title.length > 100 || /^(?:Buy Tickets|Share|Multiple Dates)$/i.test(title) ||
+        !/^(?:Bournemouth|Canvas|Confirmed after ticket purchase)$/i.test(location) ||
+        /\b(?:cancelled|canceled|postponed)\b/i.test(visibleText(card))) continue
+    const month = MONTHS[date[3].toLowerCase()]
+    const eventDate = month && dateForPublishedDay(Number(date[2]), month, current)
+    if (!eventDate || eventDate < today ||
+        new Date(`${eventDate}T12:00:00Z`).getUTCDay() !== ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(date[1].toLowerCase()) ||
+        !isUntamedDetailCandidate({ venue_id: 'untamed_nights_bournemouth', event_date: eventDate, ticket_url: href }) ||
+        seen.has(href)) continue
+    seen.add(href)
     events.push({
-      href: 'https://www.untamednights.co.uk/events-tickets',
+      href,
       text: title,
       event_date: eventDate,
       start_time: null,
@@ -153,4 +166,18 @@ export function parseUntamedListing(html: string, pageUrl: string, today: string
     })
   }
   return events
+}
+
+// Only URL text is exempted from the generic "details" junk word. Titles and
+// descriptions still pass every existing publication and quality guard.
+export function isUntamedDetailCandidate(input: {
+  venue_id?: string | null; event_date?: string | null; ticket_url?: string | null
+}) {
+  if (input.venue_id !== 'untamed_nights_bournemouth' || !validToday(input.event_date || '')) return false
+  try {
+    const url = new URL(input.ticket_url || '')
+    return url.protocol === 'https:' && url.hostname.replace(/^www\./, '') === 'untamednights.co.uk' &&
+      !url.username && !url.password && !url.port && !url.search && !url.hash &&
+      /^\/event-details\/[a-z0-9]+(?:-[a-z0-9]+)*\/?$/.test(url.pathname)
+  } catch { return false }
 }
