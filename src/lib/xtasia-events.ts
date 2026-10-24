@@ -93,7 +93,9 @@ export function parseXtasiaEvents(html: string, pageUrl: string, today: string):
       text: title,
       event_date: eventDate.toISOString().slice(0, 10),
       start_time: hour === null ? null : `${String(hour).padStart(2, '0')}:${time![3] || '00'}`,
-      raw: `${title}. ${plain(block).slice(-300)}`,
+      // Unlinked closure notices may precede this card. Carry only this
+      // event's validated date and following metadata into publication checks.
+      raw: `${title}. ${dated[0]}${afterDate}`,
     })
   }
 
