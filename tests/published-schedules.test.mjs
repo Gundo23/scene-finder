@@ -64,7 +64,6 @@ test('Untamed listing is a safe fallback when dynamic detail-link discovery is i
   assert.deepEqual(parseUntamedListing(html, 'https://untamednights.co.uk/other', '2026-10-22'), [])
 })
 
-
 test('Untamed detail expands only occurrence dates explicitly published by Wix', () => {
   const html = `<h1>The Social at UN</h1>
     <p data-hook="event-full-date">04 Nov 2026, 19:30 – 23:59</p>
