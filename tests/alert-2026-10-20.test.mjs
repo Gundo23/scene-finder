@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
 import ts from 'typescript'
+import { parseUntamedDetail } from '../src/lib/published-schedules.ts'
 
 const source = fs.readFileSync(new URL('../src/app/api/scrape/route.ts', import.meta.url), 'utf8')
 const ast = ts.createSourceFile('route.ts', source, ts.ScriptTarget.Latest, true)
-const selected = new Set(['cleanKlubVerbotenTitle', 'extractKlubVerbotenEvents', 'extractUntamedNightsEvent'])
+const selected = new Set(['cleanKlubVerbotenTitle', 'extractKlubVerbotenEvents'])
 const functions = ast.statements.filter(s => ts.isFunctionDeclaration(s) && selected.has(s.name?.text))
 assert.equal(functions.length, selected.size)
 const context = vm.createContext({
@@ -54,24 +55,26 @@ test('Klub Verboten current dates include London only and stop before archive', 
 })
 
 function detail(title, date, location = 'Bournemouth, UK') {
-  return `<h1>${title}</h1><h2>Time &amp; Location</h2><p>${date} – 31 Oct 2026, 02:00</p><p>${location}</p><h2>Tickets</h2>`
+  return `<h1>${title}</h1><h2>Time &amp; Location</h2>
+    <p data-hook="event-full-date">${date} – 31 Oct 2026, 02:00</p>
+    <p data-hook="event-full-location">${location}</p><h2>Tickets</h2>`
 }
 
 test('Untamed detail requires an official Bournemouth start date and real future day', () => {
-  const oct = context.extractUntamedNightsEvent(detail('House of Hades: The Final Gate',
-    '30 Oct 2026, 19:30'), 'https://www.untamednights.co.uk/event-details/house-of-hades-the-final-gate')
+  const oct = parseUntamedDetail(detail('House of Hades: The Final Gate',
+    '30 Oct 2026, 19:30'), 'https://www.untamednights.co.uk/event-details/house-of-hades-the-final-gate', '2026-10-20')
   assert.equal(oct.length, 1)
   assert.equal(oct[0].event_date, '2026-10-30')
   assert.equal(oct[0].start_time, '19:30')
-  const dec = context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
-    '27 Dec 2026, 20:00'), 'https://www.untamednights.co.uk/event-details/canvas-4-yule')
+  const dec = parseUntamedDetail(detail('Canvas 4 Yule',
+    '27 Dec 2026, 20:00'), 'https://www.untamednights.co.uk/event-details/canvas-4-yule', '2026-10-20')
   assert.equal(dec[0].event_date, '2026-12-27')
-  assert.equal(context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
-    '27 Dec 2026, 20:00'), 'https://other.example/event-details/canvas-4-yule').length, 0)
-  assert.equal(context.extractUntamedNightsEvent(detail('Canvas 4 Yule',
-    '27 Dec 2026, 20:00', 'London, UK'), 'https://www.untamednights.co.uk/event-details/canvas-4-yule').length, 0)
-  assert.equal(context.extractUntamedNightsEvent(detail('Bad date',
-    '31 Feb 2027, 20:00'), 'https://www.untamednights.co.uk/event-details/bad-date').length, 0)
+  assert.equal(parseUntamedDetail(detail('Canvas 4 Yule',
+    '27 Dec 2026, 20:00'), 'https://other.example/event-details/canvas-4-yule', '2026-10-20').length, 0)
+  assert.equal(parseUntamedDetail(detail('Canvas 4 Yule',
+    '27 Dec 2026, 20:00', 'London, UK'), 'https://www.untamednights.co.uk/event-details/canvas-4-yule', '2026-10-20').length, 0)
+  assert.equal(parseUntamedDetail(detail('Bad date',
+    '31 Feb 2027, 20:00'), 'https://www.untamednights.co.uk/event-details/bad-date', '2026-10-20').length, 0)
 })
 
 test('route discovers the official listing and keeps generic candidates out of both dedicated feeds', () => {
