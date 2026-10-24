@@ -60,6 +60,21 @@ test('time belongs to the last validated date, not an earlier unlinked/closed ca
   assert.equal(parseXtasiaEvents(markup, page, '2026-10-16')[0].start_time, '20:00')
 })
 
+test('a separate closure never contaminates the following public event description', () => {
+  const markup = `<article><h5>Flirts &amp; Spa closed</h5><p>Private Hire Event</p>
+    <p>Sat 19 Dec 2026</p><span>Closed</span></article>
+    <article><h5>Naughty &amp; Nice - Christmas Party</h5>
+    <p>Sat 19 Dec 2026 8:00pm &ndash; 3:00am Xtasia</p>
+    <a href="/events/20261219/naughty-%26-nice---christmas-party">View Event</a></article>`
+  const events = parseXtasiaEvents(markup, page, '2026-10-24')
+  assert.equal(events.length, 1)
+  assert.equal(events[0].text, 'Naughty & Nice - Christmas Party')
+  assert.equal(events[0].event_date, '2026-12-19')
+  assert.equal(events[0].start_time, '20:00')
+  assert.doesNotMatch(events[0].raw, /closed|private hire|Flirts/i)
+  assert.match(events[0].raw, /Naughty & Nice - Christmas Party\. Sat 19 Dec 2026 8:00pm/)
+})
+
 test('uses Midday rather than the end time and leaves absent/invalid starts unknown', () => {
   const card = (time) => `<h5>CherriPie Gangbang</h5><p>Wed 21 Oct 2026 ${time} Flirts</p>
     <a href="/events/20261021/cherripie-gangbang">View Event</a>`
