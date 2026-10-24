@@ -168,7 +168,6 @@ export function parseUntamedListing(html: string, pageUrl: string, today: string
   return events
 }
 
-
 export function parseUntamedDetail(html: string, pageUrl: string, today: string): PublishedEvent[] {
   const current = validToday(today)
   if (!current) return []
