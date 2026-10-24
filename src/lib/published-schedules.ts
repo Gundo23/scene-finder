@@ -168,6 +168,81 @@ export function parseUntamedListing(html: string, pageUrl: string, today: string
   return events
 }
 
+
+export function parseUntamedDetail(html: string, pageUrl: string, today: string): PublishedEvent[] {
+  const current = validToday(today)
+  if (!current) return []
+
+  let currentSlug = ''
+  try {
+    const url = new URL(pageUrl)
+    if (url.protocol !== 'https:' || url.hostname.replace(/^www\./, '') !== 'untamednights.co.uk' ||
+        !/^\/event-details\/[a-z0-9]+(?:-[a-z0-9]+)*\/?$/.test(url.pathname) ||
+        url.username || url.password || url.port || url.search || url.hash) return []
+    currentSlug = url.pathname.replace(/^\/event-details\//, '').replace(/\/$/, '')
+  } catch {
+    return []
+  }
+
+  const visible = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, ' ')
+  const title = visibleText(visible.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || '')
+  const fullDate = visibleText(visible.match(/<[^>]+data-hook=["']event-full-date["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] || '')
+  const location = visibleText(visible.match(/<[^>]+data-hook=["']event-full-location["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] || '')
+  const first = fullDate.match(/^(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(20\d{2}),\s*(\d{1,2}):([0-5]\d)\b/i)
+  if (!title || title.length > 100 || /\b(?:cancelled|canceled|postponed)\b/i.test(title) ||
+      !first || !/\bBournemouth\b/i.test(location)) return []
+
+  const firstMonth = MONTHS[first[2].slice(0, 3).toLowerCase()]
+  const firstDate = firstMonth && validToday(`${first[3]}-${String(firstMonth).padStart(2, '0')}-${first[1].padStart(2, '0')}`)
+  if (!firstDate || firstDate.toISOString().slice(0, 10) < today) return []
+
+  const events: PublishedEvent[] = []
+  const seen = new Set<string>()
+  const append = (slug: string, eventDate: string, startTime: string) => {
+    const href = `https://www.untamednights.co.uk/event-details/${slug}`
+    if (!isUntamedDetailCandidate({
+      venue_id: 'untamed_nights_bournemouth', event_date: eventDate, ticket_url: href,
+    })) return
+    const key = `${eventDate}|${href}`
+    if (seen.has(key)) return
+    seen.add(key)
+    events.push({
+      href,
+      text: title,
+      event_date: eventDate,
+      start_time: startTime,
+      raw: `${title}. Official Untamed Nights detail occurrence for ${eventDate} in Bournemouth.`,
+      image_url: null,
+      method: 'untamed-official-detail',
+    })
+  }
+
+  const firstIso = firstDate.toISOString().slice(0, 10)
+  append(currentSlug, firstIso, `${first[4].padStart(2, '0')}:${first[5]}`)
+
+  // Wix publishes every other occurrence in hydration data with both a
+  // date-bearing slug and a human-readable day/date/time. Require the two to
+  // agree, so an unrelated date elsewhere in the page cannot become an event.
+  const seriesSlug = currentSlug.replace(/-20\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$/, '')
+  const hydrated = html.replace(/\\"/g, '"').replace(/&quot;/gi, '"')
+  const suggestion = /["']slug["']\s*:\s*["']([^"']+)["'][\s\S]{0,240}?["']shortStartDateTime["']\s*:\s*["'](Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*,\s*(\d{1,2}):([0-5]\d)["']/gi
+  for (const match of hydrated.matchAll(suggestion)) {
+    const slug = match[1]
+    const parts = slug.match(/^(.*)-(20\d{2})-(\d{2})-(\d{2})-(\d{2})-([0-5]\d)$/)
+    if (!parts || parts[1] !== seriesSlug) continue
+    const eventDate = `${parts[2]}-${parts[3]}-${parts[4]}`
+    const candidate = validToday(eventDate)
+    const month = MONTHS[match[4].slice(0, 3).toLowerCase()]
+    if (!candidate || eventDate < today || Number(parts[3]) !== month ||
+        Number(parts[4]) !== Number(match[3]) || Number(parts[5]) !== Number(match[5]) ||
+        parts[6] !== match[6] || candidate.getUTCDay() !==
+          ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(match[2].toLowerCase())) continue
+    append(slug, eventDate, `${parts[5]}:${parts[6]}`)
+  }
+
+  return events.sort((a, b) => a.event_date.localeCompare(b.event_date))
+}
+
 // Only URL text is exempted from the generic "details" junk word. Titles and
 // descriptions still pass every existing publication and quality guard.
 export function isUntamedDetailCandidate(input: {
