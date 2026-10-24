@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
 import ts from 'typescript'
-import { parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, isUntamedDetailCandidate } from '../src/lib/published-schedules.ts'
+import { parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, parseUntamedDetail, isUntamedDetailCandidate } from '../src/lib/published-schedules.ts'
 import { isEagleNumericTitle, isVerifiedEagleNumericTitle } from '../src/lib/eagle-calendar.ts'
 import { isVerifiedCupidsShortTitle } from '../src/lib/cupids-calendar.ts'
 
@@ -64,6 +64,31 @@ test('Untamed listing is a safe fallback when dynamic detail-link discovery is i
   assert.deepEqual(parseUntamedListing(html, 'https://untamednights.co.uk/other', '2026-10-22'), [])
 })
 
+
+test('Untamed detail expands only occurrence dates explicitly published by Wix', () => {
+  const html = `<h1>The Social at UN</h1>
+    <p data-hook="event-full-date">04 Nov 2026, 19:30 – 23:59</p>
+    <p data-hook="event-full-location">Canvas, 45 Poole Hill, Bournemouth BH2 5PW, UK</p>
+    <script>window.warmup = {"upcomingOccurrencesSuggestions":[
+      {\\"slug\\":\\"the-social-at-un-2026-11-18-19-30\\",\\"shortStartDateTime\\":\\"Wed 18 Nov, 19:30\\"},
+      {\\"slug\\":\\"the-social-at-un-2026-12-02-19-30\\",\\"shortStartDateTime\\":\\"Wed 02 Dec, 19:30\\"},
+      {\\"slug\\":\\"the-social-at-un-2026-12-16-19-30\\",\\"shortStartDateTime\\":\\"Wed 16 Dec, 19:30\\"},
+      {\\"slug\\":\\"unrelated-2026-12-23-19-30\\",\\"shortStartDateTime\\":\\"Wed 23 Dec, 19:30\\"},
+      {\\"slug\\":\\"the-social-at-un-2026-12-24-19-30\\",\\"shortStartDateTime\\":\\"Wed 23 Dec, 19:30\\"}
+    ]}</script>`
+  const pageUrl = 'https://www.untamednights.co.uk/event-details/the-social-at-un-2026-11-04-19-30'
+  const events = parseUntamedDetail(html, pageUrl, '2026-10-24')
+  assert.deepEqual(events.map(event => [event.event_date, event.start_time, event.href]), [
+    ['2026-11-04', '19:30', pageUrl],
+    ['2026-11-18', '19:30', 'https://www.untamednights.co.uk/event-details/the-social-at-un-2026-11-18-19-30'],
+    ['2026-12-02', '19:30', 'https://www.untamednights.co.uk/event-details/the-social-at-un-2026-12-02-19-30'],
+    ['2026-12-16', '19:30', 'https://www.untamednights.co.uk/event-details/the-social-at-un-2026-12-16-19-30'],
+  ])
+  assert.ok(events.every(event => event.text === 'The Social at UN'))
+  assert.deepEqual(parseUntamedDetail(html.replace('Bournemouth', 'London'), pageUrl, '2026-10-24'), [])
+  assert.deepEqual(parseUntamedDetail(html, pageUrl.replace('untamednights.co.uk', 'example.com'), '2026-10-24'), [])
+})
+
 test('the actual publication guard ignores only a verified Untamed detail URL when checking junk words', () => {
   const ast = ts.createSourceFile('route.ts', scraperRoute, ts.ScriptTarget.Latest, true)
   const names = new Set(['cleanText', 'normalizeTitle', 'isJunkTitle', 'cleanEventName',
@@ -98,7 +123,7 @@ test('the actual publication guard ignores only a verified Untamed detail URL wh
 
 test('scraper routes all three repaired venues through the dedicated parsers', () => {
   assert.match(scraperRoute, /venueId === 'untamed_nights_bournemouth' \|\|/)
-  assert.match(scraperRoute, /return listingEvents\.length > 0 \? listingEvents : extractUntamedNightsEvent/)
+  assert.match(scraperRoute, /return listingEvents\.length > 0 \? listingEvents : parseUntamedDetail/)
   assert.match(scraperRoute, /return parseAtlantisSchedule\(html, pageUrl, londonToday\(\)\)/)
   assert.match(scraperRoute, /return parseSweatboxSchedule\(html, pageUrl, londonToday\(\)\)/)
 })
