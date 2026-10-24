@@ -28,7 +28,7 @@ import { parseSwampDates } from '@/lib/swamp-dates'
 import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations-calendar'
 import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } from '@/lib/heroes-schedule'
 import { DECADANCE_CALENDAR_URL, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
-import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, isUntamedDetailCandidate } from '@/lib/published-schedules'
+import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, parseUntamedDetail, isUntamedDetailCandidate } from '@/lib/published-schedules'
 
 export const runtime = 'nodejs'
 
@@ -2951,29 +2951,6 @@ function extractKlubVerbotenEvents(html: string, baseUrl: string) {
   }
 
   return candidates
-}
-
-function extractUntamedNightsEvent(html: string, pageUrl: string) {
-  try {
-    const url = new URL(pageUrl)
-    if (url.protocol !== 'https:' || url.hostname.replace(/^www\./, '') !== 'untamednights.co.uk' ||
-        !url.pathname.startsWith('/event-details/')) return []
-  } catch { return [] }
-  const visible = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-  const title = cleanEventName(cleanText(visible.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || ''))
-  const text = cleanText(visible)
-  const details = text.match(/Time\s*&\s*Location\s+([^]{0,220})/i)?.[1] || ''
-  const date = details.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(20\d{2}),\s*(\d{1,2}):([0-5]\d)\b/i)
-  if (!title || isJunkTitle(title) || !date || !/\bBournemouth\b/i.test(details)) return []
-  const month = monthNameToNumber(date[2])
-  const eventDate = month && validDateOrNull(`${date[3]}-${month}-${date[1].padStart(2, '0')}`)
-  if (!eventDate || eventDate < londonToday()) return []
-  return [{
-    href: pageUrl, text: title, event_date: eventDate,
-    start_time: `${date[4].padStart(2, '0')}:${date[5]}`,
-    raw: `${title}. Official Untamed Nights detail for ${eventDate} in Bournemouth.`,
-    image_url: extractBestImage(html, pageUrl), method: 'untamed-official-detail',
-  }]
 }
 
 function isElectrowerkzSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
@@ -10134,7 +10111,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   }
   if (venueId === 'untamed_nights_bournemouth') {
     const listingEvents = parseUntamedListing(html, pageUrl, londonToday())
-    return listingEvents.length > 0 ? listingEvents : extractUntamedNightsEvent(html, pageUrl)
+    return listingEvents.length > 0 ? listingEvents : parseUntamedDetail(html, pageUrl, londonToday())
   }
   if (venueId === 'afterdark_edinburgh_edinburgh') return extractAfterdarkEdinburghEvents(html, pageUrl)
   if (venueId === 'club_play_blackpool') return extractClubPlayEvents(html, pageUrl)
@@ -15247,7 +15224,7 @@ ${hu9HydratedText}`, pageUrl)
             if (eventHtml && source.venue_id === 'untamed_nights_bournemouth') {
               // The generic first-page time may be a ticket-sale deadline.
               // Require the official detail's own date/location to match.
-              const detail = extractUntamedNightsEvent(eventHtml, ticketUrl)
+              const detail = parseUntamedDetail(eventHtml, ticketUrl, londonToday())
                 .find((event) => event.event_date === eventDate)
               if (detail) {
                 title = detail.text
