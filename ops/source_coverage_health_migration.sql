@@ -26,7 +26,10 @@ WHERE source.venue_id = 'infusions_infusion_blackpool_blackpool'
   AND source.active = true
   AND source.source_url ~* '^https?://(www\.)?infusionblackpool\.co\.uk/21\.html/?$';
 
--- A clean HTTP run with no usable dated candidates is not evidence of a
+-- A run is productive when the safety policy accepts it, it has no fatal
+-- extraction errors, and it stages future events. Individual auxiliary page
+-- failures do not make the confirmed events from that run unsuccessful.
+-- A clean HTTP run with no usable dated candidates is still not evidence of a
 -- renewable event feed. This query covers the same public venues as /venues,
 -- including those without any active event_sources rows.
 CREATE OR REPLACE FUNCTION public.get_venue_event_health()
@@ -66,7 +69,7 @@ AS $$
     SELECT h.venue_id, max(h.finished_at) AS last_completed_success
     FROM public.venue_scrape_health_runs h
     WHERE h.status IN ('accepted', 'accepted_stale_review')
-      AND h.failed_pages = 0 AND h.error_count = 0
+      AND h.error_count = 0
       AND h.staged_future_event_count > 0
     GROUP BY h.venue_id
   )
