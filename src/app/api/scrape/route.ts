@@ -5,6 +5,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEvent } from '@/lib/route69-calendar'
 import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 import { parseDv8Calendar } from '@/lib/dv8-calendar'
+import { discoverNerosEventPages, isNerosAllowedPage, parseNerosSchedule } from '@/lib/neros-schedule'
+import { scopedDirectoryVenuePageDecision } from '@/lib/source-page-scope'
 import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
 import { parseTownhouseCalendar } from '@/lib/townhouse-location-calendar'
 import { parseQuestCalendar, QUEST_CALENDAR_URL } from '@/lib/quest-calendar'
@@ -9687,6 +9689,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     combined.includes('f_society_newcastle_upon_tyne_north_east') ||
     combined.includes('infusions_infusion_blackpool_blackpool') ||
     combined.includes('dv8_kent_kent') ||
+    venueId === 'nero_s_sauna_bury' ||
     isIgniteSource(venueId, sourceUrl) ||
     combined.includes('club_bacchus_dundee') ||
     combined.includes('clubbacchusdundee.uk') ||
@@ -9738,6 +9741,11 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  const directoryDecision = scopedDirectoryVenuePageDecision(source.source_url, pageUrl)
+  if (directoryDecision !== null) return directoryDecision
+
+  if (source.venue_id === 'nero_s_sauna_bury') return isNerosAllowedPage(pageUrl)
+
   if (source.venue_id === 'partners_manchester_bury_area') {
     try {
       const url = new URL(pageUrl)
@@ -9914,6 +9922,8 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
   if (source.venue_id === 'dv8_kent_kent') {
     return ['https://dv8club.co.uk/']
   }
+
+  if (source.venue_id === 'nero_s_sauna_bury') return discoverNerosEventPages()
 
   if (source.venue_id === 'ignite_west_drayton_heathrow') {
     return ['https://club-ignite.co.uk/events/list/']
@@ -10119,6 +10129,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'f_society_newcastle_upon_tyne_north_east') return extractFSocietyNextEvent(html, pageUrl)
   if (venueId === 'infusions_infusion_blackpool_blackpool') return parseInfusionMonth(html, pageUrl, londonToday())
   if (venueId === 'dv8_kent_kent') return parseDv8Calendar(html, pageUrl, londonToday())
+  if (venueId === 'nero_s_sauna_bury') return parseNerosSchedule(html, pageUrl, londonToday())
   if (isCupidsSource(venueId, pageUrl)) return extractCupidsEvents(html, pageUrl)
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
