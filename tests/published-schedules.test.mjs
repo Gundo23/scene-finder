@@ -13,10 +13,16 @@ test('Atlantis extracts only future dated sessions from its verified official pa
   const html = `<h1>atlantisEVOLUTION</h1><p>Burslem Stoke on Trent</p><p>LAST UPDATE: 18 October 2026</p>
     <p>9pm | Friday 23 October | 2am 9pm | Saturday 24 October | 2am
     the HALLOWEEN SCREAMS WEEKEND 9pm | Friday 30 October | 2am
-    9pm | Saturday 31 October | 2am</p>`
+    the HALLOWEEN SCREAMS ALL WEEKEND 9pm | Saturday 31 October | 2am
+    Visit Friday &amp; Get Saturday FREE 9pm | Friday 06 November | 2am Incognito Masquerade Ball</p>`
   const events = parseAtlantisSchedule(html, 'https://www.atlantisevolution.co.uk/', '2026-10-22')
-  assert.deepEqual(events.map(event => event.event_date), ['2026-10-23', '2026-10-24', '2026-10-30', '2026-10-31'])
-  assert.ok(events.every(event => event.text === 'Halloween Screams Weekend' && event.start_time === '21:00'))
+  assert.deepEqual(events.map(event => event.event_date), ['2026-10-23', '2026-10-24', '2026-10-30', '2026-10-31', '2026-11-06'])
+  assert.deepEqual(events.map(event => event.text), [
+    'Halloween Screams Weekend', 'Halloween Screams Weekend',
+    'Halloween Screams Weekend', 'Halloween Screams Weekend',
+    'Atlantis Evolution event',
+  ])
+  assert.ok(events.every(event => event.start_time === '21:00'))
   assert.deepEqual(parseAtlantisSchedule(html.replace('LAST UPDATE:', 'LAST UPDATE <span>:</span>'), 'https://www.atlantisevolution.co.uk/', '2026-10-22'), events)
   assert.deepEqual(parseAtlantisSchedule(html.replace('Burslem Stoke on Trent', 'Elsewhere'), 'https://www.atlantisevolution.co.uk/', '2026-10-22'), [])
   assert.deepEqual(parseAtlantisSchedule(html, 'https://www.atlantisevolution.co.uk/', '2026-12-22'), [])
