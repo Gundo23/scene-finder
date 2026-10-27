@@ -50,4 +50,8 @@ test('the scraper routes Neros through its guarded discovery and parser', () => 
   assert.match(route, /venueId === 'nero_s_sauna_bury'/)
   assert.match(route, /return discoverNerosEventPages\(\)/)
   assert.match(route, /return parseNerosSchedule\(html, pageUrl, londonToday\(\)\)/)
+  assert.match(route, /fetchNerosOfficialCalendar\(pageUrl/)
+  assert.match(route, /data\.html\.includes\('Neros Sauna Events'\)/)
+  assert.match(route, /data\.html\.includes\('Biphoria at Neros Sauna'\)/)
+  assert.match(route, /data\.html\.includes\('Naked Sauna Day Fridays at Neros Sauna'\)/)
 })
