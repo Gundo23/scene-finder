@@ -10672,6 +10672,30 @@ async function fetchPartnersOfficialCalendar(pageUrl: string, reportFailure?: (r
   return fetchHtml(pageUrl, reportFailure)
 }
 
+async function fetchNerosOfficialCalendar(pageUrl: string, reportFailure?: (reason: string) => void) {
+  // The venue allows Supabase's scheduled fetcher but currently rejects
+  // Vercel's egress with HTTP 403. The private cache combines the three exact
+  // first-party pages used by the guarded parser; stale or partial copies are
+  // refused and the normal safety policy preserves existing live rows.
+  const { data, error } = await supabaseAdmin
+    .from('official_event_page_cache')
+    .select('source_url, html, fetched_at')
+    .eq('venue_id', 'nero_s_sauna_bury')
+    .maybeSingle()
+
+  if (!error && data?.source_url === 'https://nerossauna.com/sauna-events/' &&
+      typeof data.html === 'string' &&
+      data.html.includes('Neros Sauna Events') &&
+      data.html.includes('Biphoria at Neros Sauna') &&
+      data.html.includes('Naked Sauna Day Fridays at Neros Sauna') &&
+      Number.isFinite(Date.parse(data.fetched_at)) &&
+      Date.now() - Date.parse(data.fetched_at) < 30 * 60 * 60 * 1000) {
+    return data.html
+  }
+
+  return fetchHtml(pageUrl, reportFailure)
+}
+
 async function fetchText(url: string, accept = 'text/html,application/xhtml+xml,application/xml,text/xml,text/calendar,text/plain,application/json,*/*') {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -14681,7 +14705,9 @@ async function runScrapeRequest(request: Request) {
       let fetchFailureReason = 'fetchHtml returned empty/null'
       const html = source.venue_id === 'partners_manchester_bury_area'
         ? await fetchPartnersOfficialCalendar(pageUrl, (reason) => { fetchFailureReason = reason })
-        : await fetchHtml(pageUrl, (reason) => { fetchFailureReason = reason })
+        : source.venue_id === 'nero_s_sauna_bury'
+          ? await fetchNerosOfficialCalendar(pageUrl, (reason) => { fetchFailureReason = reason })
+          : await fetchHtml(pageUrl, (reason) => { fetchFailureReason = reason })
 
       if (!html) {
         failed++
