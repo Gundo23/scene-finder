@@ -15937,6 +15937,13 @@ ${hu9HydratedText}`, pageUrl)
             continue
           }
 
+          if (source.venue_id === 'nero_s_sauna_bury') {
+            // The dedicated parser owns this feed. Do not turn navigation to
+            // sibling Adult Leisure Group venues into undated Nero's events.
+            skipped++
+            continue
+          }
+
           if (isVanillaAlternativeSource(`${source.source_url} ${source.venue_id}`)) {
             skipped++
             continue
