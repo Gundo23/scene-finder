@@ -3,6 +3,27 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { discoverNerosEventPages, isNerosAllowedPage, parseNerosSchedule } from '../src/lib/neros-schedule.ts'
 
+const bearCards = `<h1>Nero's Sauna Bury</h1>
+<a href="/sauna-bears/">Last Saturday of Every Month SAUNA BEARS 12 Noon – 6pm From 28 November 2026</a>
+<a href="/bears-daddies-unite/">Second Sunday of Every Month BEARS &amp; DADDIES UNITE 12 Noon – 6pm From 13 December 2026</a>`
+
+test('reads only the two explicitly dated bear starts from their own official cards', () => {
+  const events = parseNerosSchedule(bearCards, discoverNerosEventPages()[0], '2026-10-27')
+  assert.deepEqual(events.map(({ text, event_date, start_time }) => [text, event_date, start_time]), [
+    ['Sauna Bears', '2026-11-28', '12:00'], ['Bears & Daddies Unite', '2026-12-13', '12:00'],
+  ])
+  assert.equal(parseNerosSchedule(bearCards, discoverNerosEventPages()[0], '2026-12-01').length, 1)
+})
+
+test('refuses offsite, missing-year, contradictory and cross-card bear dates', () => {
+  for (const changed of [
+    bearCards.replaceAll('2026', ''),
+    bearCards.replace('28 November', '21 November').replace('13 December', '20 December'),
+    bearCards.replaceAll('href="/', 'href="https://other.example/'),
+    bearCards.replaceAll('From', '</a><a href="/unknown/">From'),
+  ]) assert.deepEqual(parseNerosSchedule(changed, discoverNerosEventPages()[0], '2026-10-27'), [])
+})
+
 test('projects only the weekly rules explicitly published on official detail pages', () => {
   const biphoria = parseNerosSchedule(`
     <h1>Nero's Sauna / Bury</h1><p>Weekly mixed event</p><p>When Thu 11am – midnight</p>
