@@ -54,5 +54,5 @@ test('the scraper routes Neros through its guarded discovery and parser', () => 
   assert.match(route, /data\.html\.includes\('Neros Sauna Events'\)/)
   assert.match(route, /data\.html\.includes\('Biphoria at Neros Sauna'\)/)
   assert.match(route, /data\.html\.includes\('Naked Sauna Day Fridays at Neros Sauna'\)/)
-  assert.match(route, /if \\(source\\.venue_id === 'nero_s_sauna_bury'\\) \\{[\\s\\S]*?The dedicated parser owns this feed[\\s\\S]*?continue/)
+  assert.match(route, /if \(source\.venue_id === 'nero_s_sauna_bury'\) \{[\s\S]*?The dedicated parser owns this feed[\s\S]*?continue/)
 })
