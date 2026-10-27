@@ -70,6 +70,41 @@ export function parseNerosSchedule(html: string, pageUrl: string, today: string)
 
   const events: NerosEvent[] = []
 
+  // Read the explicitly dated launch from its own official event card. The
+  // earlier second-Saturday bear rule was superseded; do not project it or
+  // borrow a start date from a neighbouring card.
+  if (page.path === '/sauna-events') {
+    const months = ['january', 'february', 'march', 'april', 'may', 'june',
+      'july', 'august', 'september', 'october', 'november', 'december']
+    const visible = html.replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    for (const card of visible.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+      let target: URL
+      try { target = new URL(card[1], page.url) } catch { continue }
+      if (target.origin !== page.url.origin) continue
+      const path = target.pathname.replace(/\/+$/, '')
+      const content = plain(card[2]).toLowerCase()
+      const title = path === '/sauna-bears' && content.includes('sauna bears')
+        ? 'Sauna Bears' : path === '/bears-daddies-unite' && content.includes('bears & daddies unite')
+          ? 'Bears & Daddies Unite' : null
+      if (!title || !/12\s*noon\s*[–-]\s*6pm/.test(content)) continue
+      const match = content.match(/\bfrom\s+(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)\s+(20\d{2})\b/)
+      if (!match) continue
+      const month = months.indexOf(match[2])
+      if (month < 0) continue
+      const date = `${match[3]}-${String(month + 1).padStart(2, '0')}-${match[1].padStart(2, '0')}`
+      if (!validToday(date) || date < today) continue
+      const occurrence = new Date(`${date}T00:00:00Z`)
+      if (title === 'Sauna Bears' && (!content.includes('last saturday of every month') ||
+          occurrence.getUTCDay() !== 6 || new Date(occurrence.getTime() + 7 * DAY_MS).getUTCMonth() === month)) continue
+      if (title === 'Bears & Daddies Unite' && (!content.includes('second sunday of every month') ||
+          occurrence.getUTCDay() !== 0 || occurrence.getUTCDate() < 8 || occurrence.getUTCDate() > 14)) continue
+      events.push({ href: target.href, text: title, event_date: date, start_time: '12:00',
+        raw: `${title}. Official Neros event card confirms the start on ${date}, 12 noon to 6pm.`,
+        image_url: null, method: 'neros-confirmed-start' })
+    }
+  }
+
   if (page.path === '/biphoria-bisexual-event-at-neros-sauna' &&
       text.includes('weekly mixed event') && /thu(?:rsday)?\s+11am\s*[–-]\s*midnight/.test(text)) {
     addWeekly(events, page.url.href, today, 4, 'Biphoria at Neros Sauna', '11:00',
