@@ -64,21 +64,54 @@ export function parseAtlantisSchedule(html: string, pageUrl: string, today: stri
   const publishedYear = Number(text.match(/\bLAST\s+UPDATE\s*:\s+\d{1,2}\s+\w+\s+(20\d{2})\b/i)?.[1])
   if (!publishedYear) return []
 
-  const events: PublishedEvent[] = []
-  const seen = new Set<string>()
   const pattern = /\b(\d{1,2})(?::([0-5]\d))?\s*(am|pm)\s*\|\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b/gi
-  for (const match of text.matchAll(pattern)) {
+  const occurrences = [...text.matchAll(pattern)].map(match => {
     const month = MONTHS[match[5].slice(0, 3).toLowerCase()]
     const candidate = month && new Date(Date.UTC(publishedYear, month - 1, Number(match[4]), 12))
     const eventDate = candidate && candidate.getUTCMonth() === month - 1 && candidate.getUTCDate() === Number(match[4])
       ? candidate.toISOString().slice(0, 10) : null
+    return { match, eventDate, index: match.index, end: match.index + match[0].length }
+  })
+
+  // The live page places the Halloween heading before, after, or between the
+  // two date rows depending on which repeated layout block is rendered. Bind
+  // it only to the nearest consecutive pair so later ordinary dates do not
+  // inherit a page-wide theme.
+  const halloweenDates = new Set<string>()
+  for (const theme of text.matchAll(/HALLOWEEN SCREAMS(?:\s+ALL)?\s+WEEKEND/gi)) {
+    const themeStart = theme.index
+    const themeEnd = theme.index + theme[0].length
+    const nearby = occurrences
+      .filter(item => item.eventDate)
+      .map(item => ({
+        ...item,
+        distance: item.end < themeStart ? themeStart - item.end : item.index > themeEnd ? item.index - themeEnd : 0,
+      }))
+      .filter(item => item.distance <= 240)
+      .sort((a, b) => a.distance - b.distance || a.index - b.index)
+      .filter((item, index, items) => items.findIndex(other => other.eventDate === item.eventDate) === index)
+    const pairs = nearby.flatMap((first, firstIndex) => nearby.slice(firstIndex + 1).map(second => [first, second] as const))
+      .filter(([first, second]) => Math.abs(
+        new Date(`${first.eventDate}T12:00:00Z`).getTime() - new Date(`${second.eventDate}T12:00:00Z`).getTime(),
+      ) === 86_400_000)
+      .sort((a, b) => {
+        const totalA = a[0].distance + a[1].distance
+        const totalB = b[0].distance + b[1].distance
+        return totalA - totalB || Math.max(a[0].distance, a[1].distance) - Math.max(b[0].distance, b[1].distance)
+      })
+    pairs[0]?.forEach(item => halloweenDates.add(item.eventDate!))
+  }
+
+  const events: PublishedEvent[] = []
+  const seen = new Set<string>()
+  for (const { match, eventDate } of occurrences) {
     if (!eventDate || eventDate < today || seen.has(eventDate)) continue
     seen.add(eventDate)
     let hour = Number(match[1]) % 12
     if (match[3].toLowerCase() === 'pm') hour += 12
     events.push({
       href: `${ATLANTIS_CALENDAR_URL}#events`,
-      text: /HALLOWEEN SCREAMS WEEKEND/i.test(text) ? 'Halloween Screams Weekend' : 'Atlantis Evolution event',
+      text: halloweenDates.has(eventDate) ? 'Halloween Screams Weekend' : 'Atlantis Evolution event',
       event_date: eventDate,
       start_time: `${String(hour).padStart(2, '0')}:${match[2] || '00'}`,
       raw: `Official Atlantis Evolution schedule for ${eventDate} in Stoke-on-Trent.`,
