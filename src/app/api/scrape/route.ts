@@ -29,7 +29,7 @@ import { parseXtasiaEvents } from '@/lib/xtasia-events'
 import { parseSwampDates } from '@/lib/swamp-dates'
 import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations-calendar'
 import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } from '@/lib/heroes-schedule'
-import { DECADANCE_CALENDAR_URL, decadanceCandidatePatternText, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
+import { DECADANCE_CALENDAR_URL, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
 import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, parseUntamedDetail, isUntamedDetailCandidate } from '@/lib/published-schedules'
 
 export const runtime = 'nodejs'
@@ -12674,15 +12674,24 @@ function candidateRejectionReason(input: {
 
   const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
 
+  let verifiedDecadanceDetail = false
+  try {
+    const url = new URL(input.ticket_url)
+    verifiedDecadanceDetail = input.venue_id === 'decadance_rochdale_greater_manchester' &&
+      Boolean(input.event_date) && url.protocol === 'https:' &&
+      !url.username && !url.password && !url.search && !url.hash &&
+      url.hostname.replace(/^www\./, '').toLowerCase() === 'decadanceswingersclub.com' &&
+      /^\/what-s-on-at-decadance\/events-coming-soon\/\d{1,2}-\d{1,2}-[a-z0-9-]+\/?$/i.test(url.pathname)
+  } catch {
+    verifiedDecadanceDetail = false
+  }
+
+  // Decadance's page shell places navigation text (for example "Contact Us"
+  // and "Private Hire") ahead of the event copy. Keep checking the verified
+  // title, without treating unrelated page-shell labels as event content.
   const patternText = isUntamedDetailCandidate(input)
     ? `${eventName} ${input.description || ''}`
-    : decadanceCandidatePatternText({
-        venueId: input.venue_id,
-        ticketUrl: input.ticket_url,
-        eventDate: input.event_date,
-        eventName,
-        description: input.description,
-      })
+    : verifiedDecadanceDetail ? eventName : combined
   if (hasBadEventPattern(patternText) && !safeRescueCandidate) return 'rejected_bad_pattern'
 
   if (!input.event_date && !looksLikeStrongUndatedEvent(`${eventName} ${input.description || ''}`)) {
