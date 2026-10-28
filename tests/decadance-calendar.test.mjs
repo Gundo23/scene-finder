@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { DECADANCE_CALENDAR_URL, decadanceEventLinks, parseDecadanceEvent } from '../src/lib/decadance-calendar.ts'
+import { DECADANCE_CALENDAR_URL, decadanceCandidatePatternText, decadanceEventLinks, parseDecadanceEvent } from '../src/lib/decadance-calendar.ts'
 
 const overview = `<h1>What's on at DECADANCE</h1><p>Decadance Swingers Club in Rochdale.</p>
 <a href="/what-s-on-at-decadance/events-coming-soon/31-10-rocky-horror-halloween-party">31/10 Rocky Horror Halloween Party</a>
@@ -43,4 +43,20 @@ test('rejects offsite, malformed, cancelled and non-venue pages', () => {
   assert.deepEqual(parseDecadanceEvent(good, url.replace('https://www.', 'http://www.'), '2026-10-21'), [])
   assert.deepEqual(parseDecadanceEvent(good, 'https://elsewhere.example/20-11-nearly-naked-karaoke', '2026-10-21'), [])
   assert.deepEqual(parseDecadanceEvent(good, url, '2026-02-30'), [])
+})
+
+
+test('quality filtering ignores only the page shell of a verified dated Decadance event', () => {
+  const ticketUrl = 'https://www.decadanceswingersclub.com/what-s-on-at-decadance/events-coming-soon/31-10-rocky-horror-halloween-party'
+  const input = {
+    venueId: 'decadance_rochdale_greater_manchester',
+    ticketUrl,
+    eventDate: '2026-10-31',
+    eventName: 'Rocky Horror Halloween Party',
+    description: 'Contact Us Membership Private Hire Rocky Horror Halloween Party',
+  }
+
+  assert.equal(decadanceCandidatePatternText(input), 'Rocky Horror Halloween Party')
+  assert.match(decadanceCandidatePatternText({ ...input, ticketUrl: 'https://elsewhere.example/event' }), /Contact Us/)
+  assert.match(decadanceCandidatePatternText({ ...input, eventDate: null }), /Private Hire/)
 })
