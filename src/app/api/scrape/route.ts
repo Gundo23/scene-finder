@@ -12674,8 +12674,24 @@ function candidateRejectionReason(input: {
 
   const combined = `${eventName} ${input.description || ''} ${input.ticket_url}`
 
+  let verifiedDecadanceDetail = false
+  try {
+    const url = new URL(input.ticket_url)
+    verifiedDecadanceDetail = input.venue_id === 'decadance_rochdale_greater_manchester' &&
+      Boolean(input.event_date) && url.protocol === 'https:' &&
+      !url.username && !url.password && !url.search && !url.hash &&
+      url.hostname.replace(/^www\./, '').toLowerCase() === 'decadanceswingersclub.com' &&
+      /^\/what-s-on-at-decadance\/events-coming-soon\/\d{1,2}-\d{1,2}-[a-z0-9-]+\/?$/i.test(url.pathname)
+  } catch {
+    verifiedDecadanceDetail = false
+  }
+
+  // Decadance's page shell places navigation text (for example "Contact Us"
+  // and "Private Hire") ahead of the event copy. Keep checking the verified
+  // title, without treating unrelated page-shell labels as event content.
   const patternText = isUntamedDetailCandidate(input)
-    ? `${eventName} ${input.description || ''}` : combined
+    ? `${eventName} ${input.description || ''}`
+    : verifiedDecadanceDetail ? eventName : combined
   if (hasBadEventPattern(patternText) && !safeRescueCandidate) return 'rejected_bad_pattern'
 
   if (!input.event_date && !looksLikeStrongUndatedEvent(`${eventName} ${input.description || ''}`)) {
