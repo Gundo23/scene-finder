@@ -70,6 +70,25 @@ export function isDecadanceSource(venueId: string | null | undefined, sourceUrl:
   catch { return false }
 }
 
+export function decadanceCandidatePatternText(input: {
+  venueId: string | null | undefined
+  ticketUrl: string | null | undefined
+  eventDate: string | null | undefined
+  eventName: string | null | undefined
+  description: string | null | undefined
+}) {
+  const combined = `${input.eventName || ''} ${input.description || ''} ${input.ticketUrl || ''}`
+  if (input.venueId !== 'decadance_rochdale_greater_manchester' || !input.eventDate) return combined
+
+  const canonical = canonicalUrl(input.ticketUrl || '')
+  if (!canonical || !EVENT_PATH.test(new URL(canonical).pathname)) return combined
+
+  // Decadance's page shell places navigation text (for example "Contact Us"
+  // and "Private Hire") ahead of the event copy. The global junk filter must
+  // still inspect the verified event title, but not that unrelated page shell.
+  return input.eventName || ''
+}
+
 export function decadanceEventLinks(html: string, pageUrl: string, today: string) {
   const base = canonicalUrl(pageUrl)
   if (!base || new URL(base).pathname.replace(/\/+$/, '') !== '/what-s-on-at-decadance') return []
