@@ -31,6 +31,7 @@ import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations
 import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } from '@/lib/heroes-schedule'
 import { DECADANCE_CALENDAR_URL, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
 import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, parseUntamedDetail, isUntamedDetailCandidate } from '@/lib/published-schedules'
+import { MA1_BUNKER_SCHEDULE_URL, parseMa1BunkerSchedule } from '@/lib/ma1-bunker-schedule'
 
 export const runtime = 'nodejs'
 
@@ -9680,6 +9681,7 @@ function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: stri
     venueId === 'heroes_health_club_stourbridge' ||
     venueId === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
     venueId === 'sweatbox_soho_london' ||
+    venueId === 'bunker_bar_ma1_the_bunker_london' ||
     venueId === 'untamed_nights_bournemouth' ||
     venueId === 'partners_manchester_bury_area' ||
     isDecadanceSource(venueId, sourceUrl) ||
@@ -9758,6 +9760,7 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
     heroes_health_club_stourbridge: 'heroessauna.co.uk',
     atlantisevolution_west_midlands_swingers_club_stoke_birmingham: 'atlantisevolution.co.uk',
     sweatbox_soho_london: 'sweatboxsoho.com',
+    bunker_bar_ma1_the_bunker_london: 'sewellandmarbury.co.uk',
     afterdark_edinburgh_edinburgh: 'afterdarkedinburgh.co.uk',
     club_play_blackpool: 'clubplay.net',
     le_boudoir_club_london: 'leboudoir.club',
@@ -9890,6 +9893,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
   if (source.venue_id === 'heroes_health_club_stourbridge') return [HEROES_CALENDAR_URL]
   if (source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return [ATLANTIS_CALENDAR_URL]
   if (source.venue_id === 'sweatbox_soho_london') return [SWEATBOX_CALENDAR_URL]
+  if (source.venue_id === 'bunker_bar_ma1_the_bunker_london') return [MA1_BUNKER_SCHEDULE_URL]
 
   if (source.venue_id === 'partners_manchester_bury_area') {
     return ['https://partnersswingersclub.com/events/']
@@ -10115,6 +10119,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'heroes_health_club_stourbridge') return parseHeroesSchedule(html, pageUrl, londonToday())
   if (venueId === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return parseAtlantisSchedule(html, pageUrl, londonToday())
   if (venueId === 'sweatbox_soho_london') return parseSweatboxSchedule(html, pageUrl, londonToday())
+  if (venueId === 'bunker_bar_ma1_the_bunker_london') return parseMa1BunkerSchedule(html, pageUrl, londonToday())
   if (isDecadanceSource(venueId, pageUrl)) return parseDecadanceEvent(html, pageUrl, londonToday())
   if (venueId === 'partners_manchester_bury_area') {
     return parsePartnersCalendar(html, pageUrl, londonToday())
@@ -14825,6 +14830,7 @@ async function runScrapeRequest(request: Request) {
           source.venue_id === 'heroes_health_club_stourbridge' ||
           source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
           source.venue_id === 'sweatbox_soho_london' ||
+          source.venue_id === 'bunker_bar_ma1_the_bunker_london' ||
           isDecadanceSource(source.venue_id, source.source_url) ||
           isCupidsSource(source.venue_id, pageUrl) ||
           isSteelCliffeSource(source.venue_id, pageUrl) ||
@@ -14903,6 +14909,11 @@ async function runScrapeRequest(request: Request) {
           failed++
           failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
             reason: 'Official Sweatbox Events page yielded no verified weekly programme' })
+        }
+        if (source.venue_id === 'bunker_bar_ma1_the_bunker_london' && targetVenueEvents.length === 0) {
+          failed++
+          failedPages.push({ venue_id: source.venue_id, page_url: pageUrl,
+            reason: 'Official MA1 programme yielded no verified current schedule' })
         }
 
         if (isDecadanceSource(source.venue_id, source.source_url) &&
@@ -15869,6 +15880,7 @@ ${hu9HydratedText}`, pageUrl)
           if (source.venue_id === 'heroes_health_club_stourbridge' ||
               source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
               source.venue_id === 'sweatbox_soho_london' ||
+              source.venue_id === 'bunker_bar_ma1_the_bunker_london' ||
               source.venue_id === 'klub_verboten_london' || source.venue_id === 'untamed_nights_bournemouth') {
             skipped++
             continue
