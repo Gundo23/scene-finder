@@ -43,6 +43,7 @@ type VenueRow = {
 
 type EventRow = {
   event_id: string
+  organiser_id: string | null
   venue_id: string
   event_name: string | null
   event_date: string | null
@@ -570,7 +571,7 @@ export default async function EventsPage({
   const eligibleVenueIds = eligibleVenues.map((venue) => venue.venue_id)
 
   const eventSelect =
-    'event_id, venue_id, event_name, event_date, start_time, event_type, description, ticket_url, image_url, event_location_name, event_locality, event_postal_town, event_postcode, event_country, event_location_verified, event_address_visibility'
+    'event_id, venue_id, organiser_id, event_name, event_date, start_time, event_type, description, ticket_url, image_url, event_location_name, event_locality, event_postal_town, event_postcode, event_country, event_location_verified, event_address_visibility'
 
   let eventQuery = supabase
     .from('events')
@@ -991,6 +992,7 @@ export default async function EventsPage({
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {events.map((event) => {
               const venue = venueById.get(event.venue_id)
+              const organiser = event.organiser_id ? venueById.get(event.organiser_id) : null
               const eventName = cleanText(event.event_name || '') || 'Untitled event'
               const venueName = cleanText(venue?.name || '') || 'Venue TBC'
               const venueCategory = getEventCategoryLabel(venue)
@@ -1079,6 +1081,11 @@ export default async function EventsPage({
                         View details →
                       </Link>
 
+                      {organiser && (
+                        <Link href={`/venue/${organiser.venue_id}`} className="text-sm text-blue-200 underline">
+                          By {cleanText(organiser.name || 'Travelling organiser')}
+                        </Link>
+                      )}
                       {event.ticket_url ? (
                         <a
                           href={event.ticket_url}

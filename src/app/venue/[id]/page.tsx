@@ -387,7 +387,7 @@ function getLocationKindLabel(kind: string) {
     case 'fixed_venue':
       return 'Fixed venue'
     case 'event_series':
-      return 'Event series'
+      return 'Travelling organiser / event series'
     case 'multi_location':
       return 'Multiple locations'
     case 'private_location':
@@ -482,11 +482,11 @@ export default async function VenuePage({
 
     .select(
 
-      'event_id, event_name, event_date, start_time, event_type, description, ticket_url, status, image_url, event_location_name, event_address_line_1, event_address_line_2, event_locality, event_postal_town, event_county, event_postcode, event_country, event_location_verified, event_location_source_url, event_address_visibility'
+      'event_id, venue_id, organiser_id, event_name, event_date, start_time, event_type, description, ticket_url, status, image_url, event_location_name, event_address_line_1, event_address_line_2, event_locality, event_postal_town, event_county, event_postcode, event_country, event_location_verified, event_location_source_url, event_address_visibility'
 
     )
 
-    .eq('venue_id', venue.venue_id)
+    .or(`venue_id.eq.${venue.venue_id},organiser_id.eq.${venue.venue_id}`)
 
     .eq('is_published', true)
 
@@ -497,6 +497,15 @@ export default async function VenuePage({
 
 
   const sortedEvents = events || []
+
+  const linkedProfileIds = [...new Set(sortedEvents.flatMap((event) =>
+    [event.venue_id, event.organiser_id].filter((value): value is string => Boolean(value))
+  ))]
+  const { data: linkedProfiles } = linkedProfileIds.length
+    ? await supabase.from('venues').select('venue_id, name, canonical_city, city_area')
+        .in('venue_id', linkedProfileIds)
+    : { data: [] }
+  const profileById = new Map((linkedProfiles || []).map((profile) => [profile.venue_id, profile]))
 
   const visibleEventLimit = Number.isFinite(requestedEventLimit)
 
@@ -867,7 +876,7 @@ export default async function VenuePage({
 
                     <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-purple-300">
 
-                      Venue events
+                      {locationKind === 'event_series' ? 'Organiser events' : 'Venue events'}
 
                     </p>
 
@@ -879,7 +888,7 @@ export default async function VenuePage({
 
                     <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
 
-                      View all events at this venue
+                      {locationKind === 'event_series' ? 'Events at their confirmed host venues' : 'View all events at this venue'}
 
                     </p>
 
@@ -1072,6 +1081,9 @@ export default async function VenuePage({
               const category = getEventCategory(event)
 
               const eventName = cleanDisplayText(event.event_name)
+              const host = profileById.get(event.venue_id)
+              const organiser = event.organiser_id ? profileById.get(event.organiser_id) : null
+              const hostArea = cleanDisplayText(host?.canonical_city || host?.city_area || '')
 
               const eventType = event.event_type ? cleanDisplayText(event.event_type) : 'Event'
 
@@ -1095,10 +1107,9 @@ export default async function VenuePage({
                       event.event_postal_town,
                       event.event_county,
                       event.event_postcode,
-                    ]).join(', ') || venueCity || venueRegion || 'Location TBC'
+                    ]).join(', ') || hostArea || 'Location TBC'
                   : cleanDisplayText(event.event_location_name || '') ||
-                    venueCity ||
-                    venueRegion ||
+                    hostArea ||
                     'Location TBC'
 
 
@@ -1243,6 +1254,12 @@ export default async function VenuePage({
                         <p className="font-black uppercase tracking-wide text-pink-200">Location</p>
 
                         <p className="mt-1 line-clamp-2 font-semibold text-white">{eventLocationDisplay}</p>
+                        {event.organiser_id && host && (
+                          <p className="mt-2 text-sm text-blue-200">
+                            At <Link href={`/venue/${host.venue_id}`} className="underline">{cleanDisplayText(host.name)}</Link>
+                            {organiser && <> · By <Link href={`/venue/${organiser.venue_id}`} className="underline">{cleanDisplayText(organiser.name)}</Link></>}
+                          </p>
+                        )}
 
                       </div>
 
