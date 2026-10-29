@@ -56,7 +56,7 @@ export function parseMa1BunkerSchedule(html: string, pageUrl: string, today: str
   const first = validToday(today)
   if (!first) return []
   const text = visibleText(html)
-  if (!/MA1:\s*The Bunker,\s*215-221 City Road,\s*London,\s*EC1V 1JN/i.test(text) ||
+  if (!/MA1\s*:\s*The Bunker,\s*215\s*-\s*221 City Road,\s*London,\s*EC1V 1JN/i.test(text) ||
       !/Sewell and Marbury[\s\S]{0,120}events operate with permission of MA1:\s*Bunker/i.test(text) ||
       /\b(?:MA1|The Bunker)\s+(?:has\s+)?(?:closed permanently|ceased trading)\b/i.test(text)) return []
 
