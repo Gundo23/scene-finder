@@ -14,12 +14,21 @@ function plain(html: string) {
     .replace(/&quot;/gi, '"').replace(/\s+/g, ' ').trim()
 }
 
+function hasAllowedCalendarQuery(url: URL) {
+  if (!url.search) return true
+
+  const shortcodeValues = url.searchParams.getAll('shortcode')
+  return [...url.searchParams.keys()].every((key) => key === 'shortcode') &&
+    shortcodeValues.length === 1 && /^[a-z0-9_-]{1,64}$/i.test(shortcodeValues[0])
+}
+
 export function parseTemptationsCalendar(html: string, pageUrl: string, today: string): TemptationsEvent[] {
   let page: URL
   try {
     page = new URL(pageUrl)
     if (page.protocol !== 'https:' || page.hostname.replace(/^www\./, '') !== 'temptations2.co.uk' ||
-        !/^\/events\/(?:list\/page\/[2-4]\/?)?$/.test(page.pathname)) return []
+        !/^\/events\/(?:list\/page\/[2-4]\/?)?$/.test(page.pathname) ||
+        !hasAllowedCalendarQuery(page)) return []
   } catch { return [] }
   const now = new Date(`${today}T00:00:00Z`)
   if (!Number.isFinite(now.getTime()) || now.toISOString().slice(0, 10) !== today) return []
@@ -51,7 +60,8 @@ export function nextTemptationsPage(html: string, pageUrl: string): string | nul
   let page: URL
   try {
     page = new URL(pageUrl)
-    if (page.protocol !== 'https:' || page.hostname.replace(/^www\./, '') !== 'temptations2.co.uk') return null
+    if (page.protocol !== 'https:' || page.hostname.replace(/^www\./, '') !== 'temptations2.co.uk' ||
+        !hasAllowedCalendarQuery(page)) return null
   } catch { return null }
   const current = page.pathname.match(/^\/events\/(?:list\/page\/(\d+)\/?)?$/)
   if (!current) return null
@@ -64,7 +74,8 @@ export function nextTemptationsPage(html: string, pageUrl: string): string | nul
       const target = new URL(anchor[1].replace(/&amp;/gi, '&'), page)
       const next = target.pathname.match(/^\/events\/list\/page\/(\d+)\/?$/)
       if (target.protocol === 'https:' && target.hostname.replace(/^www\./, '') === 'temptations2.co.uk' &&
-          !target.search && !target.hash && next && Number(next[1]) === currentPage + 1) return target.href
+          hasAllowedCalendarQuery(target) && !target.hash && next &&
+          Number(next[1]) === currentPage + 1) return target.href
     } catch { /* Ignore unrelated or malformed links. */ }
   }
   return null
