@@ -14,6 +14,7 @@ function visibleText(html: string) {
   return html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, ' ')
     .replace(/<[^>]*>/g, ' ')
+    .replace(/&#(?:45|8211|8212|x2d|x2013|x2014);|&(?:ndash|mdash);/gi, '-')
     .replace(/&(?:nbsp|amp);|&#(?:160|38);/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
