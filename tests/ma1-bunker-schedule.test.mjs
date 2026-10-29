@@ -5,7 +5,7 @@ import { MA1_BUNKER_SCHEDULE_URL, parseMa1BunkerSchedule } from '../src/lib/ma1-
 
 const scraperRoute = fs.readFileSync(new URL('../src/app/api/scrape/route.ts', import.meta.url), 'utf8')
 
-const html = `<h1>MA1: The Bunker, 215&#45;221 City Road, London, EC1V 1JN</h1>
+const html = `<h1>MA1: The Bunker, 215&#45;<wbr>221 City Road, London, EC1V 1JN</h1>
 <p>Sewell and Marbury (S&amp;M) &amp; all external promotions and events operate with permission of MA1: Bunker</p>
 <p>Every Monday 6pm to 10pm The UK's original club for men who like Jacking Off</p>
 <p>Tuesday 6pm to 10pm ClubCP returns every Tuesday</p>
@@ -29,7 +29,7 @@ test('MA1 parser expands only proved current official schedule rules', () => {
   assert.equal(events.filter(event => event.text === 'Rimpack').length, 1)
   assert.ok(events.every(event => event.event_date >= '2026-10-29' && event.event_date <= '2026-12-09'))
   assert.deepEqual(parseMa1BunkerSchedule(html, 'https://example.com/ma1home18.html', '2026-10-29'), [])
-  assert.deepEqual(parseMa1BunkerSchedule(html.replace('215&#45;221 City Road', 'Elsewhere'), MA1_BUNKER_SCHEDULE_URL, '2026-10-29'), [])
+  assert.deepEqual(parseMa1BunkerSchedule(html.replace('215&#45;<wbr>221 City Road', 'Elsewhere'), MA1_BUNKER_SCHEDULE_URL, '2026-10-29'), [])
 })
 
 test('MA1 parser does not infer a rule whose proof is missing', () => {
