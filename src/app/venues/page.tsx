@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { eventProfileIds } from '@/lib/event-profiles'
 
 import Link from 'next/link'
 
@@ -1126,7 +1127,7 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
       .from('events')
 
-      .select('event_id, venue_id, event_name, event_type, event_date, start_time')
+      .select('event_id, venue_id, organiser_id, event_name, event_type, event_date, start_time')
 
       .eq('is_published', true)
 
@@ -1168,9 +1169,12 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
     }
 
-    data?.forEach((event) => {
+    data?.forEach((originalEvent) => {
 
-      if (!event.venue_id) return
+      if (!originalEvent.venue_id) return
+
+      for (const profileId of eventProfileIds(originalEvent)) {
+      const event = { ...originalEvent, venue_id: profileId }
 
       upcomingEventCountByVenue.set(
 
@@ -1180,7 +1184,7 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
       )
 
-      if (!event.event_date) return
+      if (!event.event_date) continue
 
       const eventTopic = `${event.event_name || ''} ${event.event_type || ''}`.toLowerCase()
 
@@ -1216,6 +1220,7 @@ async function fetchVenueEventDiscovery(today: string): Promise<VenueEventDiscov
 
       }
 
+      }
     })
 
     if (!data || data.length < pageSize) {
