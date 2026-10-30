@@ -90,6 +90,9 @@ export function decadanceEventLinks(html: string, pageUrl: string, today: string
 export function parseDecadanceEvent(html: string, pageUrl: string, today: string) {
   const canonical = canonicalUrl(pageUrl)
   if (!canonical) return []
+  if (new URL(canonical).pathname.replace(/\/+$/, '') === '/what-s-on-at-decadance') {
+    return parseDecadanceDatedProgramme(html, canonical, today)
+  }
   const match = new URL(canonical).pathname.match(EVENT_PATH)
   if (!match) return []
   const text = visibleText(html)
@@ -103,4 +106,51 @@ export function parseDecadanceEvent(html: string, pageUrl: string, today: string
     href: canonical, text: title, event_date: date, start_time: startTime(text),
     raw: text.slice(0, 500), image_url: null, method: 'decadance-official-detail',
   }]
+}
+
+/** Read explicit calendar cards; do not expand the weekly programme by recurrence. */
+export function parseDecadanceDatedProgramme(html: string, pageUrl: string, today: string) {
+  const base = canonicalUrl(pageUrl)
+  if (!base || new URL(base).pathname.replace(/\/+$/, '') !== '/what-s-on-at-decadance' ||
+      !/^20\d{2}-\d{2}-\d{2}$/.test(today)) return []
+  const now = new Date(`${today}T12:00:00Z`)
+  if (!Number.isFinite(now.getTime()) || now.toISOString().slice(0, 10) !== today) return []
+  const page = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, '')
+  const text = visibleText(page)
+  if (!/\bDECADANCE\b/i.test(text) || !/\bRochdale\b/i.test(text)) return []
+  const year = Number(text.match(/Copyright\s*(?:©|&copy;|&#169;)\s*(20\d{2})\s+Decadance/i)?.[1])
+  if (year !== now.getUTCFullYear()) return []
+  const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
+  const programmes: Record<string, { title: string; day: number }> = {
+    '/new-regular-weekly-lineup/monday-funday': { title: 'Monday Funday', day: 1 },
+    '/what-s-on-at-decadance/regular-weekly-lineup/midweek-at-the-madhouse': { title: 'Midweek at the Madhouse', day: 3 },
+    '/new-regular-weekly-lineup/sexxxy-saturday': { title: 'SeXXXy Saturday', day: 6 },
+    '/what-s-on-at-decadance/regular-weekly-lineup/sunday-sunday-service': { title: 'Sunday Service', day: 0 },
+  }
+  const headings = [...page.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi)]
+  const seen = new Set<string>()
+  const events = []
+  for (let i = 0; i < headings.length; i++) {
+    const heading = headings[i]
+    const label = visibleText(heading[1]).match(/^(\d{1,2})(?:st|nd|rd|th)\s+([a-z]+)$/i)
+    if (!label) continue
+    const month = months.indexOf(label[2].toLowerCase()) + 1
+    const date = month && isoDate(year, month, Number(label[1]))
+    if (!date || date < today || new Date(`${date}T12:00:00Z`).getTime() - now.getTime() > 90 * 86400000) continue
+    const block = page.slice(heading.index! + heading[0].length, headings[i + 1]?.index ?? page.length)
+    if (/\b(?:closed|cancelled|canceled|postponed|TBC)\b/i.test(visibleText(block))) continue
+    const links = [...block.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/gi)]
+      .map(match => canonicalUrl(match[1], base)).filter((url): url is string => Boolean(url))
+    // A published special owns its date; preserve the existing detail parser.
+    if (links.some(url => new URL(url).pathname.includes('/events-coming-soon/'))) continue
+    const candidates = [...new Set(links)].filter(url => programmes[new URL(url).pathname.replace(/\/+$/, '')])
+    if (candidates.length !== 1) continue
+    const programme = programmes[new URL(candidates[0]).pathname.replace(/\/+$/, '')]
+    if (new Date(`${date}T12:00:00Z`).getUTCDay() !== programme.day || seen.has(date)) continue
+    seen.add(date)
+    events.push({ href: base, text: programme.title, event_date: date, start_time: null,
+      raw: `${programme.title}. Official Decadance Rochdale calendar for ${date}.`,
+      image_url: null, method: 'decadance-dated-programme' })
+  }
+  return events
 }
