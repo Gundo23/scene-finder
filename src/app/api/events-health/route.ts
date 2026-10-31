@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
 import { queueRoutineAlert, sendRoutineDigest } from '@/lib/routine-alerts'
 import { monitorsEventCalendar } from '@/lib/event-monitoring'
+import { isNaturalCalendarExpiry } from '@/lib/calendar-expiry'
 
 export const runtime = 'nodejs'
 
@@ -123,7 +124,32 @@ export async function GET(request: Request) {
       now.getTime() - new Date(state.last_notified_at).getTime() >= repeatAfterMs
   })
 
+  const expiredVenues = new Set<string>()
+  const yesterdayDate = new Date(`${today}T12:00:00Z`)
+  yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1)
+  const yesterday = yesterdayDate.toISOString().slice(0, 10)
+  for (const issue of issues.filter(issue => issue.issue_kind === 'zero_events')) {
+    const row = monitoredHealth.find(row => row.venue_id === issue.venue_id)!
+    const completedAt = Date.parse(row.last_completed_success || '')
+    if (!Number.isFinite(completedAt) || now.getTime() - completedAt > staleAfterMs) continue
+    const { data: snapshots, error: snapshotError } = await supabase.from('venue_event_snapshots')
+      .select('created_at, events_json').eq('venue_id', issue.venue_id)
+      .eq('snapshot_type', 'post_publish').order('created_at', { ascending: false }).limit(1)
+    const { data: recentEvents, error: eventsError } = await supabase.from('events')
+      .select('event_id, event_date, is_published').eq('venue_id', issue.venue_id)
+      .or(`event_date.gte.${yesterday},event_date.is.null`)
+    // Missing evidence retains critical severity. Never suppress on read failure.
+    if (!snapshotError && !eventsError && recentEvents && isNaturalCalendarExpiry({
+      today, now, lastCompletedSuccess: row.last_completed_success,
+      latestSourceAttempt: row.latest_source_attempt,
+      snapshot: snapshots?.[0] || null, currentEvents: recentEvents,
+    })) {
+      expiredVenues.add(issue.venue_id)
+      issue.detail = `The last published dates expired on ${yesterday}; snapshot records remain published unchanged. Awaiting new venue dates.`
+    }
+  }
   const critical = toNotify.filter((issue) => issue.issue_kind === 'zero_events' &&
+    !expiredVenues.has(issue.venue_id) &&
     previous.get(key(issue.venue_id, 'zero_events'))?.active === false)
   const criticalKeys = new Set(critical.map((issue) => key(issue.venue_id, issue.issue_kind)))
   const routine = toNotify.filter((issue) => !criticalKeys.has(key(issue.venue_id, issue.issue_kind)))
@@ -223,6 +249,7 @@ export async function GET(request: Request) {
   return Response.json({ checked_venues: monitoredHealth.length,
     issue_count: issues.length, issues_by_kind: issueCounts,
     critical_alerts_sent: critical.length, routine_alerts_queued: routine.length,
+    natural_expiry_venues: [...expiredVenues],
     routine_digest_sent: digest.sent, routine_digest_items: digest.count,
     alerts_sent: critical.length + (digest.sent ? 1 : 0) })
 }
