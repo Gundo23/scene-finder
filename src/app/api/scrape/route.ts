@@ -96,61 +96,11 @@ async function monitorVenueFutureEventCount(venueId: string) {
     return { checked: false, alerted: false, error: `event count failed: ${countError.message}` }
   }
 
-  const currentCount = count || 0
-
-  const { data: state, error: stateError } = await supabaseAdmin
-    .from('venue_event_monitor_state')
-    .select('venue_id, last_future_event_count, zero_alert_sent')
-    .eq('venue_id', venueId)
-    .maybeSingle()
-
-  if (stateError) {
-    return { checked: false, alerted: false, error: `monitor state read failed: ${stateError.message}` }
-  }
-
-  const previousCount = state?.last_future_event_count ?? null
-  const wasPreviouslyShowingEvents = typeof previousCount === 'number' && previousCount > 0
-  const shouldAlert = currentCount === 0 && wasPreviouslyShowingEvents && !state?.zero_alert_sent
-
-  if (shouldAlert) {
-    if (!resend) {
-      return { checked: true, alerted: false, current_count: currentCount, previous_count: previousCount, error: 'RESEND_API_KEY is not configured' }
-    }
-
-    const { error: emailError } = await resend.emails.send({
-      from: ZERO_EVENT_ALERT_FROM,
-      to: [ZERO_EVENT_ALERT_EMAIL],
-      subject: `Scene Finder alert: ${venueId} now has 0 future events`,
-      html: `
-        <h2>Venue event alert</h2>
-        <p><strong>${venueId}</strong> previously had ${previousCount} future published event${previousCount === 1 ? '' : 's'} and now has <strong>0</strong>.</p>
-        <p>This usually means the venue scraper/source needs checking, or the venue has removed/expired its listings.</p>
-        <p>Checked: ${new Date().toISOString()}</p>
-      `,
-    })
-
-    if (emailError) {
-      return { checked: true, alerted: false, current_count: currentCount, previous_count: previousCount, error: `alert email failed: ${emailError.message}` }
-    }
-  }
-
-  const { error: upsertError } = await supabaseAdmin
-    .from('venue_event_monitor_state')
-    .upsert(
-      {
-        venue_id: venueId,
-        last_future_event_count: currentCount,
-        zero_alert_sent: shouldAlert ? true : currentCount === 0 ? Boolean(state?.zero_alert_sent) : false,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'venue_id' }
-    )
-
-  if (upsertError) {
-    return { checked: true, alerted: shouldAlert, error: `monitor state write failed: ${upsertError.message}` }
-  }
-
-  return { checked: true, alerted: shouldAlert, current_count: currentCount, previous_count: previousCount, error: null }
+  // The independent hourly health monitor owns zero-event delivery, expiry
+  // evidence and deduplication. Scraping only observes the current count;
+  // a second state machine here used to send duplicate alerts after expiry.
+  return { checked: true, alerted: false, current_count: count || 0,
+    monitor: 'independent_event_health', error: null }
 }
 
 const EVENT_KEYWORDS = [
