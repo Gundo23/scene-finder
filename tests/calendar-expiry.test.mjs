@@ -27,3 +27,19 @@ test('keeps future/undated loss and failed or stale sources critical', () => {
   assert.equal(isNaturalCalendarExpiry({ ...evidence(), snapshot: null }), false)
   assert.equal(isNaturalCalendarExpiry({ ...evidence(), today: '2026-02-30' }), false)
 })
+
+test('unchanged unpublished future records do not turn date expiry into a critical loss', () => {
+  const hidden = { event_id: 'old-unpublished', event_date: '2027-09-04', is_published: false }
+  const data = evidence()
+  data.snapshot.events_json.push(hidden)
+  data.currentEvents.push({ ...hidden })
+  assert.equal(isNaturalCalendarExpiry(data), true)
+  // A formerly published future row has now been hidden: retain critical severity.
+  data.snapshot.events_json[2] = { ...hidden, is_published: true }
+  assert.equal(isNaturalCalendarExpiry(data), false)
+  data.snapshot.events_json[2] = hidden
+  data.currentEvents[1] = { ...hidden, event_date: '2027-09-05' }
+  assert.equal(isNaturalCalendarExpiry(data), false)
+  data.currentEvents.pop()
+  assert.equal(isNaturalCalendarExpiry(data), false)
+})
