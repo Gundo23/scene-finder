@@ -27,10 +27,16 @@ export function isNaturalCalendarExpiry(input: {
     (typeof row.event_date !== 'string' || row.event_date >= yesterday))
   if (!upcoming.length || upcoming.some(row => row.event_date !== yesterday ||
       typeof row.event_id !== 'string')) return false
+  // Old unpublished future rows are harmless only when their exact state is
+  // already present in the snapshot. A newly hidden or deleted row still fails.
+  const relevant = prior.filter(row => typeof row.event_date !== 'string' || row.event_date >= yesterday)
   const current = input.currentEvents
-  if (current.length !== upcoming.length || current.some(row => row.event_date !== yesterday ||
-      row.is_published !== true || typeof row.event_id !== 'string')) return false
-  const ids = new Set(upcoming.map(row => row.event_id))
-  return ids.size === upcoming.length && new Set(current.map(row => row.event_id)).size === current.length &&
-    current.every(row => ids.has(row.event_id))
+  if (current.length !== relevant.length || relevant.some(row => typeof row.event_id !== 'string' ||
+      typeof row.is_published !== 'boolean') || current.some(row => !row || typeof row.event_id !== 'string')) return false
+  const baseline = new Map(relevant.map(row => [row.event_id, row]))
+  return baseline.size === relevant.length && new Set(current.map(row => row.event_id)).size === current.length &&
+    current.every(row => {
+      const before = baseline.get(row.event_id)
+      return before && before.event_date === row.event_date && before.is_published === row.is_published
+    })
 }
