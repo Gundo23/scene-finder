@@ -7159,7 +7159,7 @@ function extractIgniteEvents(html: string, baseUrl: string) {
       href,
       text: title,
       event_date: input.event_date,
-      start_time: input.method === 'ignite-elementor-calendar' ? (input.start_time || null) : input.start_time || extractTime(input.raw),
+      start_time: input.trustedCard ? (input.start_time || null) : input.start_time || extractTime(input.raw),
       raw: cleanText(input.raw || title).slice(0, 500),
       image_url: image,
       method: input.method,
@@ -7186,7 +7186,7 @@ function extractIgniteEvents(html: string, baseUrl: string) {
       start_time: validTimeOrNull(date[2] || ''),
       raw: cleanText(card).slice(0, 500),
       href,
-      method: 'ignite-calendar-card',
+      method: 'ignite-tribe-calendar',
       trustedCard: true,
     })
   }
@@ -15232,10 +15232,9 @@ ${hu9HydratedText}`, pageUrl)
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
 
-          if (source.venue_id === 'ignite_west_drayton_heathrow' &&
-              targetVenueEvent.method === 'ignite-elementor-calendar' && eventDate) {
+          if (source.venue_id === 'ignite_west_drayton_heathrow' && eventDate) {
             const detailHtml = await fetchHtml(ticketUrl)
-            if (detailHtml) startTime = parseIgniteDetailTime(detailHtml, ticketUrl, eventDate)
+            startTime = detailHtml ? parseIgniteDetailTime(detailHtml, ticketUrl, eventDate) : null
           }
 
           if (source.venue_id !== 'afterdark_edinburgh_edinburgh' &&
