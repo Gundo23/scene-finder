@@ -32,6 +32,7 @@ import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } fr
 import { DECADANCE_CALENDAR_URL, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
 import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, parseUntamedDetail, isUntamedDetailCandidate } from '@/lib/published-schedules'
 import { parseIgniteElementorCalendar, parseIgniteDetailTime } from '@/lib/ignite-calendar'
+import { isDatedCalendarVenue, parseVenueDatedCalendar } from '@/lib/venue-dated-calendars'
 import { MA1_BUNKER_SCHEDULE_URL, parseMa1BunkerSchedule } from '@/lib/ma1-bunker-schedule'
 
 export const runtime = 'nodejs'
@@ -9631,6 +9632,7 @@ function extractCjsTownhouseEvents(html: string, baseUrl: string) {
 }
 
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
+  if (venueId && isDatedCalendarVenue(venueId)) return true
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
   return (
@@ -10072,6 +10074,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (isDatedCalendarVenue(venueId)) return parseVenueDatedCalendar(html, venueId, pageUrl, londonToday())
   if (venueId === 'heroes_health_club_stourbridge') return parseHeroesSchedule(html, pageUrl, londonToday())
   if (venueId === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return parseAtlantisSchedule(html, pageUrl, londonToday())
   if (venueId === 'sweatbox_soho_london') return parseSweatboxSchedule(html, pageUrl, londonToday())
@@ -14147,7 +14150,9 @@ async function runScrapeRequest(request: Request) {
 
     // Retired Xtasia diary URLs and ICS aliases all represent the same venue.
     // Route every one through its current official calendar, once per run.
-    const sourceUrl = configuredSource.venue_id === 'eagle_london_london'
+    const sourceUrl = configuredSource.venue_id === 'chameleons_darlaston_darlaston'
+      ? 'https://www.chameleons.cc/darlaston-events/'
+      : configuredSource.venue_id === 'eagle_london_london'
       ? EAGLE_CALENDAR_URL
       : configuredSource.venue_id === 'quest_leeds_leeds'
       ? QUEST_CALENDAR_URL
@@ -14782,7 +14787,7 @@ async function runScrapeRequest(request: Request) {
         }
 
         const pageText = cleanText(html).slice(0, 8000)
-        const dedicatedCalendar = source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+        const dedicatedCalendar = isDatedCalendarVenue(source.venue_id) || source.venue_id === 'afterdark_edinburgh_edinburgh' ||
           source.venue_id === 'heroes_health_club_stourbridge' ||
           source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
           source.venue_id === 'sweatbox_soho_london' ||
@@ -15238,6 +15243,7 @@ ${hu9HydratedText}`, pageUrl)
           }
 
           if (source.venue_id !== 'afterdark_edinburgh_edinburgh' &&
+              !isDatedCalendarVenue(source.venue_id) &&
               !isCupidsSource(source.venue_id, source.source_url) &&
               source.venue_id !== 'ignite_west_drayton_heathrow' &&
               source.venue_id !== 'club_play_blackpool' &&
@@ -15838,6 +15844,7 @@ ${hu9HydratedText}`, pageUrl)
         }
 
         for (const link of links) {
+          if (isDatedCalendarVenue(source.venue_id)) continue
           if (source.venue_id === 'heroes_health_club_stourbridge' ||
               source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
               source.venue_id === 'sweatbox_soho_london' ||
