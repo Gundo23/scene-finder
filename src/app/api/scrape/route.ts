@@ -31,6 +31,7 @@ import { nextTemptationsPage, parseTemptationsCalendar } from '@/lib/temptations
 import { HEROES_CALENDAR_URL, parseHeroesSchedule, venueSourceIdentityError } from '@/lib/heroes-schedule'
 import { DECADANCE_CALENDAR_URL, decadanceEventLinks, isDecadanceSource, parseDecadanceEvent } from '@/lib/decadance-calendar'
 import { ATLANTIS_CALENDAR_URL, SWEATBOX_CALENDAR_URL, parseAtlantisSchedule, parseSweatboxSchedule, parseUntamedListing, parseUntamedDetail, isUntamedDetailCandidate } from '@/lib/published-schedules'
+import { parseIgniteElementorCalendar, parseIgniteDetailTime } from '@/lib/ignite-calendar'
 import { MA1_BUNKER_SCHEDULE_URL, parseMa1BunkerSchedule } from '@/lib/ma1-bunker-schedule'
 
 export const runtime = 'nodejs'
@@ -7158,11 +7159,16 @@ function extractIgniteEvents(html: string, baseUrl: string) {
       href,
       text: title,
       event_date: input.event_date,
-      start_time: input.start_time || extractTime(input.raw),
+      start_time: input.method === 'ignite-elementor-calendar' ? (input.start_time || null) : input.start_time || extractTime(input.raw),
       raw: cleanText(input.raw || title).slice(0, 500),
       image_url: image,
       method: input.method,
     })
+  }
+
+  for (const event of parseIgniteElementorCalendar(html, baseUrl, londonToday())) {
+    addIgniteCandidate({ title: event.text, event_date: event.event_date,
+      raw: event.raw, href: event.href, method: event.method, trustedCard: true })
   }
 
   // The Events Calendar puts the date on a <time> inside each event article,
@@ -15225,6 +15231,12 @@ ${hu9HydratedText}`, pageUrl)
           let eventDate = targetVenueEvent.event_date
           let startTime = targetVenueEvent.start_time
           const ticketUrl = targetVenueEvent.href || eventUrlWithAnchor(pageUrl, title)
+
+          if (source.venue_id === 'ignite_west_drayton_heathrow' &&
+              targetVenueEvent.method === 'ignite-elementor-calendar' && eventDate) {
+            const detailHtml = await fetchHtml(ticketUrl)
+            if (detailHtml) startTime = parseIgniteDetailTime(detailHtml, ticketUrl, eventDate)
+          }
 
           if (source.venue_id !== 'afterdark_edinburgh_edinburgh' &&
               !isCupidsSource(source.venue_id, source.source_url) &&
