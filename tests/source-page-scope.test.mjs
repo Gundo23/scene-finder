@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { scopedDirectoryVenuePageDecision } from '../src/lib/source-page-scope.ts'
+import { scopedDirectoryVenuePageDecision, isHeatOfficialPage } from '../src/lib/source-page-scope.ts'
 
 const source = 'https://www.gaysaunaguide.net/venue/neros-sauna/'
 
@@ -18,6 +18,20 @@ test('blocks global and other-venue directory pages', () => {
 
 test('leaves ordinary sources to the normal source policy', () => {
   assert.equal(scopedDirectoryVenuePageDecision('https://nerossauna.com/sauna-events/', 'https://nerossauna.com/'), null)
+})
+
+test('Heat discovery stays inside its verified Wix site path', () => {
+  for (const path of ['/heat-sauna', '/heat-sauna/', '/heat-sauna/events', '/heat-sauna/event-details/party']) {
+    assert.equal(isHeatOfficialPage(`https://chris37528.wixsite.com${path}`), true)
+  }
+  for (const url of ['https://chris37528.wixsite.com/events',
+    'https://chris37528.wixsite.com/calendar', 'https://chris37528.wixsite.com/another-club/events',
+    'https://chris37528.wixsite.com/heat-sauna-other/events',
+    'https://other.wixsite.com/heat-sauna/events', 'http://chris37528.wixsite.com/heat-sauna/events',
+    'https://user:pass@chris37528.wixsite.com/heat-sauna/events',
+    'https://chris37528.wixsite.com/heat-sauna/../events']) {
+    assert.equal(isHeatOfficialPage(url), false)
+  }
 })
 
 test('the scraper applies directory scope before its generic same-domain rule', () => {
