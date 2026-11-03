@@ -15270,7 +15270,10 @@ ${hu9HydratedText}`, pageUrl)
               const detailDate = extractDateFromHtml(eventHtml)
               const detailImage = extractBestImage(eventHtml, ticketUrl)
 
-              if (detailTitle && !isJunkTitle(detailTitle)) title = detailTitle
+              // Tockify's detail title reintroduces the recurrence suffix.
+              // Keep the normalized feed title so the occurrence keeps its ID.
+              const keepFeedTitle = targetVenueEvent.method === 'hellfire-tockify-ics' && title === 'Brief Encounter'
+              if (!keepFeedTitle && detailTitle && !isJunkTitle(detailTitle)) title = detailTitle
               description = detailDescription || description
               imageUrl = detailImage || imageUrl
               eventDate = eventDate || detailDate
