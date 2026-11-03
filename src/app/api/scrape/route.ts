@@ -6,7 +6,7 @@ import { parseRoute69CalendarPdf, route69CalendarLinks, type Route69CalendarEven
 import { infusionMonthLinks, parseInfusionMonth } from '@/lib/infusion-calendar'
 import { parseDv8Calendar } from '@/lib/dv8-calendar'
 import { discoverNerosEventPages, isNerosAllowedPage, parseNerosSchedule } from '@/lib/neros-schedule'
-import { scopedDirectoryVenuePageDecision } from '@/lib/source-page-scope'
+import { scopedDirectoryVenuePageDecision, isHeatOfficialPage } from '@/lib/source-page-scope'
 import { alertReasonKey, scrapeSafetyPolicy, shouldCountMissingEvents } from '@/lib/scrape-safety-policy'
 import { parseTownhouseCalendar } from '@/lib/townhouse-location-calendar'
 import { parseQuestCalendar, QUEST_CALENDAR_URL } from '@/lib/quest-calendar'
@@ -9701,6 +9701,7 @@ function isHellfireSource(venueId: string | null | undefined, sourceUrl: string 
 }
 
 function allowedSourcePageForVenue(source: { venue_id: string; source_url: string }, pageUrl: string) {
+  if (source.venue_id === 'heat_sauna_stockport') return isHeatOfficialPage(pageUrl)
   const directoryDecision = scopedDirectoryVenuePageDecision(source.source_url, pageUrl)
   if (directoryDecision !== null) return directoryDecision
 
