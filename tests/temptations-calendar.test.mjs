@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { nextTemptationsPage, parseTemptationsCalendar } from '../src/lib/temptations-calendar.ts'
 
 const card = (title, date, href) => `<article class="tribe-events-calendar-list__event tribe-common-g-row">
@@ -59,4 +60,18 @@ test('stops at four pages and rejects offsite, skipped and non-calendar links', 
     'https://temptations2.co.uk/events/'), null)
   assert.equal(nextTemptationsPage('<a href="/events/list/page/3/">Next Events</a>',
     'https://temptations2.co.uk/events/'), null)
+})
+
+
+test('reads fetched recurring occurrence URLs and verifies the card date', () => {
+  const html = readFileSync(new URL('./fixtures/temptations-2026-11-05.html', import.meta.url), 'utf8')
+  const events = parseTemptationsCalendar(html, 'https://temptations2.co.uk/events/', '2026-11-05')
+  assert.deepEqual(events.map(event => event.event_date), [
+    '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09',
+    '2026-11-10', '2026-11-11', '2026-11-15', '2026-11-16', '2026-11-17',
+  ])
+  assert.equal(parseTemptationsCalendar(card('Mismatched occurrence', '2026-11-09',
+    '/event/bi-monday/2026-11-16/'), 'https://temptations2.co.uk/events/', '2026-11-05').length, 0)
+  assert.equal(parseTemptationsCalendar(card('Unrelated path', '2026-11-09',
+    '/event/bi-monday/2026-11-09/extra/'), 'https://temptations2.co.uk/events/', '2026-11-05').length, 0)
 })
