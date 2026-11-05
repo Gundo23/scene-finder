@@ -2798,7 +2798,7 @@ function extractKlubVerbotenEvents(html: string, baseUrl: string) {
 
   // Current cards put a full numeric date below the title and a city after it.
   // Only cards explicitly located in London belong to this venue.
-  const currentDateLine = /^(\d{1,2})\/(\d{1,2})\/(20\d{2}|\d{2})$/
+  const currentDateLine = /^(\d{1,2})[/.](\d{1,2})[/.](20\d{2}|\d{2})$/
   const archiveStart = lines.findIndex((line) => normalizeTitle(line) === 'previous events')
   const currentEnd = archiveStart < 0 ? lines.length : archiveStart
   for (let index = 1; index < currentEnd; index++) {

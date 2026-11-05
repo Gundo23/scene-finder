@@ -43,8 +43,10 @@ export function parseTemptationsCalendar(html: string, pageUrl: string, today: s
     let href: URL
     try { href = new URL(heading[1].replace(/&amp;/gi, '&'), page) } catch { continue }
     if (href.protocol !== 'https:' || href.hostname.replace(/^www\./, '') !== 'temptations2.co.uk' ||
-        !/^\/event\/[^/]+\/?$/.test(href.pathname)) continue
+        !/^\/event\/[^/]+(?:\/20\d{2}-\d{2}-\d{2})?\/?$/.test(href.pathname)) continue
 
+    const occurrenceDate = href.pathname.match(/\/(20\d{2}-\d{2}-\d{2})\/?$/)?.[1]
+    if (occurrenceDate && occurrenceDate !== date[1]) continue
     const value = new Date(`${date[1]}T00:00:00Z`)
     if (!Number.isFinite(value.getTime()) || value.toISOString().slice(0, 10) !== date[1] || value < now) continue
     const title = plain(heading[2])

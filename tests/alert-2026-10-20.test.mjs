@@ -54,6 +54,16 @@ test('Klub Verboten current dates include London only and stop before archive', 
     'https://klubverboten.com/dates').length, 0)
 })
 
+test('Klub Verboten extracts the fetched dotted-date cards and keeps London identities', () => {
+  const html = fs.readFileSync(new URL('./fixtures/klub-dates-2026-11-05.html', import.meta.url), 'utf8')
+  const events = context.extractKlubVerbotenEvents(html, 'https://klubverboten.com/dates')
+  assert.deepEqual(Array.from(events, e => [e.event_date, e.start_time]), [
+    ['2026-11-13', '22:30'], ['2026-11-18', '19:00'],
+    ['2026-12-11', '22:30'], ['2026-12-16', '19:00'],
+  ])
+  assert.ok(events.every(e => /London/i.test(e.text)))
+})
+
 function detail(title, date, location = 'Bournemouth, UK') {
   return `<h1>${title}</h1><h2>Time &amp; Location</h2>
     <p data-hook="event-full-date">${date} – 31 Oct 2026, 02:00</p>
