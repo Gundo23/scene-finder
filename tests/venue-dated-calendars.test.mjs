@@ -49,6 +49,7 @@ test('Dominium binds fetched card headings to their own dates and ignores undate
     ['MANDRAKE SALON: ROPES & BEYOND', '2026-11-26'],
     ['THE BIRTHDAY BALL', '2026-12-12'],
   ])
+  assert.ok(parse(html, id, url, '2026-11-05').every(e => !/full details/i.test(e.raw)))
   assert.deepEqual(parse(html + html, id, url, '2026-11-05'), parse(html, id, url, '2026-11-05'))
   assert.deepEqual(parse(html, id, url, '2027-11-05'), [])
   assert.deepEqual(parse(html.replaceAll('Saturday 21st November', 'Sunday 21st November'), id, url, '2026-11-05')

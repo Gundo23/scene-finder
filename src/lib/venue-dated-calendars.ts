@@ -40,7 +40,7 @@ export function parseVenueDatedCalendar(html: string, venueId: string, pageUrl: 
       const assetYear = card.match(/\/wp-content\/uploads\/(20\d{2})\//)?.[1]
       if (!date || (!date[4] && assetYear !== String(year))) continue
       const month = months.indexOf(date[3].toLowerCase()) + 1
-      const raw = text(card).slice(0, 500)
+      const raw = text(card.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, ' ')).slice(0, 500)
       if (/\bIbiza\b/i.test(raw) || !title || title.length > 150) continue
       const before = out.length
       add(title, Number(date[4] || year), month, Number(date[2]), date[1], null, raw)
