@@ -40,3 +40,19 @@ test('deployment traces the PDF worker required by Route69',()=>{
   assert.ok(config.includes('./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs'))
   assert.ok(fs.existsSync(new URL('../node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',import.meta.url)))
 })
+
+test('Dominium binds fetched card headings to their own dates and ignores undated retreats', () => {
+  const html = fs.readFileSync(new URL('./fixtures/dominium-2026-11-05.html', import.meta.url), 'utf8')
+  const id = 'dominium_vita_london', url = 'https://dominiumvita.com/events/'
+  assert.deepEqual(parse(html, id, url, '2026-11-05').map(e => [e.text, e.event_date]), [
+    ['HIDDEN DEVIANCE', '2026-11-21'],
+    ['MANDRAKE SALON: ROPES & BEYOND', '2026-11-26'],
+    ['THE BIRTHDAY BALL', '2026-12-12'],
+  ])
+  assert.deepEqual(parse(html + html, id, url, '2026-11-05'), parse(html, id, url, '2026-11-05'))
+  assert.deepEqual(parse(html, id, url, '2027-11-05'), [])
+  assert.deepEqual(parse(html.replaceAll('Saturday 21st November', 'Sunday 21st November'), id, url, '2026-11-05')
+    .filter(e => e.text === 'HIDDEN DEVIANCE'), [])
+  assert.deepEqual(parse(html, id, 'https://dominiumvita.com/', '2026-11-05'), [])
+  assert.deepEqual(parse(`<script>${html}</script>`, id, url, '2026-11-05'), [])
+})
