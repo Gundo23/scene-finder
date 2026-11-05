@@ -1,5 +1,6 @@
 const hosts: Record<string, string> = {
   manticore_spa_plymouth: 'manticorespa.com',
+  dominium_vita_london: 'dominiumvita.com',
   chameleons_darlaston_darlaston: 'chameleons.cc',
   team_player_parties_surrey: 'teamplayerparties.co.uk',
 }
@@ -25,7 +26,37 @@ export function parseVenueDatedCalendar(html: string, venueId: string, pageUrl: 
     seen.add(key)
     out.push({href:pageUrl,text:title,event_date:iso,start_time:time,raw,image_url:null,method:'official-dated-calendar'})
   }
-  if (venueId === 'chameleons_darlaston_darlaston') {
+  if (venueId === 'dominium_vita_london') {
+    if (page.pathname.replace(/\/$/, '') !== '/events' || !/Upcoming Events/i.test(text(clean))) return out
+    const cards = [...clean.matchAll(/<div\b[^>]*class=["'][^"']*\bev_slider_link\b[^"']*["'][^>]*>/gi)]
+    const year = Number(today.slice(0, 4))
+    for (let index = 0; index < cards.length; index++) {
+      const card = clean.slice(cards[index].index, cards[index + 1]?.index)
+      const title = text(card.match(/<h[1-6]\b[^>]*class=["'][^"']*\bev_slider_heading\b[^"']*["'][^>]*>([\s\S]*?)<\/h[1-6]>/i)?.[1] || '')
+      const dateText = text(card.match(/<i\b[^>]*class=["'][^"']*\bfa-calendar-range\b[^"']*["'][^>]*>[\s\S]*?<span\b[^>]*>([^<]+)<\/span>/i)?.[1] || '')
+      const date = dateText.match(/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)(?:\s+(20\d{2}))?$/i)
+      // Yearless cards must carry a current-year asset and a matching weekday.
+      // Never promote a stale notice into the following year.
+      const assetYear = card.match(/\/wp-content\/uploads\/(20\d{2})\//)?.[1]
+      if (!date || (!date[4] && assetYear !== String(year))) continue
+      const month = months.indexOf(date[3].toLowerCase()) + 1
+      const raw = text(card).slice(0, 500)
+      if (/\bIbiza\b/i.test(raw) || !title || title.length > 150) continue
+      const before = out.length
+      add(title, Number(date[4] || year), month, Number(date[2]), date[1], null, raw)
+      const href = card.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>/i)?.[1]
+      if (out.length > before && href) {
+        try {
+          const url = new URL(href, pageUrl)
+          if (url.protocol === 'https:' && !url.username && !url.password && !url.port &&
+              ((url.hostname === 'dominiumvita.com' && url.pathname.startsWith('/latest-events/')) ||
+               (url.hostname === 'themandrake.com' && url.pathname === '/event/ropes-and-beyond-london/'))) {
+            out[out.length - 1].href = url.href
+          }
+        } catch { /* Keep the verified listing URL when a detail link is invalid. */ }
+      }
+    }
+  } else if (venueId === 'chameleons_darlaston_darlaston') {
     if (!/^\/(?:darlaston-events)?\/?$/.test(page.pathname)) return out
     const cards = [...clean.matchAll(/<div\b[^>]*class=["']post_item["'][^>]*>/gi)]
     for (let i=0;i<cards.length;i++) {
