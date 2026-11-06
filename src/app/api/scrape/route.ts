@@ -13364,7 +13364,12 @@ async function scrapeTribeEventsApiSource(source: { venue_id: string; source_url
         event_name: title,
         event_date: eventDate,
         start_time: startTime,
-        description: cleanText(String(event.excerpt || event.description || title)).slice(0, 500),
+        // Club Locked's API description embeds navigation and ticket widgets.
+        // Their text triggers the generic junk guard despite a verified dated
+        // event object. Keep the source title as the concise description.
+        description: source.venue_id === 'club_locked_manchester_uk'
+          ? title
+          : cleanText(String(event.excerpt || event.description || title)).slice(0, 500),
         ticket_url: ticketUrl,
         image_url: imageUrl,
         source_url: source.source_url,
