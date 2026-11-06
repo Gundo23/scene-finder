@@ -1025,6 +1025,14 @@ function extractLinks(html: string, baseUrl: string) {
   return links
 }
 
+function extractAntiChristDetailTitle(html: string, url: string) {
+  // Squarespace puts its generic site <h1> before the actual event heading.
+  // Only use the eventitem-title heading on first-party event detail pages.
+  if (!/^https:\/\/(?:www\.)?clubantichrist\.co\.uk\/events\/[^/?#]+\/?(?:[?#]|$)/i.test(url)) return null
+  const heading = html.match(/<h1\b[^>]*class=["'][^"']*\beventitem-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i)?.[1]
+  return heading ? cleanText(heading) : null
+}
+
 function extractPageTitle(html: string) {
   return (
     cleanText(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]) ||
@@ -14734,7 +14742,9 @@ ${hu9HydratedText}`, pageUrl)
                 imageUrl = validImageUrl(detail.image_url) || imageUrl
               }
             } else if (eventHtml) {
-              const detailTitle = extractPageTitle(eventHtml)
+              const detailTitle = source.venue_id === 'antichrist_club_antichrist_london'
+                ? extractAntiChristDetailTitle(eventHtml, ticketUrl) || extractPageTitle(eventHtml)
+                : extractPageTitle(eventHtml)
               const detailDescription = extractMetaDescription(eventHtml)
               const detailDate = extractDateFromHtml(eventHtml)
               const detailImage = extractBestImage(eventHtml, ticketUrl)
@@ -15265,8 +15275,20 @@ ${hu9HydratedText}`, pageUrl)
           if (sameDomain(source.source_url, calendarEvent.href)) {
             eventHtml = await fetchHtml(calendarEvent.href)
 
+            // Old Squarespace detail links can appear inside a newer calendar
+            // context. Never assign the context date to an older event page.
+            if (eventHtml && source.venue_id === 'antichrist_club_antichrist_london' && eventDate) {
+              const officialDate = eventHtml.match(/"startDate"\s*:\s*"(20\d{2}-\d{2}-\d{2})T/i)?.[1]
+              if (!officialDate || officialDate !== eventDate) {
+                skipped++
+                continue
+              }
+            }
+
             if (eventHtml) {
-              title = extractPageTitle(eventHtml) || title
+              title = (source.venue_id === 'antichrist_club_antichrist_london'
+                ? extractAntiChristDetailTitle(eventHtml, calendarEvent.href)
+                : null) || extractPageTitle(eventHtml) || title
               description = extractMetaDescription(eventHtml) || cleanText(eventHtml).slice(0, 300)
               imageUrl = extractBestImage(eventHtml, calendarEvent.href) || pageImage
               eventDate = eventDate || extractDateFromHtml(eventHtml)
