@@ -116,8 +116,6 @@ export async function POST(request: Request) {
     if (!existingVenue) {
       const notes = [
         submission.notes ? `Submission notes: ${submission.notes}` : '',
-        submission.contact_name ? `Contact name: ${submission.contact_name}` : '',
-        submission.submitter_email ? `Contact email: ${submission.submitter_email}` : '',
         submission.event_date ? `Submitted event date: ${submission.event_date}` : '',
         submission.hosted_at ? `Hosted at: ${submission.hosted_at}` : '',
       ]
