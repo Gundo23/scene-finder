@@ -1025,6 +1025,14 @@ function extractLinks(html: string, baseUrl: string) {
   return links
 }
 
+function extractAntiChristDetailTitle(html: string, url: string) {
+  // Squarespace puts its generic site <h1> before the actual event heading.
+  // Only use the eventitem-title heading on first-party event detail pages.
+  if (!/^https:\/\/(?:www\.)?clubantichrist\.co\.uk\/events\/[^/?#]+\/?(?:[?#]|$)/i.test(url)) return null
+  const heading = html.match(/<h1\b[^>]*class=["'][^"']*\beventitem-title\b[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i)?.[1]
+  return heading ? cleanText(heading) : null
+}
+
 function extractPageTitle(html: string) {
   return (
     cleanText(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]) ||
@@ -14730,7 +14738,9 @@ ${hu9HydratedText}`, pageUrl)
                 imageUrl = validImageUrl(detail.image_url) || imageUrl
               }
             } else if (eventHtml) {
-              const detailTitle = extractPageTitle(eventHtml)
+              const detailTitle = source.venue_id === 'antichrist_club_antichrist_london'
+                ? extractAntiChristDetailTitle(eventHtml, ticketUrl) || extractPageTitle(eventHtml)
+                : extractPageTitle(eventHtml)
               const detailDescription = extractMetaDescription(eventHtml)
               const detailDate = extractDateFromHtml(eventHtml)
               const detailImage = extractBestImage(eventHtml, ticketUrl)
@@ -15262,7 +15272,9 @@ ${hu9HydratedText}`, pageUrl)
             eventHtml = await fetchHtml(calendarEvent.href)
 
             if (eventHtml) {
-              title = extractPageTitle(eventHtml) || title
+              title = (source.venue_id === 'antichrist_club_antichrist_london'
+                ? extractAntiChristDetailTitle(eventHtml, calendarEvent.href)
+                : null) || extractPageTitle(eventHtml) || title
               description = extractMetaDescription(eventHtml) || cleanText(eventHtml).slice(0, 300)
               imageUrl = extractBestImage(eventHtml, calendarEvent.href) || pageImage
               eventDate = eventDate || extractDateFromHtml(eventHtml)
