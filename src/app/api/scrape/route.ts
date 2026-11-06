@@ -12002,8 +12002,16 @@ function candidateRejectionReason(input: {
   description: string | null
 }) {
   const eventName = cleanSf10RescueCandidateTitle(input.event_name, input.description)
+  const calendarLabel = normalizeTitle(eventName)
+  if (['next day', 'events for', 'view calendar'].includes(calendarLabel)) {
+    return 'rejected_calendar_navigation'
+  }
+  if (input.venue_id === 'withintemptation_devon' &&
+      calendarLabel === 'swingers fetish club' && /\/events\/month\//i.test(input.ticket_url)) {
+    return 'rejected_calendar_navigation'
+  }
   if (input.venue_id === 'the_playgrounds_cleckheaton' &&
-      /^(?:book tickets here|the playgrounds|r to a new)$/.test(normalizeTitle(eventName))) {
+      /^(?:book tickets here|the playgrounds|r to a new)$/.test(calendarLabel)) {
     return 'rejected_playgrounds_navigation'
   }
 
