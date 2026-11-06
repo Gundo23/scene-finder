@@ -22,6 +22,8 @@ import { parsePartnersCalendar } from '@/lib/partners-calendar'
 import { queueRoutineAlert } from '@/lib/routine-alerts'
 import { parseRiotPartyOrganiser } from '@/lib/riot-party-events'
 import { parseStructuredEvents } from '@/lib/structured-events'
+import { parsePenthouseCalendar } from '@/lib/penthouse-calendar'
+import { parseEcclesiaCalendar } from '@/lib/ecclesia-calendar'
 import { dailyCoverageBatchSize, isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
 import { readBoundedResponse } from '@/lib/bounded-response'
 import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHeadingCalendar } from '@/lib/official-calendar'
@@ -5976,514 +5978,6 @@ function isPenthouseSource(venueId: string | null | undefined, sourceUrl: string
   )
 }
 
-function discoverPenthouseEventPages(sourceUrl: string) {
-  const urls = [
-    sourceUrl,
-    absoluteUrl(sourceUrl, '/events'),
-    absoluteUrl(sourceUrl, '/events/'),
-    // Penthouse is an Inertia/Laravel app. Event detail pages include
-    // structured props.event and props.upcomingEvents JSON.
-    absoluteUrl(sourceUrl, '/event/1958'),
-    absoluteUrl(sourceUrl, '/event/1895'),
-    absoluteUrl(sourceUrl, '/event/1890'),
-    absoluteUrl(sourceUrl, '/event/1892'),
-  ].filter(Boolean) as string[]
-
-  return [...new Set(urls)].filter((url) => {
-    try {
-      const host = new URL(url).hostname.replace(/^www\./, '').toLowerCase()
-      return host === 'penthouse-playrooms.co.uk' && !isJunkUrl(url)
-    } catch {
-      return false
-    }
-  })
-}
-
-function isPenthouseJunkTitle(value: string | null | undefined) {
-  const cleaned = normalizeTitle(value || '')
-  if (!cleaned) return true
-
-  const exact = new Set([
-    'events',
-    'event',
-    'upcoming events',
-    'about',
-    'membership',
-    'gallery',
-    'faq',
-    'contact',
-    'login',
-    'log in',
-    'apply now',
-    'reserve your spot for our exclusive experiences',
-    'exclusive',
-    'limited spots',
-    'open to guest members',
-    'tickets from',
-    'ladies only event',
-    'guest members',
-    'penthouse playrooms',
-  ])
-
-  if (exact.has(cleaned)) return true
-  if (isJunkTitle(value || '')) return true
-
-  const fragments = [
-    'reserve your spot',
-    'membership',
-    'apply now',
-    'limited spots',
-    'tickets from',
-    'open to guest members',
-    'ladies only event',
-    'terms',
-    'privacy',
-    'cookie',
-    'login',
-    'log in',
-    'faq',
-    'contact',
-  ]
-
-  if (fragments.some((fragment) => cleaned === fragment || cleaned.startsWith(`${fragment} `))) return true
-
-  return false
-}
-
-function cleanPenthouseTitle(value: string) {
-  let title = cleanEventName(value)
-    .replace(/^[-–—:|]+/g, '')
-    .replace(/\b(?:limited spots|exclusive|open to guest members|tickets from|apply now)\b/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-
-  // Some rendered card text can append the first ticket/perk line after the title.
-  const cutMarkers = [
-    ' ladies only event',
-    ' tickets from',
-    ' open to guest members',
-    ' reserve your spot',
-    ' limited spots',
-  ]
-
-  for (const marker of cutMarkers) {
-    const index = title.toLowerCase().indexOf(marker)
-    if (index > 4) title = title.slice(0, index).trim()
-  }
-
-  return title
-}
-
-
-function decodeHtmlJsonAttribute(value: string | null | undefined) {
-  if (!value) return ''
-
-  return String(value)
-    .replace(/&quot;/g, '"')
-    .replace(/&#34;/g, '"')
-    .replace(/&#x22;/gi, '"')
-    .replace(/&#039;/g, "'")
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/gi, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-}
-
-function parseJsonSafely(value: string | null | undefined) {
-  if (!value) return null
-
-  try {
-    return JSON.parse(value)
-  } catch {
-    return null
-  }
-}
-
-function extractPenthouseInertiaPayloads(html: string) {
-  const payloads: any[] = []
-  const raw = String(html || '').trim()
-
-  const direct = parseJsonSafely(raw)
-  if (direct) payloads.push(direct)
-
-  const dataPageMatches = [
-    ...String(html || '').matchAll(/data-page=["']([\s\S]*?)["']\s*>/gi),
-  ]
-
-  for (const match of dataPageMatches) {
-    const decoded = decodeHtmlJsonAttribute(match[1])
-    const parsed = parseJsonSafely(decoded)
-    if (parsed) payloads.push(parsed)
-  }
-
-  const scriptJsonMatches = [
-    ...String(html || '').matchAll(/<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi),
-  ]
-
-  for (const match of scriptJsonMatches) {
-    const decoded = decodeHtmlJsonAttribute(match[1])
-    const parsed = parseJsonSafely(decoded)
-    if (parsed) payloads.push(parsed)
-  }
-
-  return payloads
-}
-
-function parsePenthouseIsoDateParts(value: string | null | undefined) {
-  if (!value) return { event_date: null as string | null, start_time: null as string | null }
-
-  const raw = String(value)
-  const dateMatch = raw.match(/^(20\d{2})-(\d{2})-(\d{2})/)
-  const timeMatch = raw.match(/T(\d{2}):(\d{2})/)
-
-  return {
-    event_date: dateMatch ? validDateOrNull(`${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`) : null,
-    start_time: timeMatch ? validTimeOrNull(`${timeMatch[1]}:${timeMatch[2]}`) : null,
-  }
-}
-
-function penthouseEventUrlFromObject(event: any, baseUrl: string, title: string) {
-  const raw =
-    cleanText(event?.ticket_url) ||
-    cleanText(event?.external_ticket_url) ||
-    cleanText(event?.url) ||
-    cleanText(event?.link) ||
-    (event?.id ? `/event/${event.id}` : '')
-
-  const href = absoluteUrl(baseUrl, raw)
-  if (href && !isJunkUrl(href)) return href
-
-  return eventUrlWithAnchor(baseUrl, title)
-}
-
-function extractPenthouseInertiaEvents(html: string, baseUrl: string) {
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
-
-  const seen = new Set<string>()
-  const payloads = extractPenthouseInertiaPayloads(html)
-
-  const pushEvent = (event: any, sourceLabel: string) => {
-    if (!event || typeof event !== 'object') return
-    if (event.is_hidden === true) return
-
-    let title = cleanPenthouseTitle(event.title || event.name || event.event_name || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-
-    if (!title || isPenthouseJunkTitle(title)) return
-    if (title.length > 140) title = title.slice(0, 140).trim()
-
-    const startsAt =
-      event.starts_at ||
-      event.start_date ||
-      event.startDate ||
-      event.event_date ||
-      event.date ||
-      event.starts_pretty_date ||
-      ''
-
-    let { event_date, start_time } = parsePenthouseIsoDateParts(startsAt)
-
-    if (!event_date) {
-      event_date = extractDate(`${startsAt} ${event.starts_pretty_date || ''} ${event.description || ''}`)
-    }
-
-    if (!start_time) {
-      start_time = extractTime(`${startsAt} ${event.starts_pretty_date || ''} ${event.description || ''}`)
-    }
-
-    const href = penthouseEventUrlFromObject(event, baseUrl, title)
-    const imageUrl =
-      validImageUrl(absoluteUrl(baseUrl, cleanText(event.image_url || event.imageUrl || event.image || ''))) ||
-      null
-    const description = cleanDescription(event.description || event.ai_generated_description || title) || title
-
-    if (!event_date && !looksLikeStrongUndatedEvent(`${title} ${description}`)) return
-
-    const key = `${normalizeTitle(title)}|${event_date || 'no-date'}|${normalizeTicketUrl(href)}`
-    if (seen.has(key)) return
-    seen.add(key)
-
-    candidates.push({
-      href,
-      text: title,
-      event_date,
-      start_time,
-      raw: description,
-      image_url: imageUrl,
-      method: sourceLabel,
-    })
-  }
-
-  const walkPayload = (value: any, depth = 0) => {
-    if (!value || depth > 5) return
-
-    if (Array.isArray(value)) {
-      for (const item of value) walkPayload(item, depth + 1)
-      return
-    }
-
-    if (typeof value !== 'object') return
-
-    if (
-      (value.title || value.name || value.event_name) &&
-      (value.starts_at || value.start_date || value.startDate || value.event_date || value.starts_pretty_date || value.ticket_url || value.image_url)
-    ) {
-      pushEvent(value, 'penthouse-inertia-json')
-    }
-
-    const props = value.props || value.page?.props || null
-    if (props?.event) pushEvent(props.event, 'penthouse-inertia-event')
-    if (Array.isArray(props?.upcomingEvents)) {
-      for (const event of props.upcomingEvents) pushEvent(event, 'penthouse-inertia-upcoming')
-    }
-    if (Array.isArray(props?.events)) {
-      for (const event of props.events) pushEvent(event, 'penthouse-inertia-events')
-    }
-
-    for (const key of ['event', 'events', 'upcomingEvents', 'data']) {
-      if (value[key]) walkPayload(value[key], depth + 1)
-    }
-  }
-
-  for (const payload of payloads) walkPayload(payload)
-
-  return candidates
-}
-
-function extractPenthouseImageFromBlock(block: string, baseUrl: string) {
-  const rawImage =
-    block.match(/(?:image|imageUrl|image_url|src|url)["']?\s*[:=]\s*["']([^"']+\.(?:jpg|jpeg|png|webp)(?:\?[^"']*)?)["']/i)?.[1] ||
-    block.match(/https?:\\?\/\\?\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/i)?.[0] ||
-    block.match(/\/[^"'\s<>]+\.(?:jpg|jpeg|png|webp)(?:\?[^"'\s<>]*)?/i)?.[0]
-
-  return validImageUrl(absoluteUrl(baseUrl, decodeEscapedText(rawImage || '')))
-}
-
-function extractPenthouseHrefFromBlock(block: string, baseUrl: string, title: string) {
-  const rawHref =
-    block.match(/(?:href|url|link|slug)["']?\s*[:=]\s*["']([^"']{2,240})["']/i)?.[1] ||
-    block.match(/\/events\/[a-z0-9][a-z0-9_-]*/i)?.[0] ||
-    null
-
-  const href = absoluteUrl(baseUrl, decodeEscapedText(rawHref || ''))
-  if (href && !isJunkUrl(href)) return href
-
-  return eventUrlWithAnchor(baseUrl, title)
-}
-
-function extractPenthouseEventsFromText(value: string, baseUrl: string, method: string) {
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
-
-  const seen = new Set<string>()
-  const decoded = decodeEscapedText(value)
-  const text = cleanText(decoded).replace(/\s+/g, ' ').trim()
-  const fallbackImage = extractBestImage(decoded, baseUrl)
-
-  const addCandidate = (input: {
-    title: string
-    raw: string
-    href?: string | null
-    image_url?: string | null
-  }) => {
-    let title = cleanPenthouseTitle(input.title)
-      .replace(/\s+/g, ' ')
-      .trim()
-
-    if (!title || isPenthouseJunkTitle(title)) return
-    if (title.length < 5 || title.length > 140) return
-
-    const raw = cleanText(input.raw || title).slice(0, 600)
-    const eventDate = extractDate(raw)
-    const startTime = extractTime(raw)
-    const href =
-      input.href ||
-      extractPenthouseHrefFromBlock(input.raw, baseUrl, title) ||
-      eventUrlWithAnchor(baseUrl, title)
-    const imageUrl =
-      validImageUrl(input.image_url || null) ||
-      extractPenthouseImageFromBlock(input.raw, baseUrl) ||
-      fallbackImage
-
-    // Penthouse is a JS-rendered card site. If the visible card/poster does not expose
-    // a machine-readable date, still save strong event titles as Date TBC rather than
-    // losing the event completely.
-    if (!eventDate && !looksLikeStrongUndatedEvent(`${title} ${raw}`)) return
-
-    const key = `${normalizeTitle(title)}|${eventDate || 'no-date'}|${normalizeTicketUrl(href)}`
-    if (seen.has(key)) return
-    seen.add(key)
-
-    candidates.push({
-      href,
-      text: title,
-      event_date: eventDate,
-      start_time: startTime,
-      raw,
-      image_url: imageUrl,
-      method,
-    })
-  }
-
-  // JSON/JS object parser. This catches React/Vite bundles and embedded state
-  // where event cards are stored as title/name plus optional image/date fields.
-  const titleFieldPattern =
-    /(?:^|[,{])\s*["']?(?:title|name|eventName|event_name|heading)["']?\s*[:=]\s*["'`]([^"'`]{5,140})["'`]/gi
-
-  let titleMatch
-  while ((titleMatch = titleFieldPattern.exec(decoded)) !== null) {
-    const start = Math.max(0, (titleMatch.index || 0) - 700)
-    const end = Math.min(decoded.length, (titleMatch.index || 0) + 2200)
-    const block = decoded.slice(start, end)
-
-    addCandidate({
-      title: titleMatch[1],
-      raw: block,
-      image_url: extractPenthouseImageFromBlock(block, baseUrl),
-      href: extractPenthouseHrefFromBlock(block, baseUrl, titleMatch[1]),
-    })
-  }
-
-  // HTML/SSR card parser for cases where cards are rendered in the initial document.
-  const headingPattern =
-    /<(?:h1|h2|h3|h4|p|span|div)[^>]*>([^<]{5,140})<\/(?:h1|h2|h3|h4|p|span|div)>/gi
-
-  let headingMatch
-  while ((headingMatch = headingPattern.exec(decoded)) !== null) {
-    const title = cleanText(headingMatch[1])
-    if (!title || isPenthouseJunkTitle(title)) continue
-
-    const start = Math.max(0, (headingMatch.index || 0) - 900)
-    const end = Math.min(decoded.length, (headingMatch.index || 0) + 2200)
-    const block = decoded.slice(start, end)
-
-    addCandidate({
-      title,
-      raw: block,
-      image_url: extractPenthouseImageFromBlock(block, baseUrl),
-      href: extractPenthouseHrefFromBlock(block, baseUrl, title),
-    })
-  }
-
-  // Flattened-text fallback. Handles runs like:
-  // "Limited Spots ... Pink Noise - Breast Cancer Awareness Event ... Tickets From ..."
-  const cardTitlePattern =
-    /\b(?:Limited Spots|Exclusive|Upcoming Events)\b\s+([A-Z][A-Za-z0-9 '&+.,:/!()-]{5,130}?)(?=\s+(?:Ladies Only Event|Open to Guest Members|Tickets From|Limited Spots|Exclusive|Apply Now|About|Membership|Gallery|FAQ|Contact)\b)/gi
-
-  let cardMatch
-  while ((cardMatch = cardTitlePattern.exec(text)) !== null) {
-    const start = Math.max(0, cardMatch.index - 300)
-    const end = Math.min(text.length, cardMatch.index + 900)
-    addCandidate({
-      title: cardMatch[1],
-      raw: text.slice(start, end),
-    })
-  }
-
-  // Poster/date-text fallback. Useful if the date appears around the card text.
-  const datedTitlePatterns = [
-    /([A-Z][A-Za-z0-9 '&+.,:/!()-]{5,120}?)\s+(?:on\s+)?(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*(20\d{2})?/gi,
-    /(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)?\s*(\d{1,2})(?:st|nd|rd|th)?\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s*(20\d{2})?\s+([A-Z][A-Za-z0-9 '&+.,:/!()-]{5,120}?)(?=\s+(?:Ladies Only Event|Open to Guest Members|Tickets From|Limited Spots|Exclusive|$))/gi,
-  ]
-
-  for (const pattern of datedTitlePatterns) {
-    let match
-
-    while ((match = pattern.exec(text)) !== null) {
-      const title = pattern === datedTitlePatterns[0] ? match[1] : match[4]
-      const raw = match[0]
-
-      addCandidate({
-        title,
-        raw,
-      })
-    }
-  }
-
-  return candidates
-}
-
-function extractPenthouseEvents(html: string, baseUrl: string) {
-  const inertiaEvents = extractPenthouseInertiaEvents(html, baseUrl)
-  const renderedEvents = extractPenthouseEventsFromText(html, baseUrl, 'penthouse-rendered-or-state')
-  const seen = new Set<string>()
-  const merged: typeof renderedEvents = []
-
-  for (const event of [...inertiaEvents, ...renderedEvents]) {
-    const key = `${normalizeTitle(event.text)}|${event.event_date || 'no-date'}|${normalizeTicketUrl(event.href)}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    merged.push(event)
-  }
-
-  return merged
-}
-
-async function fetchPenthouseBundleEvents(html: string, baseUrl: string) {
-  const events: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
-
-  const seen = new Set<string>()
-  const scriptUrls = extractScriptUrls(html, baseUrl)
-    .filter((url) => {
-      const lower = url.toLowerCase()
-      return (
-        sameDomain(baseUrl, url) ||
-        lower.includes('vercel.app') ||
-        lower.includes('_next') ||
-        lower.includes('/assets/') ||
-        lower.includes('.js')
-      )
-    })
-    .slice(0, 10)
-
-  for (const scriptUrl of scriptUrls) {
-    const js = await fetchText(scriptUrl, 'application/javascript,text/javascript,text/plain,*/*')
-    if (!js) continue
-
-    const parsed = extractPenthouseEventsFromText(js, scriptUrl, 'penthouse-js-bundle')
-
-    for (const event of parsed) {
-      const href = event.href || eventUrlWithAnchor(baseUrl, event.text)
-      const key = `${normalizeTitle(event.text)}|${event.event_date || 'no-date'}|${normalizeTicketUrl(href)}`
-      if (seen.has(key)) continue
-      seen.add(key)
-
-      events.push({
-        ...event,
-        href,
-      })
-    }
-  }
-
-  return events
-}
-
-
 const SF10_RECOVERY_VENUES = new Set([
   'club_f_birmingham',
   'dominium_vita_london',
@@ -9849,6 +9343,9 @@ function allowedSourcePageForVenue(source: { venue_id: string; source_url: strin
 function discoverTargetVenueEventPages(source: { venue_id: string; source_url: string }) {
   const urls = new Set<string>()
 
+  if (source.venue_id === 'penthouse_playrooms_dunstable') return ['https://penthouse-playrooms.co.uk/events']
+  if (source.venue_id === 'ecclesia_glasgow') return ['https://www.ecclesiaglasgow.com/upcoming-events/']
+
   if (source.venue_id === 'heroes_health_club_stourbridge') return [HEROES_CALENDAR_URL]
   if (source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return [ATLANTIS_CALENDAR_URL]
   if (source.venue_id === 'sweatbox_soho_london') return [SWEATBOX_CALENDAR_URL]
@@ -9987,19 +9484,6 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     }
   }
 
-  if (source.venue_id === 'ecclesia_glasgow') {
-    for (const path of [
-      '/upcoming-events/',
-      '/event_listing_category/parties/',
-      '/event_listing_category/socials/',
-      '/event_listing_category/workshops/',
-      '/event_listing_type/kink-events/',
-    ]) {
-      const url = absoluteUrl(source.source_url, path)
-      if (url) urls.add(url)
-    }
-  }
-
   if (isPandoraSource(source.venue_id, source.source_url)) {
     for (const url of discoverPandoraEventPages(source.source_url)) {
       urls.add(url)
@@ -10015,12 +9499,6 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (isAtticExperienceSource(source.venue_id, source.source_url)) {
     for (const url of discoverAtticExperienceEventPages(source.source_url)) {
-      urls.add(url)
-    }
-  }
-
-  if (isPenthouseSource(source.venue_id, source.source_url)) {
-    for (const url of discoverPenthouseEventPages(source.source_url)) {
       urls.add(url)
     }
   }
@@ -10099,12 +9577,12 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (isSteelCliffeSource(venueId, pageUrl)) return extractSteelCliffeEvents(html, pageUrl)
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
   if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
-  if (venueId === 'ecclesia_glasgow') return extractEcclesiaEvents(html, pageUrl)
+  if (venueId === 'ecclesia_glasgow') return parseEcclesiaCalendar(html, pageUrl, londonToday())
   if (venueId === 'club_f_birmingham' || isClubFSource(venueId, pageUrl)) return extractClubFEvents(html, pageUrl)
   if (isPandoraSource(venueId, pageUrl)) return extractPandoraEvents(html, pageUrl)
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
   if (isAtticExperienceSource(venueId, pageUrl)) return extractAtticExperienceEvents(html, pageUrl)
-  if (isPenthouseSource(venueId, pageUrl)) return extractPenthouseEvents(html, pageUrl)
+  if (isPenthouseSource(venueId, pageUrl)) return parsePenthouseCalendar(html, pageUrl, londonToday())
   if (isIgniteSource(venueId, pageUrl)) return extractIgniteEvents(html, pageUrl)
   if (isMe1SaunaSource(venueId, pageUrl)) return extractMe1SaunaEvents(html, pageUrl)
   if (isGatehouseBoltonSource(venueId, pageUrl)) return extractGatehouseBoltonEvents(html, pageUrl)
@@ -10297,65 +9775,6 @@ function extractPlaygroundsEvents(html: string, baseUrl: string) {
       raw: match[0],
       image_url: image,
       method: 'playgrounds-custom',
-    })
-  }
-
-  return candidates
-}
-
-function extractEcclesiaEvents(html: string, baseUrl: string) {
-  const candidates: {
-    href: string
-    text: string
-    event_date: string | null
-    start_time: string | null
-    raw: string
-    image_url: string | null
-    method: string
-  }[] = []
-
-  const seen = new Set<string>()
-  const text = cleanText(html)
-  const links = extractLinks(html, baseUrl)
-  const image = extractBestImage(html, baseUrl)
-
-  const categoryPattern =
-    /\b(\d{1,2})\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\s+\2\s*-\s*\d{1,2}\s+\2\s+(.{5,120}?)\s+(\d{1,2})-(\d{1,2})-(\d{2,4})\s*@\s*(\d{1,2}):(\d{2})/gi
-
-  let match
-
-  while ((match = categoryPattern.exec(text)) !== null) {
-    const year = normaliseTwoDigitYear(match[6]) || String(new Date().getFullYear())
-    const eventDate = validDateOrNull(`${year}-${match[5].padStart(2, '0')}-${match[4].padStart(2, '0')}`)
-    const title = cleanTargetVenueTitle(match[3])
-    const startTime = validTimeOrNull(`${match[7].padStart(2, '0')}:${match[8]}`)
-    const matchingLink = links.find((link) => normalizeTitle(link.text).includes(normalizeTitle(title).slice(0, 20)) && !isJunkUrl(link.href))
-
-    pushTargetCandidate(candidates, seen, {
-      href: matchingLink?.href || eventUrlWithAnchor(baseUrl, title),
-      text: title,
-      event_date: eventDate,
-      start_time: startTime,
-      raw: match[0],
-      image_url: image,
-      method: 'ecclesia-category-custom',
-    })
-  }
-
-  const eventPageTitle = extractPageTitle(html)
-  const eventPageDate =
-    extractDateFromHtml(html) ||
-    extractDate(text.slice(0, 2000))
-
-  if (baseUrl.includes('/event/') && eventPageTitle && eventPageDate) {
-    pushTargetCandidate(candidates, seen, {
-      href: baseUrl,
-      text: eventPageTitle,
-      event_date: eventPageDate,
-      start_time: extractTime(text.slice(0, 3000)),
-      raw: extractMetaDescription(html) || text.slice(0, 500),
-      image_url: image,
-      method: 'ecclesia-event-page',
     })
   }
 
@@ -14159,6 +13578,10 @@ async function runScrapeRequest(request: Request) {
       ? QUEST_CALENDAR_URL
       : configuredSource.venue_id === 'xtasia_west_bromwich'
       ? 'https://xtasia.co.uk/events'
+      : configuredSource.venue_id === 'penthouse_playrooms_dunstable'
+      ? 'https://penthouse-playrooms.co.uk/events'
+      : configuredSource.venue_id === 'ecclesia_glasgow'
+      ? 'https://www.ecclesiaglasgow.com/upcoming-events/'
       : configuredSource.venue_id === 'temptations_2_eccles_manchester'
         ? 'https://temptations2.co.uk/events/'
       : configuredSource.venue_id === 'swamp_in_bristol_bristol'
@@ -14808,6 +14231,8 @@ async function runScrapeRequest(request: Request) {
           source.venue_id === 'le_boudoir_club_london' ||
           source.venue_id === 'f_society_newcastle_upon_tyne_north_east' ||
           source.venue_id === 'klub_verboten_london' ||
+          source.venue_id === 'penthouse_playrooms_dunstable' ||
+          source.venue_id === 'ecclesia_glasgow' ||
           source.venue_id === 'untamed_nights_bournemouth'
         const jsonLdEvents = dedicatedCalendar ? [] : extractJsonLdEvents(html, pageUrl)
         const calendarLinks = dedicatedCalendar ? [] : extractCalendarEventLinks(html, pageUrl)
@@ -14919,13 +14344,6 @@ async function runScrapeRequest(request: Request) {
             targetVenueEvents = extractHu9Events(`${html}
 ${hu9HydratedText}`, pageUrl)
           }
-        }
-
-        if (isPenthouseSource(source.venue_id, `${source.source_url} ${pageUrl}`)) {
-          targetVenueEvents = [
-            ...targetVenueEvents,
-            ...(await fetchPenthouseBundleEvents(html, pageUrl)),
-          ]
         }
 
         const klubVerbotenEvents =
@@ -15248,6 +14666,7 @@ ${hu9HydratedText}`, pageUrl)
               !isCupidsSource(source.venue_id, source.source_url) &&
               source.venue_id !== 'ignite_west_drayton_heathrow' &&
               source.venue_id !== 'club_play_blackpool' &&
+              source.venue_id !== 'penthouse_playrooms_dunstable' &&
               source.venue_id !== 'le_boudoir_club_london' &&
               source.venue_id !== 'f_society_newcastle_upon_tyne_north_east' &&
               !isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
