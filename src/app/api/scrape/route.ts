@@ -9347,7 +9347,11 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (source.venue_id === 'penthouse_playrooms_dunstable') return ['https://penthouse-playrooms.co.uk/events']
   if (source.venue_id === 'ecclesia_glasgow') return ['https://www.ecclesiaglasgow.com/upcoming-events/']
-  if (source.venue_id === 'dominium_vita_london') return ['https://dominiumvita.com/events/']
+  // The venue's Ibiza category can include an event absent from a cached main listing.
+  if (source.venue_id === 'dominium_vita_london') return [
+    'https://dominiumvita.com/events/',
+    'https://dominiumvita.com/events/ibiza/',
+  ]
 
   if (source.venue_id === 'heroes_health_club_stourbridge') return [HEROES_CALENDAR_URL]
   if (source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return [ATLANTIS_CALENDAR_URL]
