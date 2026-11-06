@@ -1,7 +1,6 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
 
 export default function AdminSubmissionsPage() {
   const [authenticated, setAuthenticated] = useState(false)
@@ -46,35 +45,17 @@ export default function AdminSubmissionsPage() {
   async function loadSubmissions() {
     setLoading(true)
     setLoadError('')
-
-    const { data: submissionsData, error: submissionsError } = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-
-    const { data: contactData, error: contactError } = await supabase
-      .from('contact_requests')
-      .select('*')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-
-    if (submissionsError || contactError) {
-      console.error('Admin dashboard load error:', {
-        submissionsError,
-        contactError,
-      })
-
-      setLoadError(
-        submissionsError?.message ||
-          contactError?.message ||
-          'Could not load admin dashboard items.'
-      )
+    try {
+      const response = await fetch('/api/admin/submissions', { cache: 'no-store' })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Could not load admin items')
+      setSubmissions(result.submissions || [])
+      setContactRequests(result.contactRequests || [])
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Could not load admin items')
+    } finally {
+      setLoading(false)
     }
-
-    setSubmissions(submissionsData || [])
-    setContactRequests(contactData || [])
-    setLoading(false)
   }
 
   async function handleAction(id: string, action: 'approved' | 'denied' | 'delete') {
@@ -99,37 +80,22 @@ export default function AdminSubmissionsPage() {
 
   async function handleContactRequestAction(id: string, action: 'resolved' | 'delete') {
     if (action === 'delete' && !confirm('Delete this support request?')) return
-
     setLoading(true)
     setLoadError('')
-
-    if (action === 'delete') {
-      const { error } = await supabase
-        .from('contact_requests')
-        .delete()
-        .eq('id', id)
-
-      if (error) {
-        console.error('Support request delete error:', error)
-        setLoadError(error.message || 'Could not delete support request.')
-        setLoading(false)
-        return
-      }
-    } else {
-      const { error } = await supabase
-        .from('contact_requests')
-        .update({ status: 'resolved' })
-        .eq('id', id)
-
-      if (error) {
-        console.error('Support request resolve error:', error)
-        setLoadError(error.message || 'Could not mark support request as resolved.')
-        setLoading(false)
-        return
-      }
+    try {
+      const response = await fetch('/api/admin/submissions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action }),
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || 'Action failed')
+      await loadSubmissions()
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Action failed')
+    } finally {
+      setLoading(false)
     }
-
-    await loadSubmissions()
   }
 
   useEffect(() => {
