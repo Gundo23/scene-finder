@@ -12002,6 +12002,10 @@ function candidateRejectionReason(input: {
   description: string | null
 }) {
   const eventName = cleanSf10RescueCandidateTitle(input.event_name, input.description)
+  if (input.venue_id === 'the_playgrounds_cleckheaton' &&
+      /^(?:book tickets here|the playgrounds|r to a new)$/.test(normalizeTitle(eventName))) {
+    return 'rejected_playgrounds_navigation'
+  }
 
   // Do not let generic description-keyword rescue widen this numeric-name exception.
   if (isEagleNumericTitle(eventName) && !isVerifiedEagleNumericTitle({ ...input, event_name: eventName })) {
