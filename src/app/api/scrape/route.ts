@@ -9560,6 +9560,9 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  // This venue also appears in the generic dated-calendar set; its scoped card
+  // parser must take precedence to keep titles, dates and detail URLs together.
+  if (venueId === 'dominium_vita_london') return parseDominiumCalendar(html, pageUrl, londonToday())
   if (isDatedCalendarVenue(venueId)) return parseVenueDatedCalendar(html, venueId, pageUrl, londonToday())
   if (venueId === 'heroes_health_club_stourbridge') return parseHeroesSchedule(html, pageUrl, londonToday())
   if (venueId === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return parseAtlantisSchedule(html, pageUrl, londonToday())
@@ -9585,7 +9588,6 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
   if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
   if (venueId === 'ecclesia_glasgow') return parseEcclesiaCalendar(html, pageUrl, londonToday())
-  if (venueId === 'dominium_vita_london') return parseDominiumCalendar(html, pageUrl, londonToday())
   if (venueId === 'club_f_birmingham' || isClubFSource(venueId, pageUrl)) return extractClubFEvents(html, pageUrl)
   if (isPandoraSource(venueId, pageUrl)) return extractPandoraEvents(html, pageUrl)
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
