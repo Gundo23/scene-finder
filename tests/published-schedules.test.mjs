@@ -183,3 +183,46 @@ test('Untamed publication retains a known time when only a listing is available'
     }
   }
 })
+
+test('Atlantis reads explicit full programme dates beyond the homepage weekend', () => {
+  const html = `<h1>atlantisEVOLUTION</h1><p>Burslem Stoke on Trent</p>
+    <p>LAST UPDATE: 01 November 2026</p>
+    <p>Friday 06 November Incognito Friday 9pm-2am
+    Saturday 07 November Super HOT Saturdays Saturday 9pm-2am
+    Friday 13 November Bex’s Birthday Friday 9pm-2am
+    Saturda y 14 November Newbies Event Saturday 9pm-2am
+    Friday 20 November STRICTLY 90’s Friday 9pm-2am
+    Saturday 21 November Michele’s Birthday Saturday 9pm-2am
+    Friday 27 November Super Busy Fridays Friday 9pm-2am
+    Saturday28 November Super HOT Saturdays Saturday 9pm-2am
+    Friday 04 December Here Comes Christmas Tree & Decorations Up Wear Something Christmas
+    Saturday 05 December Christmasy Saturday 9pm-2am
+    Friday 11 December Christmasy Friday 9pm-2am
+    Saturday 12 December Christmas Hot Wives Saturday 9pm-2am
+    Friday 19 December Main Christmas Party Friday 9pm-2am
+    Saturday 20 December Main Christmas Party Saturday 9pm-2am
+    Friday 25 December Closed Happy Christmas
+    Saturday 26 December Closed Phones OFF
+    Thursday 31 December New Years Eve 2026 | 2027 Singles and Couples 8pm-3am
+    Friday 01 January Closed Happy New Year
+    Saturday 02 January Closed Phones OFF
+    Friday 08 January Welcome to 2027 Friday 9pm-2am
+    Saturday 09 January Super HOT Saturday 9pm-2am
+    Friday 15 January GDPR Friday 9pm-2am
+    Saturday 16 January Super HOT Saturday 9pm-2am
+    Friday 22 January Vicki’s Birthday Friday 9pm-2am
+    Saturday 23 January Super HOT Saturday 9pm-2am</p>`
+  const url = 'https://www.atlantisevolution.co.uk/whats_on.htm'
+  const events = parseAtlantisSchedule(html, url, '2026-11-06')
+  assert.equal(events.length, 19)
+  assert.equal(events.find(e => e.event_date === '2026-12-04').start_time, null)
+  assert.equal(events.at(-1).event_date, '2027-01-23')
+  assert.equal(events.find(e => e.event_date === '2026-12-31').start_time, '20:00')
+  for (const date of ['2026-12-19','2026-12-20','2026-12-25','2026-12-26','2027-01-01','2027-01-02']) {
+    assert.ok(!events.some(e => e.event_date === date))
+  }
+  assert.ok(events.every(e => e.href === 'https://www.atlantisevolution.co.uk/#events'))
+  assert.deepEqual(parseAtlantisSchedule(html + html, url, '2026-11-06'), events)
+  assert.equal(parseAtlantisSchedule(html, 'https://www.atlantisevolution.co.uk/', '2026-11-06').length, 0)
+  assert.deepEqual(parseAtlantisSchedule(html, 'https://other.example/whats_on.htm', '2026-11-06'), [])
+})

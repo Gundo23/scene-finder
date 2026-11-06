@@ -1,4 +1,4 @@
-export const ATLANTIS_CALENDAR_URL = 'https://www.atlantisevolution.co.uk/'
+export const ATLANTIS_CALENDAR_URL = 'https://www.atlantisevolution.co.uk/whats_on.htm'
 export const SWEATBOX_CALENDAR_URL = 'https://www.sweatboxsoho.com/events/'
 
 type PublishedEvent = {
@@ -110,7 +110,7 @@ export function parseAtlantisSchedule(html: string, pageUrl: string, today: stri
     let hour = Number(match[1]) % 12
     if (match[3].toLowerCase() === 'pm') hour += 12
     events.push({
-      href: `${ATLANTIS_CALENDAR_URL}#events`,
+      href: 'https://www.atlantisevolution.co.uk/#events',
       text: halloweenDates.has(eventDate) ? 'Halloween Screams Weekend' : 'Atlantis Evolution event',
       event_date: eventDate,
       start_time: `${String(hour).padStart(2, '0')}:${match[2] || '00'}`,
@@ -119,7 +119,39 @@ export function parseAtlantisSchedule(html: string, pageUrl: string, today: stri
       method: 'atlantis-published-schedule',
     })
   }
-  return events
+
+  // The complete programme uses day-first rows; the homepage only carries
+  // the current weekend. Read explicit dates, never expand opening-hours prose.
+  if (officialPage(pageUrl, 'atlantisevolution.co.uk', '/whats_on.htm')) {
+    const updateMonth = MONTHS[(text.match(/LAST\s+UPDATE\s*:\s+\d{1,2}\s+(\w+)/i)?.[1] || '').slice(0, 3).toLowerCase()]
+    const weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+    const programme = text.replace(/Saturda\s+y/gi, 'Saturday')
+    const rows = [...programme.matchAll(/\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\b/gi)]
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]
+      const month = MONTHS[row[3].slice(0, 3).toLowerCase()]
+      const year = publishedYear + (updateMonth >= 10 && month <= 2 ? 1 : 0)
+      const day = new Date(Date.UTC(year, month - 1, Number(row[2]), 12))
+      if (day.getUTCMonth() !== month - 1 || day.getUTCDate() !== Number(row[2]) ||
+          weekdays[day.getUTCDay()].toLowerCase() !== row[1].toLowerCase()) continue
+      const eventDate = day.toISOString().slice(0, 10)
+      if (eventDate < today || seen.has(eventDate)) continue
+      const block = programme.slice(row.index! + row[0].length, rows[i + 1]?.index ?? programme.length)
+      if (/^\s*(?:closed|cancelled|canceled)\b/i.test(block)) continue
+      const time = block.match(/\b(\d{1,2})(?::([0-5]\d))?\s*(am|pm)\s*[-–]\s*\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)\b/i)
+      if (!block.trim() || (time && (Number(time[1]) < 1 || Number(time[1]) > 12))) continue
+      const hour = time ? Number(time[1]) % 12 + (time[3].toLowerCase() === 'pm' ? 12 : 0) : null
+      seen.add(eventDate)
+      events.push({
+        href: 'https://www.atlantisevolution.co.uk/#events',
+        text: 'Atlantis Evolution event', event_date: eventDate,
+        start_time: time ? `${String(hour).padStart(2, '0')}:${time[2] || '00'}` : null,
+        raw: `Official Atlantis Evolution schedule for ${eventDate} in Stoke-on-Trent.`,
+        image_url: null, method: 'atlantis-published-programme',
+      })
+    }
+  }
+  return events.sort((a, b) => a.event_date.localeCompare(b.event_date))
 }
 
 export function parseSweatboxSchedule(html: string, pageUrl: string, today: string): PublishedEvent[] {
