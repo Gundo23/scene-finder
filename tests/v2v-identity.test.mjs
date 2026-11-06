@@ -27,3 +27,20 @@ test('V2V official detail title variants share an occurrence identity', () => {
     context.eventDedupeKey('other_venue', 'Two', '2026-11-06', url),
   )
 })
+
+test('Club AntiChrist official detail title variants share only the same date and URL', () => {
+  const url = 'https://www.clubantichrist.co.uk/events/not-new-years-eve-party'
+  const venue = 'antichrist_club_antichrist_london'
+  assert.equal(
+    context.eventDedupeKey(venue, "Not New Year's Eve party", '2027-01-02', url),
+    context.eventDedupeKey(venue, "Not New Year's Eve party — Club AntiChrist", '2027-01-02', url),
+  )
+  assert.equal(
+    context.eventDedupeKey(venue, 'Club AntiChrist', '2027-01-02', url),
+    context.eventDedupeKey(venue, "Not New Year's Eve party", '2027-01-02', url),
+  )
+  assert.notEqual(
+    context.eventDedupeKey(venue, 'Club AntiChrist', '2027-01-02', url),
+    context.eventDedupeKey(venue, 'Club AntiChrist', '2027-03-12', url),
+  )
+})
