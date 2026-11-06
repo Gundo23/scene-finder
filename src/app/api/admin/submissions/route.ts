@@ -28,6 +28,37 @@ function getVenueCategory(type: string | null | undefined) {
   return 'Venue'
 }
 
+async function isAdmin() {
+  const store = await cookies()
+  return validAdminSession(store.get(ADMIN_COOKIE)?.value)
+}
+
+export async function GET() {
+  if (!(await isAdmin())) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const [submissions, contacts] = await Promise.all([
+    supabaseAdmin.from('submissions').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
+    supabaseAdmin.from('contact_requests').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
+  ])
+  if (submissions.error || contacts.error) {
+    return Response.json({ error: submissions.error?.message || contacts.error?.message }, { status: 500 })
+  }
+  return Response.json({ submissions: submissions.data || [], contactRequests: contacts.data || [] })
+}
+
+export async function PATCH(request: Request) {
+  if (!(await isAdmin())) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const { id, action } = await request.json()
+  if (typeof id !== 'string' || !['resolved', 'delete'].includes(action)) {
+    return Response.json({ error: 'Invalid request' }, { status: 400 })
+  }
+  const query = action === 'delete'
+    ? supabaseAdmin.from('contact_requests').delete().eq('id', id)
+    : supabaseAdmin.from('contact_requests').update({ status: 'resolved' }).eq('id', id)
+  const { error } = await query
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+  return Response.json({ success: true })
+}
+
 export async function POST(request: Request) {
   const cookieStore = await cookies()
   if (!validAdminSession(cookieStore.get(ADMIN_COOKIE)?.value)) {
