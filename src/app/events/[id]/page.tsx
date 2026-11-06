@@ -196,6 +196,7 @@ export default async function EventDetailPage({
     `,
     )
     .eq("event_id", id)
+    .eq("is_published", true)
     .single();
 
   if (error || !event) {
