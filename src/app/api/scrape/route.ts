@@ -24,6 +24,7 @@ import { parseRiotPartyOrganiser } from '@/lib/riot-party-events'
 import { parseStructuredEvents } from '@/lib/structured-events'
 import { parsePenthouseCalendar } from '@/lib/penthouse-calendar'
 import { parseEcclesiaCalendar } from '@/lib/ecclesia-calendar'
+import { parseDominiumCalendar } from '@/lib/dominium-calendar'
 import { dailyCoverageBatchSize, isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
 import { readBoundedResponse } from '@/lib/bounded-response'
 import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHeadingCalendar } from '@/lib/official-calendar'
@@ -9127,6 +9128,7 @@ function extractCjsTownhouseEvents(html: string, baseUrl: string) {
 
 function isTargetVenueSource(venueId: string | null | undefined, sourceUrl: string | null | undefined) {
   if (venueId && isDatedCalendarVenue(venueId)) return true
+  if (venueId === 'dominium_vita_london') return true
   const combined = `${venueId || ''} ${sourceUrl || ''}`.toLowerCase()
 
   return (
@@ -9345,6 +9347,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 
   if (source.venue_id === 'penthouse_playrooms_dunstable') return ['https://penthouse-playrooms.co.uk/events']
   if (source.venue_id === 'ecclesia_glasgow') return ['https://www.ecclesiaglasgow.com/upcoming-events/']
+  if (source.venue_id === 'dominium_vita_london') return ['https://dominiumvita.com/events/']
 
   if (source.venue_id === 'heroes_health_club_stourbridge') return [HEROES_CALENDAR_URL]
   if (source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return [ATLANTIS_CALENDAR_URL]
@@ -9578,6 +9581,7 @@ function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string
   if (venueId === 'club_bacchus_dundee') return extractClubBacchusEvents(html, pageUrl)
   if (venueId === 'the_playgrounds_cleckheaton') return extractPlaygroundsEvents(html, pageUrl)
   if (venueId === 'ecclesia_glasgow') return parseEcclesiaCalendar(html, pageUrl, londonToday())
+  if (venueId === 'dominium_vita_london') return parseDominiumCalendar(html, pageUrl, londonToday())
   if (venueId === 'club_f_birmingham' || isClubFSource(venueId, pageUrl)) return extractClubFEvents(html, pageUrl)
   if (isPandoraSource(venueId, pageUrl)) return extractPandoraEvents(html, pageUrl)
   if (isHellfireSource(venueId, pageUrl)) return extractHellfireEvents(html, pageUrl)
@@ -14240,6 +14244,7 @@ async function runScrapeRequest(request: Request) {
           source.venue_id === 'klub_verboten_london' ||
           source.venue_id === 'penthouse_playrooms_dunstable' ||
           source.venue_id === 'ecclesia_glasgow' ||
+          source.venue_id === 'dominium_vita_london' ||
           source.venue_id === 'untamed_nights_bournemouth'
         const jsonLdEvents = dedicatedCalendar ? [] : extractJsonLdEvents(html, pageUrl)
         const calendarLinks = dedicatedCalendar ? [] : extractCalendarEventLinks(html, pageUrl)
@@ -14674,6 +14679,7 @@ ${hu9HydratedText}`, pageUrl)
               source.venue_id !== 'ignite_west_drayton_heathrow' &&
               source.venue_id !== 'club_play_blackpool' &&
               source.venue_id !== 'penthouse_playrooms_dunstable' &&
+              source.venue_id !== 'dominium_vita_london' &&
               source.venue_id !== 'le_boudoir_club_london' &&
               source.venue_id !== 'f_society_newcastle_upon_tyne_north_east' &&
               !isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
@@ -15276,6 +15282,7 @@ ${hu9HydratedText}`, pageUrl)
         for (const link of links) {
           if (isDatedCalendarVenue(source.venue_id)) continue
           if (source.venue_id === 'heroes_health_club_stourbridge' ||
+              source.venue_id === 'dominium_vita_london' ||
               source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
               source.venue_id === 'sweatbox_soho_london' ||
               source.venue_id === 'bunker_bar_ma1_the_bunker_london' ||
