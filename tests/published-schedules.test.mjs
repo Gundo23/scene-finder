@@ -131,6 +131,12 @@ test('the actual publication guard ignores only a verified Untamed detail URL wh
   for (const event_name of ['Book tickets here', 'THE PLAYGROUNDS', 'R TO A NEW']) {
     assert.equal(context.candidateRejectionReason({ ...playgrounds, event_name }), 'rejected_playgrounds_navigation')
   }
+  for (const event_name of ['Next Day', 'Events for //', 'View Calendar']) {
+    assert.equal(context.candidateRejectionReason({ ...playgrounds, event_name }), 'rejected_calendar_navigation')
+  }
+  assert.equal(context.candidateRejectionReason({ ...playgrounds,
+    venue_id: 'withintemptation_devon', event_name: 'Swingers & Fetish Club',
+    ticket_url: 'https://wtclub.co.uk/events/month/2026-12' }), 'rejected_calendar_navigation')
 })
 
 test('scraper routes all three repaired venues through the dedicated parsers', () => {
