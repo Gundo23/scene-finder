@@ -26,7 +26,6 @@ import { parsePenthouseCalendar } from '@/lib/penthouse-calendar'
 import { parseEcclesiaCalendar } from '@/lib/ecclesia-calendar'
 import { parseDominiumCalendar } from '@/lib/dominium-calendar'
 import { parseAnnexCalendar } from '@/lib/annex-calendar'
-import { isPlaygroundsNavigationTitle } from '@/lib/playgrounds-guard'
 import { dailyCoverageBatchSize, isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
 import { readBoundedResponse } from '@/lib/bounded-response'
 import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHeadingCalendar } from '@/lib/official-calendar'
@@ -12003,7 +12002,10 @@ function candidateRejectionReason(input: {
   description: string | null
 }) {
   const eventName = cleanSf10RescueCandidateTitle(input.event_name, input.description)
-  if (isPlaygroundsNavigationTitle(input.venue_id, eventName)) return 'rejected_playgrounds_navigation'
+  if (input.venue_id === 'the_playgrounds_cleckheaton' &&
+      /^(?:book tickets here|the playgrounds|r to a new)$/.test(normalizeTitle(eventName))) {
+    return 'rejected_playgrounds_navigation'
+  }
 
   // Do not let generic description-keyword rescue widen this numeric-name exception.
   if (isEagleNumericTitle(eventName) && !isVerifiedEagleNumericTitle({ ...input, event_name: eventName })) {
