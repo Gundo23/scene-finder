@@ -28,6 +28,12 @@ test('detail enrichment preserves the normalized Brief Encounter feed title', ()
   vm.runInNewContext(block.getText(ast), context)
   assert.equal(context.title, 'Brief Encounter')
   assert.equal(context.description, 'Detail description')
+  context.title = 'Lets Get Bad Together (LGBTQAI+ Party)'
+  context.eventHtml = '<title>Ladies Night</title>'
+  vm.runInNewContext(block.getText(ast), context)
+  assert.equal(context.title, 'Lets Get Bad Together (LGBTQAI+ Party)')
+  context.title = 'Brief Encounter'
+  context.eventHtml = '<title>Brief Encounter Every Wed</title>'
   context.targetVenueEvent.method = 'another-calendar'
   vm.runInNewContext(block.getText(ast), context)
   assert.equal(context.title, 'Brief Encounter Every Wed')
