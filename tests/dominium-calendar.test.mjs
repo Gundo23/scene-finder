@@ -26,3 +26,9 @@ test('does not roll stale yearless cards into a distant future year', () => {
   const events = parseDominiumCalendar(html, url, '2026-12-13')
   assert.deepEqual(events.map((event) => event.event_date), ['2027-05-28'])
 })
+
+test('extracts the official Ibiza category when the main listing omits its card', () => {
+  const category = html.slice(html.indexOf('IBIZA EROS 2027') - 600)
+  const events = parseDominiumCalendar(category, 'https://dominiumvita.com/events/ibiza/', '2026-11-06')
+  assert.ok(events.some((event) => event.text === 'IBIZA EROS 2027' && event.event_date === '2027-05-28'))
+})
