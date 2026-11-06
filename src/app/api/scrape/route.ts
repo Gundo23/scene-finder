@@ -15308,6 +15308,7 @@ ${hu9HydratedText}`, pageUrl)
           if (source.venue_id === 'heroes_health_club_stourbridge' ||
               source.venue_id === 'dominium_vita_london' ||
               source.venue_id === 'the_annex_king_s_lynn' ||
+              source.venue_id === 'the_playgrounds_cleckheaton' ||
               source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
               source.venue_id === 'sweatbox_soho_london' ||
               source.venue_id === 'bunker_bar_ma1_the_bunker_london' ||
