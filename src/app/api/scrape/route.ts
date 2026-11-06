@@ -11734,9 +11734,11 @@ function eventDedupeKey(venueId: string, eventName: string, eventDate: string | 
     const firstPartyDetail = ((venueId === 'v2v_nuneaton' && hostname === 'v2v.uk') ||
       (venueId === 'antichrist_club_antichrist_london' && hostname === 'clubantichrist.co.uk')) &&
       /^\/events\/[a-z0-9-]+$/i.test(cleanPath)
+    const curiousDetail = venueId === 'curious_club_leicester' &&
+      hostname === 'curious-club.com' && /^\/special\/[a-z0-9-]+$/i.test(cleanPath)
     const hellfireOccurrence = venueId === 'hellfire_club_sunbury_on_thames_london_area' &&
       hostname === 'tockify.com' && /^\/hellfireclubuk\/detail\/\d+\/\d+$/i.test(cleanPath)
-    if (eventDate && (firstPartyDetail || hellfireOccurrence)) {
+    if (eventDate && (firstPartyDetail || curiousDetail || hellfireOccurrence)) {
       return `${venueId}|${cleanDate}|${cleanPath}`
     }
     return `${venueId}|${cleanDate}|${cleanName}|${cleanPath}`

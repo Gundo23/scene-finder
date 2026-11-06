@@ -57,3 +57,16 @@ test('Hellfire Tockify occurrence variants share a URL/date identity', () => {
     context.eventDedupeKey(venue, 'Ladies Night', '2026-12-04', url),
   )
 })
+
+test('Curious Club detail title variants share an occurrence identity', () => {
+  const venue = 'curious_club_leicester'
+  const url = 'https://www.curious-club.com/special/untamed'
+  assert.equal(
+    context.eventDedupeKey(venue, 'Untamed', '2026-11-07', url),
+    context.eventDedupeKey(venue, 'Untamed — Curious', '2026-11-07', url),
+  )
+  assert.notEqual(
+    context.eventDedupeKey(venue, 'Untamed', '2026-11-07', url),
+    context.eventDedupeKey(venue, 'Untamed', '2026-11-14', url),
+  )
+})
