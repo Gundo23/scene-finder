@@ -13299,7 +13299,7 @@ async function upsertEvent(input: {
   return { action: 'created', error: null }
 }
 
-async function scrapeLibertyEliteApiSource(source: { venue_id: string; source_url: string }) {
+async function scrapeTribeEventsApiSource(source: { venue_id: string; source_url: string }) {
   const found: any[] = []
   const errors: any[] = []
   const failedPages: any[] = []
@@ -13382,7 +13382,7 @@ async function scrapeLibertyEliteApiSource(source: { venue_id: string; source_ur
 
       if (found.length < MAX_EVENTS_RETURNED && result.action !== 'skipped') {
         found.push({ venue_id: source.venue_id, event_name: title, event_date: eventDate,
-          event_url: ticketUrl, image_url: imageUrl, method: 'liberty-events-api' })
+          event_url: ticketUrl, image_url: imageUrl, method: 'tribe-events-api' })
       }
     }
 
@@ -13628,9 +13628,11 @@ async function runScrapeRequest(request: Request) {
       existingJunkDeleted += await cleanupExistingVenueJunk(source.venue_id)
     }
 
-    if (source.venue_id === 'liberty_elite_lutterworth' || isIcsSourceUrl(source.source_url)) {
-      const result = source.venue_id === 'liberty_elite_lutterworth'
-        ? await scrapeLibertyEliteApiSource(source)
+    if (source.venue_id === 'liberty_elite_lutterworth' ||
+        source.venue_id === 'club_locked_manchester_uk' || isIcsSourceUrl(source.source_url)) {
+      const result = source.venue_id === 'liberty_elite_lutterworth' ||
+        source.venue_id === 'club_locked_manchester_uk'
+        ? await scrapeTribeEventsApiSource(source)
         : await scrapeIcsSource({
             venue_id: source.venue_id,
             source_url: source.source_url,
