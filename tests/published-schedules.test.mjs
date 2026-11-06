@@ -124,6 +124,13 @@ test('the actual publication guard ignores only a verified Untamed detail URL wh
     { ticket_url: 'https://www.untamednights.co.uk/event-details/canvas-4-yule?next=1' },
     { ticket_url: 'https://www.untamednights.co.uk/event-details/canvas-4-yule#next' },
   ]) assert.equal(context.candidateRejectionReason({ ...candidate, ...change }), 'rejected_bad_pattern')
+  const playgrounds = { venue_id: 'the_playgrounds_cleckheaton', event_name: 'TABU - Darker',
+    event_date: '2026-12-05', ticket_url: 'https://www.theplaygrounds.co.uk/events/tabu-darker',
+    description: 'Official Playgrounds event at Sanctuary on 5 December 2026.' }
+  assert.equal(context.candidateRejectionReason(playgrounds), null)
+  for (const event_name of ['Book tickets here', 'THE PLAYGROUNDS', 'R TO A NEW']) {
+    assert.equal(context.candidateRejectionReason({ ...playgrounds, event_name }), 'rejected_playgrounds_navigation')
+  }
 })
 
 test('scraper routes all three repaired venues through the dedicated parsers', () => {
