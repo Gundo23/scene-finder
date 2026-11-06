@@ -11718,6 +11718,12 @@ function eventDedupeKey(venueId: string, eventName: string, eventDate: string | 
     parsed.hash = ''
     parsed.search = ''
     const cleanPath = parsed.pathname.replace(/\/var\/.*$/i, '').replace(/\/$/, '')
+    // V2V's listing and detail page use the same event URL but one title adds
+    // the site name. One official detail occurrence must keep one identity.
+    if (venueId === 'v2v_nuneaton' && parsed.hostname.replace(/^www\./, '') === 'v2v.uk' &&
+        /^\/events\/[a-z0-9-]+$/i.test(cleanPath) && eventDate) {
+      return `${venueId}|${cleanDate}|${cleanPath}`
+    }
     return `${venueId}|${cleanDate}|${cleanName}|${cleanPath}`
   } catch {
     return `${venueId}|${cleanDate}|${cleanName}|${ticketUrl}`
