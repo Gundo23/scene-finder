@@ -25,6 +25,7 @@ import { parseStructuredEvents } from '@/lib/structured-events'
 import { parsePenthouseCalendar } from '@/lib/penthouse-calendar'
 import { parseEcclesiaCalendar } from '@/lib/ecclesia-calendar'
 import { parseDominiumCalendar } from '@/lib/dominium-calendar'
+import { parseAnnexCalendar } from '@/lib/annex-calendar'
 import { dailyCoverageBatchSize, isPrioritySlot, selectVenueIds, type VenueHealth } from '@/lib/venue-scheduling'
 import { readBoundedResponse } from '@/lib/bounded-response'
 import { isOfficialHeadingCalendar, officialCalendarNavigation, parseOfficialHeadingCalendar } from '@/lib/official-calendar'
@@ -9352,6 +9353,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
     'https://dominiumvita.com/events/',
     'https://dominiumvita.com/events/ibiza/',
   ]
+  if (source.venue_id === 'the_annex_king_s_lynn') return ['https://theannex.org.uk/3-month-to-view-calendar/']
 
   if (source.venue_id === 'heroes_health_club_stourbridge') return [HEROES_CALENDAR_URL]
   if (source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham') return [ATLANTIS_CALENDAR_URL]
@@ -9560,6 +9562,7 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
 }
 
 function extractTargetVenueEvents(html: string, pageUrl: string, venueId: string) {
+  if (venueId === 'the_annex_king_s_lynn') return parseAnnexCalendar(html, pageUrl, londonToday())
   // This venue also appears in the generic dated-calendar set; its scoped card
   // parser must take precedence to keep titles, dates and detail URLs together.
   if (venueId === 'dominium_vita_london') return parseDominiumCalendar(html, pageUrl, londonToday())
@@ -14002,6 +14005,7 @@ async function runScrapeRequest(request: Request) {
       : source.venue_id === 'xtasia_west_bromwich'
       ? xtasiaDiscoveredUrls
       : source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+        source.venue_id === 'the_annex_king_s_lynn' ||
         source.venue_id === 'heroes_health_club_stourbridge' ||
         source.venue_id === 'partners_manchester_bury_area' ||
         source.venue_id === 'infusions_infusion_blackpool_blackpool' ||
@@ -14229,6 +14233,7 @@ async function runScrapeRequest(request: Request) {
 
         const pageText = cleanText(html).slice(0, 8000)
         const dedicatedCalendar = isDatedCalendarVenue(source.venue_id) || source.venue_id === 'afterdark_edinburgh_edinburgh' ||
+          source.venue_id === 'the_annex_king_s_lynn' ||
           source.venue_id === 'heroes_health_club_stourbridge' ||
           source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
           source.venue_id === 'sweatbox_soho_london' ||
@@ -14686,6 +14691,7 @@ ${hu9HydratedText}`, pageUrl)
               source.venue_id !== 'club_play_blackpool' &&
               source.venue_id !== 'penthouse_playrooms_dunstable' &&
               source.venue_id !== 'dominium_vita_london' &&
+              source.venue_id !== 'the_annex_king_s_lynn' &&
               source.venue_id !== 'le_boudoir_club_london' &&
               source.venue_id !== 'f_society_newcastle_upon_tyne_north_east' &&
               !isNumber52Source(source.venue_id, source.source_url) && !isPlusciousPartiesSource(source.venue_id, source.source_url) && !isClubFSource(source.venue_id, source.source_url) && !isSheWorldSource(source.venue_id, source.source_url) && allowedSourcePageForVenue(source, ticketUrl) && ticketUrl !== pageUrl && !ticketUrl.includes('#')) {
@@ -15289,6 +15295,7 @@ ${hu9HydratedText}`, pageUrl)
           if (isDatedCalendarVenue(source.venue_id)) continue
           if (source.venue_id === 'heroes_health_club_stourbridge' ||
               source.venue_id === 'dominium_vita_london' ||
+              source.venue_id === 'the_annex_king_s_lynn' ||
               source.venue_id === 'atlantisevolution_west_midlands_swingers_club_stoke_birmingham' ||
               source.venue_id === 'sweatbox_soho_london' ||
               source.venue_id === 'bunker_bar_ma1_the_bunker_london' ||
