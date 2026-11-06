@@ -1,3 +1,5 @@
+import { cookies } from 'next/headers'
+import { ADMIN_COOKIE, validAdminSession } from '@/lib/admin-session'
 import { createClient } from '@supabase/supabase-js'
 
 const supabaseAdmin = createClient(
@@ -27,6 +29,10 @@ function getVenueCategory(type: string | null | undefined) {
 }
 
 export async function POST(request: Request) {
+  const cookieStore = await cookies()
+  if (!validAdminSession(cookieStore.get(ADMIN_COOKIE)?.value)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   const { id, action } = await request.json()
 
   if (!id || !action) {
