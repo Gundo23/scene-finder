@@ -9487,7 +9487,8 @@ function discoverTargetVenueEventPages(source: { venue_id: string; source_url: s
   }
 
   if (source.venue_id === 'the_playgrounds_cleckheaton') {
-    for (const path of ['/events-2', '/platinum', '/tickets']) {
+    // The retired /platinum page is 404; /events-2 and /tickets remain the active sources.
+    for (const path of ['/events-2', '/tickets']) {
       const url = absoluteUrl(source.source_url, path)
       if (url) urls.add(url)
     }
