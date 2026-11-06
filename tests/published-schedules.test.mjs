@@ -140,6 +140,7 @@ test('the actual publication guard ignores only a verified Untamed detail URL wh
 })
 
 test('scraper routes all three repaired venues through the dedicated parsers', () => {
+  assert.match(scraperRoute, /source\.venue_id === 'the_playgrounds_cleckheaton' \|\|[\s\S]*?skipped\+\+\s*continue/)
   assert.match(scraperRoute, /venueId === 'untamed_nights_bournemouth' \|\|/)
   assert.match(scraperRoute, /return listingEvents\.length > 0 \? listingEvents : parseUntamedDetail/)
   assert.match(scraperRoute, /return parseAtlantisSchedule\(html, pageUrl, londonToday\(\)\)/)
