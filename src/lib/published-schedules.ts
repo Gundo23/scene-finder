@@ -139,13 +139,13 @@ export function parseAtlantisSchedule(html: string, pageUrl: string, today: stri
       const block = programme.slice(row.index! + row[0].length, rows[i + 1]?.index ?? programme.length)
       if (/^\s*(?:closed|cancelled|canceled)\b/i.test(block)) continue
       const time = block.match(/\b(\d{1,2})(?::([0-5]\d))?\s*(am|pm)\s*[-–]\s*\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)\b/i)
-      if (!time || Number(time[1]) < 1 || Number(time[1]) > 12) continue
-      const hour = Number(time[1]) % 12 + (time[3].toLowerCase() === 'pm' ? 12 : 0)
+      if (!block.trim() || (time && (Number(time[1]) < 1 || Number(time[1]) > 12))) continue
+      const hour = time ? Number(time[1]) % 12 + (time[3].toLowerCase() === 'pm' ? 12 : 0) : null
       seen.add(eventDate)
       events.push({
         href: 'https://www.atlantisevolution.co.uk/#events',
         text: 'Atlantis Evolution event', event_date: eventDate,
-        start_time: `${String(hour).padStart(2, '0')}:${time[2] || '00'}`,
+        start_time: time ? `${String(hour).padStart(2, '0')}:${time[2] || '00'}` : null,
         raw: `Official Atlantis Evolution schedule for ${eventDate} in Stoke-on-Trent.`,
         image_url: null, method: 'atlantis-published-programme',
       })
