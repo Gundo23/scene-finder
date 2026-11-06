@@ -195,7 +195,7 @@ test('Atlantis reads explicit full programme dates beyond the homepage weekend',
     Saturday 21 November Michele’s Birthday Saturday 9pm-2am
     Friday 27 November Super Busy Fridays Friday 9pm-2am
     Saturday28 November Super HOT Saturdays Saturday 9pm-2am
-    Friday 04 December Here Comes Christmas Friday 9pm-2am
+    Friday 04 December Here Comes Christmas Tree & Decorations Up Wear Something Christmas
     Saturday 05 December Christmasy Saturday 9pm-2am
     Friday 11 December Christmasy Friday 9pm-2am
     Saturday 12 December Christmas Hot Wives Saturday 9pm-2am
@@ -215,6 +215,7 @@ test('Atlantis reads explicit full programme dates beyond the homepage weekend',
   const url = 'https://www.atlantisevolution.co.uk/whats_on.htm'
   const events = parseAtlantisSchedule(html, url, '2026-11-06')
   assert.equal(events.length, 19)
+  assert.equal(events.find(e => e.event_date === '2026-12-04').start_time, null)
   assert.equal(events.at(-1).event_date, '2027-01-23')
   assert.equal(events.find(e => e.event_date === '2026-12-31').start_time, '20:00')
   for (const date of ['2026-12-19','2026-12-20','2026-12-25','2026-12-26','2027-01-01','2027-01-02']) {
