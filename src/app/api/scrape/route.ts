@@ -1033,6 +1033,14 @@ function extractAntiChristDetailTitle(html: string, url: string) {
   return heading ? cleanText(heading) : null
 }
 
+function extractV2vDetailStartTime(html: string, url: string, eventDate: string | null) {
+  if (!eventDate || !/^https:\/\/(?:www\.)?v2v\.uk\/events\/[^/?#]+\/?(?:[?#]|$)/i.test(url)) return null
+  // The official Squarespace detail JSON-LD gives the local start. The
+  // surrounding calendar card also contains an end time, which is not a start.
+  const start = html.match(/"startDate"\s*:\s*"(20\d{2}-\d{2}-\d{2})T(\d{2}:\d{2}):\d{2}[+-]\d{4}"/i)
+  return start?.[1] === eventDate ? validTimeOrNull(start[2]) : null
+}
+
 function extractPageTitle(html: string) {
   return (
     cleanText(html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1]) ||
@@ -15292,7 +15300,9 @@ ${hu9HydratedText}`, pageUrl)
               description = extractMetaDescription(eventHtml) || cleanText(eventHtml).slice(0, 300)
               imageUrl = extractBestImage(eventHtml, calendarEvent.href) || pageImage
               eventDate = eventDate || extractDateFromHtml(eventHtml)
-              startTime = startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
+              startTime = (source.venue_id === 'v2v_nuneaton'
+                ? extractV2vDetailStartTime(eventHtml, calendarEvent.href, eventDate)
+                : null) || startTime || extractTime(cleanText(eventHtml).slice(0, 3000))
             }
           }
 
