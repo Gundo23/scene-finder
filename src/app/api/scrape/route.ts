@@ -15271,6 +15271,16 @@ ${hu9HydratedText}`, pageUrl)
           if (sameDomain(source.source_url, calendarEvent.href)) {
             eventHtml = await fetchHtml(calendarEvent.href)
 
+            // Old Squarespace detail links can appear inside a newer calendar
+            // context. Never assign the context date to an older event page.
+            if (eventHtml && source.venue_id === 'antichrist_club_antichrist_london' && eventDate) {
+              const officialDate = eventHtml.match(/"startDate"\s*:\s*"(20\d{2}-\d{2}-\d{2})T/i)?.[1]
+              if (!officialDate || officialDate !== eventDate) {
+                skipped++
+                continue
+              }
+            }
+
             if (eventHtml) {
               title = (source.venue_id === 'antichrist_club_antichrist_london'
                 ? extractAntiChristDetailTitle(eventHtml, calendarEvent.href)
