@@ -51,7 +51,7 @@ export function parseDominiumCalendar(html: string, pageUrl: string, today: stri
   let page: URL
   try { page = new URL(pageUrl) } catch { return [] }
   if (page.protocol !== 'https:' || page.hostname.replace(/^www\./, '') !== 'dominiumvita.com' ||
-      page.pathname.replace(/\/+$/, '') !== '/events') return []
+      !['/events', '/events/ibiza'].includes(page.pathname.replace(/\/+$/, ''))) return []
 
   const markers = [...html.matchAll(/<div[^>]*class="[^"]*\bev_slider_link\b[^"]*"[^>]*>/gi)]
   const found: DominiumEvent[] = []
