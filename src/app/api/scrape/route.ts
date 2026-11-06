@@ -11719,12 +11719,16 @@ function eventDedupeKey(venueId: string, eventName: string, eventDate: string | 
     parsed.hash = ''
     parsed.search = ''
     const cleanPath = parsed.pathname.replace(/\/var\/.*$/i, '').replace(/\/$/, '')
-    // Official V2V and Club AntiChrist detail pages produce multiple title
-    // variants for one URL and date. Keep one occurrence per detail page.
+    // First-party detail URLs and Hellfire's official Tockify occurrence URL
+    // can yield different listing/detail titles for the same date. One URL/date
+    // is one occurrence for these explicitly scoped sources.
     const hostname = parsed.hostname.replace(/^www\./, '')
-    if (((venueId === 'v2v_nuneaton' && hostname === 'v2v.uk') ||
-         (venueId === 'antichrist_club_antichrist_london' && hostname === 'clubantichrist.co.uk')) &&
-        /^\/events\/[a-z0-9-]+$/i.test(cleanPath) && eventDate) {
+    const firstPartyDetail = ((venueId === 'v2v_nuneaton' && hostname === 'v2v.uk') ||
+      (venueId === 'antichrist_club_antichrist_london' && hostname === 'clubantichrist.co.uk')) &&
+      /^\/events\/[a-z0-9-]+$/i.test(cleanPath)
+    const hellfireOccurrence = venueId === 'hellfire_club_sunbury_on_thames_london_area' &&
+      hostname === 'tockify.com' && /^\/hellfireclubuk\/detail\/\d+\/\d+$/i.test(cleanPath)
+    if (eventDate && (firstPartyDetail || hellfireOccurrence)) {
       return `${venueId}|${cleanDate}|${cleanPath}`
     }
     return `${venueId}|${cleanDate}|${cleanName}|${cleanPath}`
@@ -14735,10 +14739,10 @@ ${hu9HydratedText}`, pageUrl)
               const detailDate = extractDateFromHtml(eventHtml)
               const detailImage = extractBestImage(eventHtml, ticketUrl)
 
-              // Tockify's detail title reintroduces the recurrence suffix.
-              // Keep the normalized feed title so the occurrence keeps its ID.
-              const keepFeedTitle = targetVenueEvent.method === 'hellfire-tockify-ics' && title === 'Brief Encounter'
-              if (!keepFeedTitle && detailTitle && !isJunkTitle(detailTitle)) title = detailTitle
+              // The iCalendar SUMMARY is the official occurrence title. Tockify's
+              // detail document title can be generic or add a recurrence suffix.
+              if (targetVenueEvent.method !== 'hellfire-tockify-ics' &&
+                  detailTitle && !isJunkTitle(detailTitle)) title = detailTitle
               description = detailDescription || description
               imageUrl = detailImage || imageUrl
               eventDate = eventDate || detailDate

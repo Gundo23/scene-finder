@@ -44,3 +44,16 @@ test('Club AntiChrist official detail title variants share only the same date an
     context.eventDedupeKey(venue, 'Club AntiChrist', '2027-03-12', url),
   )
 })
+
+test('Hellfire Tockify occurrence variants share a URL/date identity', () => {
+  const venue = 'hellfire_club_sunbury_on_thames_london_area'
+  const url = 'https://tockify.com/hellfireclubuk/detail/82/1793998800000'
+  assert.equal(
+    context.eventDedupeKey(venue, 'Lets Get Bad Together (LGBTQAI+ Party)', '2026-11-06', url),
+    context.eventDedupeKey(venue, 'Ladies Night', '2026-11-06', url),
+  )
+  assert.notEqual(
+    context.eventDedupeKey(venue, 'Ladies Night', '2026-11-06', url),
+    context.eventDedupeKey(venue, 'Ladies Night', '2026-12-04', url),
+  )
+})
