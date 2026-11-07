@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
 import FallbackImage from '@/app/components/FallbackImage'
+import EventArtwork from '@/app/components/EventArtwork'
 import Icon from '@/app/components/Icon'
 import { cleanText } from '@/lib/cleanText'
 
@@ -217,7 +218,7 @@ export default async function EventDetailPage({
             </div>
 
             <div className="order-2 flex items-center justify-center border-t border-white/8 bg-black/25 p-4 md:order-1 md:border-t-0 md:border-r md:p-6">
-              <FallbackImage src={event.image_url} fallbackSources={[venue?.image_url, organiser?.image_url]} fallbackSrc="/images/home-hero.jpg" alt={`${eventName} artwork`} loading="eager" fetchPriority="high" className="h-64 w-full object-contain sm:h-80 md:h-full md:max-h-[480px]" />
+              <EventArtwork src={event.image_url} eventName={eventName} date={event.event_date} loading="eager" className="h-64 w-full object-contain sm:h-80 md:h-full md:max-h-[480px]" />
             </div>
           </div>
         </article>
