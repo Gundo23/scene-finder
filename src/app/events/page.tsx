@@ -620,40 +620,25 @@ export default async function EventsPage({
   let filteredCount = 0
 
   if (timing === 'tonight') {
-    const { data, error } = await eventQuery.limit(1000)
-
-    if (error) {
-      return (
-        <main className="min-h-screen bg-zinc-950 p-8 text-white">
-          Error loading events: {error.message}
-        </main>
-      )
-    }
-
-    const tonightEvents = ((data || []) as EventRow[]).filter((event) =>
-      isTonightEvent(event, today)
-    )
-
-    filteredCount = tonightEvents.length
-    const startIndex = (page - 1) * PAGE_SIZE
-    events = tonightEvents.slice(startIndex, startIndex + PAGE_SIZE)
-  } else {
-    const from = (page - 1) * PAGE_SIZE
-    const to = from + PAGE_SIZE - 1
-
-    const { data, error, count } = await eventQuery.range(from, to)
-
-    if (error) {
-      return (
-        <main className="min-h-screen bg-zinc-950 p-8 text-white">
-          Error loading events: {error.message}
-        </main>
-      )
-    }
-
-    events = (data || []) as EventRow[]
-    filteredCount = count || 0
+    // Filter in Postgres before pagination, so the first 1,000 events
+    // cannot hide later evening matches.
+    eventQuery = eventQuery.or('start_time.is.null,start_time.eq.00:00:00,start_time.gte.17:00:00')
   }
+
+  const from = (page - 1) * PAGE_SIZE
+  const to = from + PAGE_SIZE - 1
+  const { data, error, count } = await eventQuery.range(from, to)
+
+  if (error) {
+    return (
+      <main className="min-h-screen bg-zinc-950 p-8 text-white">
+        Error loading events: {error.message}
+      </main>
+    )
+  }
+
+  events = (data || []) as EventRow[]
+  filteredCount = count || 0
 
   const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE))
   const safePage = Math.min(page, totalPages)
@@ -1014,7 +999,7 @@ export default async function EventsPage({
                       src={cardImage}
                       fallbackSrc="/images/home-hero.jpg"
                       alt={eventName}
-                      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                      className="h-full w-full object-contain p-3 transition duration-300 group-hover:scale-[1.02]"
                     />
 
                     <div className="absolute left-3 top-3 flex flex-wrap gap-2">
