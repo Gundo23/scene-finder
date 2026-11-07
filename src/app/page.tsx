@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { shouldShowPublicVenue } from '@/lib/venue-visibility'
 import FallbackImage from '@/app/components/FallbackImage'
 import Icon from '@/app/components/Icon'
 
@@ -11,11 +10,11 @@ export default async function Home() {
     timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date())
   const [venuesResult, eventsResult, lifetimeResult] = await Promise.all([
-    supabase.from('venues').select('name, category, status').limit(5000),
+    supabase.from('venues').select('venue_id', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }).eq('is_published', true).gte('event_date', today),
     supabase.rpc('sf_public_lifetime_event_count'),
   ])
-  const venueCount = venuesResult.error ? null : (venuesResult.data || []).filter(shouldShowPublicVenue).length
+  const venueCount = venuesResult.error ? null : venuesResult.count
   const upcomingEventCount = eventsResult.error ? null : eventsResult.count
   const lifetimeCount = lifetimeResult.error ? null : lifetimeResult.data
 
@@ -51,7 +50,7 @@ export default async function Home() {
             </p>
             {(venueCount !== null || upcomingEventCount !== null) && (
               <p className="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-zinc-400 lg:justify-start">
-                {venueCount !== null && <span><strong className="font-bold tabular-nums text-white">{venueCount.toLocaleString('en-GB')}</strong> venues</span>}
+                {venueCount !== null && <span><strong className="font-bold tabular-nums text-white">{venueCount.toLocaleString('en-GB')}</strong> venue records</span>}
                 {upcomingEventCount !== null && <span><strong className="font-bold tabular-nums text-white">{upcomingEventCount.toLocaleString('en-GB')}</strong> upcoming events</span>}
               </p>
             )}
