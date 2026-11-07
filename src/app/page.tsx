@@ -49,8 +49,6 @@ export default async function Home() {
               </div>
             )}
             <p className="sr-only">All-time event records include historical entries and may include unpublished records.</p>
-            <p className="hidden">
-            </p>
           </div>
 
           <div className="w-full space-y-3">
