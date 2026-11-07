@@ -5,6 +5,7 @@ import Icon from '@/app/components/Icon'
 import { addDays, getTodayString, getWeekendRange } from '@/lib/discovery-dates'
 import { shouldShowPublicVenue } from '@/lib/venue-visibility'
 import FallbackImage from '@/app/components/FallbackImage'
+import EventArtwork from '@/app/components/EventArtwork'
 import { cleanText } from '@/lib/cleanText'
 
 export const dynamic = 'force-dynamic'
@@ -759,7 +760,7 @@ export default async function EventsPage({
                         return (
                           <article key={event.event_id} className="overflow-hidden rounded-2xl border border-purple-400/20 bg-zinc-900/70">
                             <Link href={href} className="block aspect-[16/10] bg-zinc-950">
-                              <FallbackImage src={event.image_url} fallbackSources={[venue?.image_url, organiser?.image_url]} fallbackSrc="/images/home-hero.jpg" alt={name} className="h-full w-full object-contain p-3" />
+                              <EventArtwork src={event.image_url} eventName={name} date={event.event_date} className="h-full w-full object-contain p-3" />
                             </Link>
                             <div className="p-4">
                               <p className="text-xs font-semibold text-blue-200">{formatTime(event.start_time)} · {getEventLocation(event, venue)}</p>
@@ -816,7 +817,7 @@ export default async function EventsPage({
                 return (
                   <article key={event.event_id} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-blue-500/20 bg-gradient-to-br from-zinc-900 to-zinc-950 transition duration-200 hover:border-blue-400/60 hover:shadow-lg hover:shadow-blue-950/30">
                     <Link href={detailsHref} aria-label={`View ${eventName}`} className="block aspect-[16/10] overflow-hidden border-b border-zinc-800/70 bg-zinc-950/80">
-                      <FallbackImage src={event.image_url} fallbackSources={[venue?.image_url, organiser?.image_url]} fallbackSrc="/images/home-hero.jpg" alt={eventName} loading={index < 3 ? 'eager' : 'lazy'} className="h-full w-full object-contain p-3" />
+                      <EventArtwork src={event.image_url} eventName={eventName} date={event.event_date} loading={index < 3 ? "eager" : "lazy"} className="h-full w-full object-contain p-3" />
                     </Link>
                     <div className="flex flex-1 flex-col p-4 sm:p-5">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-blue-200">
