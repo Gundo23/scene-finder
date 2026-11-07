@@ -9,6 +9,7 @@ import { getTodayString, addDays, getWeekendRange } from '@/lib/discovery-dates'
 import Icon from '@/app/components/Icon'
 import Form from 'next/form'
 import VenueDiscoveryMap from '@/app/components/VenueDiscoveryMap'
+import NearMeButton from '@/app/components/NearMeButton'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 const FALLBACK_REGIONS = [
@@ -1000,6 +1001,7 @@ export default async function VenuesPage({
               <button type="submit" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 px-4 text-sm font-bold text-white shadow-lg shadow-blue-500/15 transition hover:brightness-110 sm:px-6">Search</button>
             </div>
             <p className="mt-2 text-xs leading-5 text-zinc-400">Enter a UK postcode to find venues within 30 miles.</p>
+            <NearMeButton />
             {timing && <input type="hidden" name="timing" value={timing} />}
             {sort === 'popular' && <input type="hidden" name="sort" value="popular" />}
             {view !== 'grid' && <input type="hidden" name="view" value={view} />}
