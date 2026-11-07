@@ -992,9 +992,9 @@ export default async function EventsPage({
               return (
                 <article
                   key={event.event_id}
-                  className="group overflow-hidden rounded-3xl border border-zinc-800 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-black/20 transition hover:-translate-y-1 hover:border-blue-500/60 hover:shadow-blue-950/40"
+                  className="group flex h-full flex-col overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20"
                 >
-                  <div className="relative aspect-[16/9] overflow-hidden bg-zinc-900">
+                  <div className="relative aspect-[16/9] overflow-hidden border-b border-blue-500/15 bg-zinc-950">
                     <FallbackImage
                       src={cardImage}
                       fallbackSrc="/images/home-hero.jpg"
@@ -1019,14 +1019,14 @@ export default async function EventsPage({
                     </div>
                   </div>
 
-                  <div className="p-4 sm:p-5">
+                  <div className="flex flex-1 flex-col p-4 sm:p-5">
                     <div className="flex flex-wrap gap-2 text-xs font-semibold text-zinc-400">
                       <span>{formatDate(event.event_date)}</span>
                       <span>•</span>
                       <span>{formatTime(event.start_time)}</span>
                     </div>
 
-                    <h3 className="mt-2 text-xl font-black leading-tight text-white">
+                    <h3 className="mt-3 line-clamp-2 text-xl font-black leading-tight text-white">
                       {eventName}
                     </h3>
 
@@ -1058,7 +1058,7 @@ export default async function EventsPage({
                       </p>
                     )}
 
-                    <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <div className="mt-auto grid grid-cols-2 gap-2 pt-5">
                       <Link
                         href={`/events/${event.event_id}`}
                         className="inline-flex items-center justify-center rounded-2xl border border-blue-400/60 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-100 transition hover:bg-blue-500/20"
@@ -1066,11 +1066,6 @@ export default async function EventsPage({
                         View details →
                       </Link>
 
-                      {organiser && (
-                        <Link href={`/venue/${organiser.venue_id}`} className="text-sm text-blue-200 underline">
-                          By {cleanText(organiser.name || 'Travelling organiser')}
-                        </Link>
-                      )}
                       {event.ticket_url ? (
                         <a
                           href={event.ticket_url}
@@ -1089,6 +1084,10 @@ export default async function EventsPage({
                         </Link>
                       )}
                     </div>
+                    {organiser && (
+                      <Link href={`/venue/${organiser.venue_id}`} className="mt-3 text-xs font-semibold text-blue-200 underline underline-offset-2">
+                        By {cleanText(organiser.name || 'Travelling organiser')}
+                      </Link>
                   </div>
                 </article>
               )
