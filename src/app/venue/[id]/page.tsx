@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 
 import Link from 'next/link'
+import FallbackImage from '@/app/components/FallbackImage'
 
 import { cleanText } from '@/lib/cleanText'
 
@@ -872,9 +873,9 @@ export default async function VenuePage({
               const eventType = event.event_type ? cleanDisplayText(event.event_type) : 'Event'
 
               const eventDescription = event.description
-
                 ? cleanDisplayText(event.description)
-
+                    .replace(/^click on the icon for\s*:?\s*/i, '')
+                    .trim()
                 : ''
 
               const dateBadge = getEventDateBadge(event.event_date)
@@ -912,17 +913,14 @@ export default async function VenuePage({
                   <div className="pointer-events-none absolute inset-y-6 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400/50 to-transparent" />
 
                   {event.image_url && (
-
-                    <img
-
-                      src={event.image_url}
-
-                      alt={eventName}
-
-                      className="h-48 w-full object-cover sm:h-56"
-
-                    />
-
+                    <div className="flex h-48 w-full items-center justify-center overflow-hidden border-b border-blue-500/15 bg-zinc-950 p-3 sm:h-56 sm:p-4">
+                      <FallbackImage
+                        src={event.image_url}
+                        fallbackSrc="/images/home-hero.jpg"
+                        alt={eventName}
+                        className="h-full w-full object-contain"
+                      />
+                    </div>
                   )}
 
 
