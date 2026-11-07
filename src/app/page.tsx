@@ -12,15 +12,15 @@ export default async function Home() {
     supabase.rpc('sf_public_lifetime_event_count'),
   ])
   return (
-    <main className="fixed inset-0 h-[100dvh] overflow-hidden bg-zinc-950 text-white">
-      <div className="relative m-3 flex h-[calc(100dvh-24px)] items-center justify-center overflow-hidden rounded-[42px] border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-5 py-4 shadow-[0_0_50px_rgba(59,130,246,0.15)] ring-1 ring-purple-500/20 sm:px-8 sm:py-6">
+    <main className="min-h-[100dvh] overflow-x-hidden bg-zinc-950 text-white">
+      <div className="relative m-3 flex min-h-[calc(100dvh-24px)] items-center justify-center overflow-hidden rounded-[42px] border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-5 py-4 shadow-[0_0_50px_rgba(59,130,246,0.15)] ring-1 ring-purple-500/20 sm:px-8 sm:py-6">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_28%)]" />
 
         <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
         <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400 to-transparent" />
         <div className="pointer-events-none absolute inset-y-8 left-0 w-px bg-gradient-to-b from-transparent via-blue-400/70 to-transparent" />
 
-        <div className="relative flex max-h-full w-full max-w-md flex-col items-center justify-center text-center">
+        <div className="relative flex w-full max-w-md flex-col items-center justify-center py-6 text-center">
           <p className="mb-3 text-xs font-black uppercase tracking-[0.45em] text-blue-300 sm:text-sm">
             Scene Finder
           </p>
