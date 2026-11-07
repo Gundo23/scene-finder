@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-type VenuePin = { id: string; name: string; area: string; lat: number; lng: number; href: string }
+type VenuePin = { id: string; name: string; area: string; lat: number; lng: number; href: string; approximate?: boolean }
 type LeafletMap = { setView: (center: number[], zoom: number) => LeafletMap; fitBounds: (bounds: number[][], options?: object) => void; remove: () => void }
 type LeafletApi = {
   map: (el: HTMLElement, options: object) => LeafletMap
@@ -69,7 +69,14 @@ export default function VenueDiscoveryMap({ venues, totalMatches }: { venues: Ve
         link.href = venue.href
         link.textContent = 'View venue →'
         link.style.color = '#2563eb'
-        popup.append(name, area, link)
+        popup.append(name, area)
+        if (venue.approximate) {
+          const note = document.createElement('p')
+          note.textContent = 'Approximate town location — not a venue address'
+          note.style.fontSize = '12px'
+          popup.append(note)
+        }
+        popup.append(link)
         L.marker([venue.lat, venue.lng]).addTo(map).bindPopup(popup)
       }
       // A stylesheet blocked by the browser must never leave a broken map.
@@ -95,14 +102,14 @@ export default function VenueDiscoveryMap({ venues, totalMatches }: { venues: Ve
   return (
     <section aria-label="Interactive venue map" className="overflow-hidden rounded-2xl border border-blue-500/25 bg-zinc-900">
       <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
-        <p className="text-sm font-semibold text-white">Explore {venues.length} verified public location{venues.length === 1 ? '' : 's'}</p>
-        <span className="text-xs text-zinc-400">{totalMatches > venues.length ? 'Some results have no verified public map pin' : 'Tap a pin to view a venue'}</span>
+        <p className="text-sm font-semibold text-white">Explore {venues.length} mapped listing{venues.length === 1 ? '' : 's'}</p>
+        <span className="text-xs text-zinc-400">{totalMatches > venues.length ? 'Some listings have no safe map location' : 'Tap a pin to view a venue'}</span>
       </div>
       {!error && !ready && <p role="status" className="px-4 py-2 text-xs text-zinc-400">Loading interactive map…</p>}
       {error ? (
         <div role="status" className="p-8 text-center text-sm text-zinc-300">The map is temporarily unavailable. Switch to Grid or List to browse venues.</div>
       ) : <div ref={node} className="relative z-0 h-[420px] w-full bg-zinc-800 sm:h-[570px]" aria-label="Map showing verified venue locations" />}
-      <p className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-400">Only verified public fixed venues appear as pins. Use Grid or List for every matching venue.</p>
+      <p className="border-t border-zinc-800 px-4 py-3 text-xs text-zinc-400">Exact pins represent verified public fixed venues. Organisers and private venues are shown only at approximate town centres, never their private addresses. Unverified leads and closed listings are not pinned.</p>
     </section>
   )
 }
