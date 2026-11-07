@@ -1088,6 +1088,7 @@ export default async function EventsPage({
                       <Link href={`/venue/${organiser.venue_id}`} className="mt-3 text-xs font-semibold text-blue-200 underline underline-offset-2">
                         By {cleanText(organiser.name || 'Travelling organiser')}
                       </Link>
+                    )}
                   </div>
                 </article>
               )
