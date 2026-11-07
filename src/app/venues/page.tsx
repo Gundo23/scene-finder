@@ -8,6 +8,7 @@ import { shouldShowPublicVenue } from '@/lib/venue-visibility'
 import { getTodayString, addDays, getWeekendRange } from '@/lib/discovery-dates'
 import Icon from '@/app/components/Icon'
 import Form from 'next/form'
+import VenueDiscoveryMap from '@/app/components/VenueDiscoveryMap'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 const FALLBACK_REGIONS = [
@@ -723,7 +724,7 @@ export default async function VenuesPage({
   const category = params.category || ''
   const sort = params.sort === 'popular' ? 'popular' : 'recommended'
   const timing = ['tonight', 'weekend', 'next7days'].includes(params.timing || '') ? params.timing! : ''
-  const view = params.view === 'list' ? 'list' : 'grid'
+  const view = params.view === 'map' ? 'map' : params.view === 'list' ? 'list' : 'grid'
   const parsedPage = Number(params.page)
   const requestedPage = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1
   const PAGE_SIZE = 24
@@ -893,11 +894,31 @@ export default async function VenuesPage({
     if (next.category) query.set('category', next.category)
     if (next.timing) query.set('timing', next.timing)
     if (next.sort === 'popular') query.set('sort', 'popular')
-    if (next.view === 'list') query.set('view', 'list')
+    if (next.view === 'list' || next.view === 'map') query.set('view', next.view)
     if (Number(next.page) > 1) query.set('page', next.page)
     const queryString = query.toString()
     return queryString ? `/venues?${queryString}` : '/venues'
   }
+
+  // Exact map pins are permitted only for verified, public, fixed venues.
+  // Do not geocode or reveal private/event-series locations.
+  const mapVenues = sortedVenues.filter((venue) =>
+    venue.location_kind === 'fixed_venue' &&
+    venue.address_visibility === 'public' &&
+    venue.address_verified === true &&
+    finiteCoordinate(venue.latitude) !== null &&
+    finiteCoordinate(venue.longitude) !== null &&
+    Math.abs(Number(venue.latitude)) <= 90 &&
+    Math.abs(Number(venue.longitude)) <= 180
+  ).slice(0, 350).map((venue) => ({
+    id: venue.venue_id,
+    name: cleanText(venue.name || 'Venue'),
+    area: cleanText(venue.canonical_city || venue.city_area || ''),
+    lat: Number(venue.latitude),
+    lng: Number(venue.longitude),
+    href: `/venue/${encodeURIComponent(venue.venue_id)}?from=${encodeURIComponent(makeFilterHref({ page: '' }))}`,
+  }))
+
 
   const currentHref = makeFilterHref({ page: String(page) })
   const categories = [
@@ -952,7 +973,7 @@ export default async function VenuesPage({
             <p className="mt-2 text-xs leading-5 text-zinc-400">Enter a UK postcode to find venues within 30 miles.</p>
             {timing && <input type="hidden" name="timing" value={timing} />}
             {sort === 'popular' && <input type="hidden" name="sort" value="popular" />}
-            {view === 'list' && <input type="hidden" name="view" value="list" />}
+            {view !== 'grid' && <input type="hidden" name="view" value={view} />}
 
             <div aria-label="Filter by event date" className="mt-4 grid grid-cols-2 gap-1.5 min-[360px]:grid-cols-4 sm:flex sm:gap-2">
               {timings.map((item) => (
@@ -1022,11 +1043,14 @@ export default async function VenuesPage({
               <nav aria-label="Venue view" className="flex shrink-0 rounded-xl border border-zinc-800 bg-zinc-900/60 p-1">
                 <Link href={makeFilterHref({ view: 'grid', page: String(page) })} scroll={false} aria-label="Grid view" aria-current={view === 'grid' ? 'true' : undefined} className={`inline-flex h-11 w-11 items-center justify-center rounded-lg transition ${view === 'grid' ? 'bg-blue-500/15 text-blue-200' : 'text-zinc-400 hover:text-white'}`}><Icon name="grid" className="h-4 w-4" /></Link>
                 <Link href={makeFilterHref({ view: 'list', page: String(page) })} scroll={false} aria-label="Compact list view" aria-current={view === 'list' ? 'true' : undefined} className={`inline-flex h-11 w-11 items-center justify-center rounded-lg transition ${view === 'list' ? 'bg-blue-500/15 text-blue-200' : 'text-zinc-400 hover:text-white'}`}><Icon name="list" className="h-4 w-4" /></Link>
+                <Link href={makeFilterHref({ view: 'map', page: '' })} scroll={false} aria-label="Map view" aria-current={view === 'map' ? 'true' : undefined} className={`inline-flex h-11 w-11 items-center justify-center rounded-lg transition ${view === 'map' ? 'bg-blue-500/15 text-blue-200' : 'text-zinc-400 hover:text-white'}`}><Icon name="map" className="h-4 w-4" /></Link>
               </nav>
             </div>
           </div>
 
-          {visibleVenues.length ? (
+          {view === 'map' ? (
+            <VenueDiscoveryMap venues={mapVenues} totalMatches={sortedVenues.length} />
+          ) : visibleVenues.length ? (
             <div className={view === 'grid' ? 'grid gap-5 sm:grid-cols-2 lg:grid-cols-3' : 'space-y-3'}>
               {visibleVenues.map((venue) => {
                 const venueCategory = formatCategory(venue.category)
@@ -1075,7 +1099,7 @@ export default async function VenuesPage({
             </div>
           )}
 
-          {totalPages > 1 && (
+          {view !== 'map' && totalPages > 1 && (
             <nav aria-label="Venue pages" className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-5">
               <p className="text-xs text-zinc-400">Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, sortedVenues.length)} of {sortedVenues.length} venues</p>
               <div className="flex items-center gap-3">
