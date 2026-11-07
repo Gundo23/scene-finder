@@ -733,7 +733,7 @@ export default async function EventsPage({
             </div>
           ) : events.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {events.map((event) => {
+              {events.map((event, index) => {
                 const venue = venueById.get(event.venue_id)
                 const organiser = event.organiser_id ? venueById.get(event.organiser_id) : null
                 const eventName = cleanText(event.event_name || '') || 'Event details'
@@ -748,7 +748,7 @@ export default async function EventsPage({
                 return (
                   <article key={event.event_id} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-blue-500/20 bg-gradient-to-br from-zinc-900 to-zinc-950 transition duration-200 hover:border-blue-400/60 hover:shadow-lg hover:shadow-blue-950/30">
                     <Link href={detailsHref} aria-label={`View ${eventName}`} className="block aspect-[16/10] overflow-hidden border-b border-zinc-800/70 bg-zinc-950/80">
-                      <FallbackImage src={event.image_url || venue?.image_url} fallbackSrc="/images/home-hero.jpg" alt={eventName} className="h-full w-full object-contain p-3" />
+                      <FallbackImage src={event.image_url} fallbackSources={[venue?.image_url, organiser?.image_url]} fallbackSrc="/images/home-hero.jpg" alt={eventName} loading={index < 3 ? 'eager' : 'lazy'} className="h-full w-full object-contain p-3" />
                     </Link>
                     <div className="flex flex-1 flex-col p-4 sm:p-5">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-blue-200">

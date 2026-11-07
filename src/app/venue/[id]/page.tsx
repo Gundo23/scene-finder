@@ -150,7 +150,7 @@ export default async function VenuePage({
     [event.venue_id, event.organiser_id].filter((value): value is string => Boolean(value))
   ))]
   const { data: linkedProfiles } = linkedProfileIds.length
-    ? await supabase.from('venues').select('venue_id, name, canonical_city, city_area').in('venue_id', linkedProfileIds)
+    ? await supabase.from('venues').select('venue_id, name, canonical_city, city_area, image_url').in('venue_id', linkedProfileIds)
     : { data: [] }
   const profileById = new Map((linkedProfiles || []).map((profile) => [profile.venue_id, profile]))
   const visibleEventLimit = Number.isFinite(requestedEventLimit)
@@ -307,7 +307,7 @@ export default async function VenuePage({
           <div className="space-y-4">
             {eventsError ? (
               <div role="alert" className="rounded-2xl border border-amber-400/25 bg-amber-500/5 p-6 text-sm text-amber-100">Event information is temporarily unavailable. Please try again shortly.</div>
-            ) : visibleEvents.length ? visibleEvents.map((event) => {
+            ) : visibleEvents.length ? visibleEvents.map((event, index) => {
               const eventName = cleanDisplayText(event.event_name) || 'Event'
               const description = cleanDescription(event.description)
               const eventType = cleanDisplayText(event.event_type).replace(/_/g, ' ')
@@ -324,11 +324,9 @@ export default async function VenuePage({
 
               return (
                 <article key={event.event_id} id={`event-${encodeURIComponent(event.event_id)}`} className="group scroll-mt-5 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/65 transition hover:border-blue-400/35 sm:flex">
-                  {event.image_url && (
-                    <Link href={eventHref} tabIndex={-1} aria-hidden="true" className="flex h-52 items-center justify-center border-b border-white/6 bg-black/25 p-3 sm:h-auto sm:w-52 sm:shrink-0 sm:border-r sm:border-b-0 lg:w-60">
-                      <FallbackImage src={event.image_url} fallbackSrc="/images/scene-finder-logo-transparent.png" alt="" className="h-full max-h-60 w-full object-contain" />
-                    </Link>
-                  )}
+                  <Link href={eventHref} tabIndex={-1} aria-hidden="true" className="flex h-52 items-center justify-center border-b border-white/6 bg-black/25 p-3 sm:h-auto sm:w-52 sm:shrink-0 sm:border-r sm:border-b-0 lg:w-60">
+                    <FallbackImage src={event.image_url} fallbackSources={[host?.image_url, organiser?.image_url, venue.image_url]} fallbackSrc="/images/home-hero.jpg" alt="" loading={index < 2 ? 'eager' : 'lazy'} className="h-full max-h-60 w-full object-contain" />
+                  </Link>
                   <div className="flex min-w-0 flex-1 flex-col p-5 sm:p-6">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium sm:text-sm">
                       <span className="inline-flex items-center gap-1.5 text-blue-200"><Icon name="calendar" className="h-4 w-4" />{formatDate(event.event_date)}</span>

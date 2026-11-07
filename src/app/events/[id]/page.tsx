@@ -139,7 +139,6 @@ export default async function EventDetailPage({
   const venueWebsite = publicUrl(venue?.website)
   const bookingHref = ticketUrl || sourceUrl || venueWebsite
   const bookingLabel = ticketUrl ? 'Tickets / booking' : sourceUrl ? 'View event website' : 'Visit venue website'
-  const eventImage = cleanDisplayText(event.image_url || venue?.image_url)
   const eventVisibility = cleanDisplayText(event.event_address_visibility).toLowerCase()
   const eventIsPrivate = eventVisibility === 'private'
   const canShowEventAddress = event.event_location_verified === true && eventVisibility === 'public'
@@ -175,7 +174,7 @@ export default async function EventDetailPage({
 
         <article className="overflow-hidden rounded-3xl border border-blue-400/25 bg-gradient-to-br from-blue-950/25 via-zinc-900/90 to-purple-950/20 shadow-xl shadow-blue-950/15">
           <div className="h-px bg-gradient-to-r from-blue-400/70 via-purple-400/70 to-pink-400/50" />
-          <div className={`grid ${eventImage ? 'md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]' : ''}`}>
+          <div className="grid md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
             <div className="order-1 p-5 sm:p-7 md:order-2 md:p-8">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">{eventType || 'Event'}</p>
               <h1 className="mt-3 break-words text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{eventName}</h1>
@@ -217,11 +216,9 @@ export default async function EventDetailPage({
               </div>
             </div>
 
-            {eventImage && (
-              <div className="order-2 flex items-center justify-center border-t border-white/8 bg-black/25 p-4 md:order-1 md:border-t-0 md:border-r md:p-6">
-                <FallbackImage src={eventImage} fallbackSrc="/images/scene-finder-logo-transparent.png" alt={`${eventName} event poster`} loading="eager" fetchPriority="high" className="h-64 w-full object-contain sm:h-80 md:h-full md:max-h-[480px]" />
-              </div>
-            )}
+            <div className="order-2 flex items-center justify-center border-t border-white/8 bg-black/25 p-4 md:order-1 md:border-t-0 md:border-r md:p-6">
+              <FallbackImage src={event.image_url} fallbackSources={[venue?.image_url, organiser?.image_url]} fallbackSrc="/images/home-hero.jpg" alt={`${eventName} artwork`} loading="eager" fetchPriority="high" className="h-64 w-full object-contain sm:h-80 md:h-full md:max-h-[480px]" />
+            </div>
           </div>
         </article>
 
