@@ -874,7 +874,7 @@ export default async function VenuePage({
 
               const eventDescription = event.description
                 ? cleanDisplayText(event.description)
-                    .replace(/^click on the icon for\s*:?\s*/i, '')
+                    .replace(/^click on the icon for[^.!?]*(?:[.!?]\s*|$)/i, '')
                     .trim()
                 : ''
 
