@@ -268,14 +268,14 @@ export default async function EventDetailPage({
         </div>
 
         <article className="mt-6 overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-900 via-zinc-950 to-purple-950/30 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20">
-          <div className="relative">
+          <div className="relative bg-zinc-950">
             <FallbackImage
               src={eventImage || "/images/venue-placeholder.jpg"}
               fallbackSrc="/images/venue-placeholder.jpg"
               alt={eventName}
-              className="h-64 w-full object-cover sm:h-80"
+              className="h-64 w-full object-contain p-3 sm:h-80 sm:p-5"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent" />
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-950 to-transparent" />
           </div>
 
           <div className="p-5 sm:p-7">
@@ -364,7 +364,7 @@ export default async function EventDetailPage({
                   rel="noreferrer"
                   className="inline-flex items-center rounded-xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/40 transition hover:scale-[1.02] hover:from-blue-400 hover:to-purple-500"
                 >
-                  Open Official Event ↗
+                  Tickets / Booking ↗
                 </a>
               )}
 
