@@ -2346,7 +2346,7 @@ export default async function VenuesPage({
 
                       alt={venueName}
 
-                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      className="h-full w-full object-contain p-3 transition duration-500 group-hover:scale-[1.02]"
 
                     />
 
