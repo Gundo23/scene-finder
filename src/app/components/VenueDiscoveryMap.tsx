@@ -16,7 +16,7 @@ function loadLeaflet(): Promise<LeafletApi> {
   if (typeof window === 'undefined') return Promise.reject(new Error('Browser required'))
   if (window.L) return Promise.resolve(window.L)
   if (leafletPromise) return leafletPromise
-  leafletPromise = new Promise((resolve, reject) => {
+  leafletPromise = new Promise<LeafletApi>((resolve, reject) => {
     const css = document.createElement('link')
     css.rel = 'stylesheet'
     css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
