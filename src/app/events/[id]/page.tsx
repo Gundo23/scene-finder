@@ -77,7 +77,7 @@ function getReturnHref(value: string | string[] | undefined) {
   if (!candidate || candidate.length > 4096 || !candidate.startsWith('/') || candidate.startsWith('//')) return '/events'
   try {
     const url = new URL(candidate, 'https://www.scenefinder.co.uk')
-    if (url.origin !== 'https://www.scenefinder.co.uk' || !/^\/(?:venues|events|venue\/[^/]+)$/.test(url.pathname)) return '/events'
+    if (url.origin !== 'https://www.scenefinder.co.uk' || !/^\/(?:$|venues|events|venue\/[^/]+)$/.test(url.pathname)) return '/events'
     return `${url.pathname}${url.search}${url.hash}`
   } catch {
     return '/events'
@@ -94,7 +94,7 @@ export default async function EventDetailPage({
   const { id } = await params
   const query = searchParams ? await searchParams : {}
   const returnHref = getReturnHref(query.from)
-  const backLabel = returnHref.startsWith('/venue/') ? 'Back to venue' : 'Back to results'
+  const backLabel = returnHref === '/' ? 'Back to home' : returnHref.startsWith('/venue/') ? 'Back to venue' : 'Back to results'
   const { data: event, error } = await supabase
     .from('events')
     .select('event_id, venue_id, organiser_id, event_name, event_date, start_time, end_time, event_type, description, ticket_url, source_url, image_url, status, event_location_name, event_address_line_1, event_address_line_2, event_locality, event_postal_town, event_county, event_postcode, event_country, event_location_verified, event_address_visibility')

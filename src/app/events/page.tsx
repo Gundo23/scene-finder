@@ -754,7 +754,7 @@ export default async function EventsPage({
                         const venue = venueById.get(event.venue_id)
                         const organiser = event.organiser_id ? venueById.get(event.organiser_id) : null
                         const name = cleanText(event.event_name || '') || 'Event details'
-                        const href = `/events/${encodeURIComponent(event.event_id)}?from=${encodeURIComponent('/events')}`
+                        const href = `/events/${encodeURIComponent(event.event_id)}?from=${encodeURIComponent(currentHref)}`
                         const ticket = httpUrl(event.ticket_url)
                         return (
                           <article key={event.event_id} className="overflow-hidden rounded-2xl border border-purple-400/20 bg-zinc-900/70">

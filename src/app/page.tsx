@@ -9,14 +9,16 @@ export default async function Home() {
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date())
-  const [venuesResult, eventsResult, lifetimeResult] = await Promise.all([
+  const [venuesResult, eventsResult, lifetimeResult, weekendResult] = await Promise.all([
     supabase.from('venues').select('venue_id', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }).eq('is_published', true).gte('event_date', today),
     supabase.rpc('sf_public_lifetime_event_count'),
+    supabase.from('events').select('event_id,event_name,event_date,image_url,start_time,venue_id').eq('is_published',true).gte('event_date',today).lte('event_date',(() => { const d = new Date(`${today}T12:00:00Z`); const day = d.getUTCDay(); d.setUTCDate(d.getUTCDate() + ((7 - day) % 7)); return d.toISOString().slice(0,10) })()).order('event_date',{ascending:true}).limit(6),
   ])
   const venueCount = venuesResult.error ? null : venuesResult.count
   const upcomingEventCount = eventsResult.error ? null : eventsResult.count
   const lifetimeCount = lifetimeResult.error ? null : lifetimeResult.data
+  const weekendEvents = weekendResult.error ? [] : (weekendResult.data || []).slice(0,4)
 
   return (
     <main className="relative isolate flex min-h-[100dvh] items-center bg-zinc-950 px-4 py-6 text-white sm:px-6 sm:py-10">
@@ -58,7 +60,7 @@ export default async function Home() {
 
           <div>
             <div className="rounded-2xl border border-blue-400/20 bg-zinc-950/60 p-4 sm:p-5">
-              <h2 className="text-lg font-bold tracking-tight">Where are you heading?</h2>
+              <h2 className="text-lg font-bold tracking-tight">Find your scene</h2>
               <form action="/venues" method="get" role="search" className="mt-4">
                 <label htmlFor="home-search" className="sr-only">Search clubs and venues by name, city or postcode</label>
                 <div className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-900/70 px-3 focus-within:border-blue-400">
@@ -73,17 +75,38 @@ export default async function Home() {
               <p className="mt-3 text-xs leading-5 text-zinc-400">Use a postcode to find venues within 30 miles.</p>
             </div>
 
-            <div className="mt-4 grid gap-3">
-              <Link href="/events" className="group flex min-h-20 items-center gap-4 rounded-2xl border border-purple-400/25 bg-purple-500/10 px-4 py-4 transition-colors hover:border-purple-400/60 hover:bg-purple-500/15 sm:px-5">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-400/10 text-purple-300"><Icon name="calendar" className="h-5 w-5" /></span>
-                <span className="min-w-0 flex-1"><span className="block text-base font-bold text-purple-100">Find events</span><span className="mt-0.5 block text-xs leading-5 text-zinc-400">Explore dates, venues and what’s on.</span></span>
-                <Icon name="arrow-right" className="h-5 w-5 shrink-0 text-purple-300 transition-transform group-hover:translate-x-1" />
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Link href="/events" className="group flex min-h-24 min-w-0 flex-col justify-between rounded-xl border border-purple-400/25 bg-purple-500/10 p-3.5 transition-colors hover:border-purple-400/60 hover:bg-purple-500/15">
+                <span className="flex items-center justify-between"><Icon name="calendar" className="h-5 w-5 text-purple-300" /><Icon name="arrow-right" className="h-4 w-4 text-purple-300 transition-transform group-hover:translate-x-1" /></span>
+                <span className="mt-3 text-sm font-bold leading-tight text-purple-100">Explore events</span>
               </Link>
-              <Link href="/venues" className="group flex min-h-14 items-center justify-between gap-3 rounded-xl px-3 text-sm font-semibold text-zinc-300 transition-colors hover:bg-white/5 hover:text-white">
-                <span className="inline-flex items-center gap-3"><Icon name="clubs" className="h-5 w-5 text-blue-300" />Browse all clubs & venues</span>
-                <Icon name="arrow-right" className="h-4 w-4 shrink-0 text-zinc-500 transition-transform group-hover:translate-x-1" />
+              <Link href="/venues" className="group flex min-h-24 min-w-0 flex-col justify-between rounded-xl border border-blue-400/25 bg-blue-500/10 p-3.5 transition-colors hover:border-blue-400/60 hover:bg-blue-500/15">
+                <span className="flex items-center justify-between"><Icon name="clubs" className="h-5 w-5 text-blue-300" /><Icon name="arrow-right" className="h-4 w-4 text-blue-300 transition-transform group-hover:translate-x-1" /></span>
+                <span className="mt-3 text-sm font-bold leading-tight text-blue-100">Browse clubs</span>
               </Link>
             </div>
+
+            {weekendEvents.length > 0 && (
+              <section aria-labelledby="home-weekend-heading" className="mt-5 border-t border-white/10 pt-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h2 id="home-weekend-heading" className="text-sm font-bold text-white">Coming up this weekend</h2>
+                  <Link href="/events?timing=weekend" className="text-xs font-semibold text-purple-300 hover:text-purple-100">See all</Link>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {weekendEvents.map((event) => (
+                    <Link key={event.event_id} href={`/events/${encodeURIComponent(event.event_id)}?from=${encodeURIComponent('/')}`} className="group min-w-0 overflow-hidden rounded-xl border border-purple-400/20 bg-zinc-900/70 transition hover:border-purple-400/60">
+                      <div className="aspect-[16/10] bg-zinc-950">
+                        <FallbackImage src={event.image_url} fallbackSrc="/images/home-hero.jpg" alt="" className="h-full w-full object-contain p-2" />
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-[11px] font-medium text-blue-300">{new Date(`${event.event_date}T12:00:00Z`).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'})}</p>
+                        <p className="mt-1 line-clamp-2 text-xs font-bold text-zinc-100 group-hover:text-purple-200">{event.event_name || 'Event details'}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <nav aria-label="Explore quickly" className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
               <Link href="/events?timing=tonight" className="inline-flex min-h-11 items-center rounded-full border border-zinc-700/80 px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-blue-400/50 hover:text-white">Tonight</Link>
