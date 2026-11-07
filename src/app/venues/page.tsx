@@ -1012,7 +1012,7 @@ export default async function VenuesPage({
 
             <details key={`${city}|${region}|${category}`} open={hasAdvancedFilters} className="group mt-3 border-t border-white/10">
               <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-semibold text-zinc-200 [&::-webkit-details-marker]:hidden">
-                <span className="inline-flex items-center gap-2"><Icon name="filter" className="h-4 w-4 text-blue-300" />City, region & type{hasAdvancedFilters && <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-xs text-blue-200">{[city, region, category].filter(Boolean).length}</span>}</span>
+                <span className="inline-flex items-center gap-2"><Icon name="filter" className="h-4 w-4 text-blue-300" />Location, theme & more{hasAdvancedFilters && <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-xs text-blue-200">{[city, region, category].filter(Boolean).length}</span>}</span>
                 <Icon name="chevron-down" className="h-4 w-4 text-zinc-400 transition group-open:rotate-180" />
               </summary>
               <div className="grid gap-4 pb-1 pt-2 sm:grid-cols-3">
