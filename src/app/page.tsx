@@ -60,7 +60,7 @@ export default async function Home() {
 
           <div>
             <div className="rounded-2xl border border-blue-400/20 bg-zinc-950/60 p-4 sm:p-5">
-              <h2 className="text-lg font-bold tracking-tight">Where are you heading?</h2>
+              <h2 className="text-lg font-bold tracking-tight">Find your scene</h2>
               <form action="/venues" method="get" role="search" className="mt-4">
                 <label htmlFor="home-search" className="sr-only">Search clubs and venues by name, city or postcode</label>
                 <div className="flex items-center gap-3 rounded-xl border border-zinc-700 bg-zinc-900/70 px-3 focus-within:border-blue-400">
@@ -75,15 +75,14 @@ export default async function Home() {
               <p className="mt-3 text-xs leading-5 text-zinc-400">Use a postcode to find venues within 30 miles.</p>
             </div>
 
-            <div className="mt-4 grid gap-3">
-              <Link href="/events" className="group flex min-h-20 items-center gap-4 rounded-2xl border border-purple-400/25 bg-purple-500/10 px-4 py-4 transition-colors hover:border-purple-400/60 hover:bg-purple-500/15 sm:px-5">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-400/10 text-purple-300"><Icon name="calendar" className="h-5 w-5" /></span>
-                <span className="min-w-0 flex-1"><span className="block text-base font-bold text-purple-100">Find events</span><span className="mt-0.5 block text-xs leading-5 text-zinc-400">Explore dates, venues and what’s on.</span></span>
-                <Icon name="arrow-right" className="h-5 w-5 shrink-0 text-purple-300 transition-transform group-hover:translate-x-1" />
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <Link href="/events" className="group flex min-h-24 min-w-0 flex-col justify-between rounded-xl border border-purple-400/25 bg-purple-500/10 p-3.5 transition-colors hover:border-purple-400/60 hover:bg-purple-500/15">
+                <span className="flex items-center justify-between"><Icon name="calendar" className="h-5 w-5 text-purple-300" /><Icon name="arrow-right" className="h-4 w-4 text-purple-300 transition-transform group-hover:translate-x-1" /></span>
+                <span className="mt-3 text-sm font-bold leading-tight text-purple-100">Explore events</span>
               </Link>
-              <Link href="/venues" className="group flex min-h-14 items-center justify-between gap-3 rounded-xl px-3 text-sm font-semibold text-zinc-300 transition-colors hover:bg-white/5 hover:text-white">
-                <span className="inline-flex items-center gap-3"><Icon name="clubs" className="h-5 w-5 text-blue-300" />Browse all clubs & venues</span>
-                <Icon name="arrow-right" className="h-4 w-4 shrink-0 text-zinc-500 transition-transform group-hover:translate-x-1" />
+              <Link href="/venues" className="group flex min-h-24 min-w-0 flex-col justify-between rounded-xl border border-blue-400/25 bg-blue-500/10 p-3.5 transition-colors hover:border-blue-400/60 hover:bg-blue-500/15">
+                <span className="flex items-center justify-between"><Icon name="clubs" className="h-5 w-5 text-blue-300" /><Icon name="arrow-right" className="h-4 w-4 text-blue-300 transition-transform group-hover:translate-x-1" /></span>
+                <span className="mt-3 text-sm font-bold leading-tight text-blue-100">Browse clubs</span>
               </Link>
             </div>
 
@@ -110,7 +109,6 @@ export default async function Home() {
             )}
 
             <nav aria-label="Explore quickly" className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
-              <Link href="/venues?view=list" className="inline-flex min-h-11 items-center rounded-full border border-blue-400/30 bg-blue-500/10 px-3 text-xs font-semibold text-blue-100 transition-colors hover:border-blue-400/60">Explore clubs</Link>
               <Link href="/events?timing=tonight" className="inline-flex min-h-11 items-center rounded-full border border-zinc-700/80 px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-blue-400/50 hover:text-white">Tonight</Link>
               <Link href="/events?timing=weekend" className="inline-flex min-h-11 items-center rounded-full border border-zinc-700/80 px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-purple-400/50 hover:text-white">This weekend</Link>
               <Link href="/venues?sort=popular" className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-pink-400/25 bg-pink-500/5 px-3 text-xs font-semibold text-pink-200 transition-colors hover:border-pink-400/60"><Icon name="heart" className="h-3.5 w-3.5" />Most liked</Link>
