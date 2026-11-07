@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import FallbackImage from '@/app/components/FallbackImage'
+import EventArtwork from '@/app/components/EventArtwork'
 import Icon from '@/app/components/Icon'
 
 export const dynamic = 'force-dynamic'
@@ -96,7 +97,7 @@ export default async function Home() {
                   {weekendEvents.map((event) => (
                     <Link key={event.event_id} href={`/events/${encodeURIComponent(event.event_id)}?from=${encodeURIComponent('/')}`} className="group min-w-0 overflow-hidden rounded-xl border border-purple-400/20 bg-zinc-900/70 transition hover:border-purple-400/60">
                       <div className="aspect-[16/10] bg-zinc-950">
-                        <FallbackImage src={event.image_url} fallbackSrc="/images/home-hero.jpg" alt="" className="h-full w-full object-contain p-2" />
+                        <EventArtwork src={event.image_url} eventName={event.event_name || "Upcoming event"} date={event.event_date} className="h-full w-full object-contain p-2" />
                       </div>
                       <div className="p-2.5">
                         <p className="text-[11px] font-medium text-blue-300">{new Date(`${event.event_date}T12:00:00Z`).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'})}</p>
