@@ -20,11 +20,15 @@ export default function FallbackImage({
   fallbackSrc,
   alt,
   className,
+  loading = 'lazy',
+  fetchPriority,
 }: {
   src?: string | null
   fallbackSrc: string
   alt: string
   className?: string
+  loading?: 'eager' | 'lazy'
+  fetchPriority?: 'high' | 'low' | 'auto'
 }) {
   const [imageSrc, setImageSrc] = useState(() => usableImageUrl(src, fallbackSrc))
 
@@ -37,7 +41,8 @@ export default function FallbackImage({
       src={imageSrc}
       alt={alt}
       className={className}
-      loading="lazy"
+      loading={loading}
+      fetchPriority={fetchPriority}
       decoding="async"
       onError={() => {
         if (imageSrc !== fallbackSrc) setImageSrc(fallbackSrc)

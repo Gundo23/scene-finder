@@ -1,5 +1,9 @@
 import { supabase } from '@/lib/supabase'
 import Link from 'next/link'
+import Form from 'next/form'
+import Icon from '@/app/components/Icon'
+import { addDays, getTodayString, getWeekendRange } from '@/lib/discovery-dates'
+import { shouldShowPublicVenue } from '@/lib/venue-visibility'
 import FallbackImage from '@/app/components/FallbackImage'
 import { cleanText } from '@/lib/cleanText'
 
@@ -36,6 +40,7 @@ type VenueRow = {
   longitude: number | string | null
   location_kind: string | null
   address_visibility: string | null
+  address_verified: boolean | null
   category: string | null
   status: string | null
   image_url: string | null
@@ -65,32 +70,6 @@ type GeoPoint = {
   latitude: number
   longitude: number
   label: string
-}
-
-function getTodayString() {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date())
-
-  const year = parts.find((part) => part.type === 'year')?.value
-  const month = parts.find((part) => part.type === 'month')?.value
-  const day = parts.find((part) => part.type === 'day')?.value
-
-  if (!year || !month || !day) {
-    return new Date().toISOString().split('T')[0]
-  }
-
-  return `${year}-${month}-${day}`
-}
-
-function addDays(dateString: string, days: number) {
-  const [year, month, day] = dateString.split('-').map(Number)
-  const date = new Date(Date.UTC(year, month - 1, day))
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().split('T')[0]
 }
 
 function formatDate(date: string | null | undefined) {
@@ -211,7 +190,7 @@ async function resolveVenueCoordinates(venues: VenueRow[]) {
   for (const venue of venues) {
     if (!venue.venue_id) continue
     if (venue.location_kind !== 'fixed_venue') continue
-    if (venue.address_visibility && venue.address_visibility !== 'public') continue
+    if (venue.address_visibility !== 'public' || venue.address_verified !== true) continue
     if (!venue.postcode) continue
 
     const latitude = finiteCoordinate(venue.latitude)
@@ -309,35 +288,6 @@ function uniqueSorted(values: Array<string | null | undefined>) {
   ).sort((a, b) => a.localeCompare(b))
 }
 
-function shouldShowPublicVenue(venue: VenueRow) {
-  const name = cleanText(venue.name || '').toLowerCase()
-  const category = cleanText(venue.category || '').toLowerCase()
-  const status = cleanText(venue.status || '').toLowerCase()
-
-  const blockedStatuses = [
-    'tbc',
-    'closed',
-    'inactive',
-    'removed',
-    'deleted',
-    'permanently closed',
-    'permanent closed',
-  ]
-
-  if (blockedStatuses.includes(status)) return false
-  if (category.includes('lead')) return false
-  if (status.includes('lead')) return false
-  if (name.startsWith('about ')) return false
-  if (name === 'about us') return false
-  if (name === 'adult club') return false
-  if (name.endsWith(' social lead')) return false
-  if (name.includes('/ social lead')) return false
-  if (name.includes('swingers club lead')) return false
-  if (name.includes('kink munch / social lead')) return false
-
-  return true
-}
-
 function venueMatchesQuickCategory(venue: VenueRow, quickCategory: string) {
   if (!quickCategory) return true
 
@@ -369,24 +319,6 @@ function quickChipClass(active: boolean) {
     : 'border-zinc-700 bg-zinc-950/80 text-zinc-300 hover:border-blue-400/70 hover:bg-blue-500/10 hover:text-blue-100'
 }
 
-function getVenueCategoryPillClass(category: string | null | undefined) {
-  const lower = cleanText(category || '').toLowerCase()
-
-  if (lower.includes('sauna') || lower.includes('spa')) {
-    return 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200'
-  }
-
-  if (lower.includes('swing') || lower.includes('club') || lower.includes('lifestyle')) {
-    return 'border-pink-400/40 bg-pink-500/15 text-pink-200'
-  }
-
-  if (lower.includes('fetish') || lower.includes('kink') || lower.includes('bdsm')) {
-    return 'border-red-400/40 bg-red-500/15 text-red-200'
-  }
-
-  return 'border-blue-400/40 bg-blue-500/15 text-blue-200'
-}
-
 function getEventLocation(event: EventRow, venue: VenueRow | undefined) {
   const visibility = cleanText(event.event_address_visibility || '').toLowerCase()
 
@@ -411,11 +343,6 @@ function getEventLocation(event: EventRow, venue: VenueRow | undefined) {
   ) || 'Location TBC'
 }
 
-function getEventCategoryLabel(venue: VenueRow | undefined) {
-  const category = cleanText(venue?.category || '')
-  return category || 'Event'
-}
-
 function isTonightEvent(event: EventRow, today: string) {
   if (event.event_date !== today) return false
 
@@ -423,57 +350,96 @@ function isTonightEvent(event: EventRow, today: string) {
   return !start || start === '00:00' || start >= '17:00'
 }
 
-function cleanDescription(value: string | null | undefined) {
-  return cleanText(value || '')
-    .replace(/\s+/g, ' ')
-    .trim()
+function validDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return ''
+  const date = new Date(`${value}T12:00:00Z`)
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+    ? value
+    : ''
 }
+
+function httpUrl(value: string | null | undefined) {
+  try {
+    const url = new URL((value || '').trim())
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null
+  } catch {
+    return null
+  }
+}
+
+type SearchFilters = {
+  search: string
+  timing: string
+  category: string
+  city: string
+  region: string
+  date_from: string
+  date_to: string
+  event_type: string
+  page: string
+}
+
+const timingOptions = [
+  { value: '', label: 'All dates' },
+  { value: 'tonight', label: 'Tonight' },
+  { value: 'weekend', label: 'This weekend' },
+  { value: 'next7', label: 'Next 7 days' },
+]
+
+const categoryOptions = [
+  { value: 'clubs', label: 'Clubs' },
+  { value: 'saunas', label: 'Saunas' },
+  { value: 'kink', label: 'Kink & fetish' },
+]
+
+const fieldClass =
+  'min-h-12 w-full min-w-0 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-white transition focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400/20'
 
 export default async function EventsPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    search?: string
-    timing?: string
-    category?: string
-    city?: string
-    region?: string
-    date_from?: string
-    date_to?: string
-    event_type?: string
-    page?: string
-  }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = await searchParams
+  const param = (name: string) => {
+    const value = params[name]
+    return cleanText(Array.isArray(value) ? value[0] || '' : value || '')
+  }
 
-  const search = cleanText(params.search || '')
-  const timing = cleanText(params.timing || '')
-  const category = cleanText(params.category || '')
-  const city = cleanText(params.city || '')
-  const region = cleanText(params.region || '')
-  const dateFrom = cleanText(params.date_from || '')
-  const dateTo = cleanText(params.date_to || '')
-  const eventType = cleanText(params.event_type || '')
-  const requestedPage = Number.parseInt(params.page || '1', 10)
-  const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1
+  const search = param('search')
+  const city = param('city')
+  const region = param('region')
+  const category = categoryOptions.some((option) => option.value === param('category'))
+    ? param('category')
+    : ''
+  const dateFrom = validDate(param('date_from'))
+  const dateTo = validDate(param('date_to'))
+  // A chosen date range takes precedence over a previous quick-date shortcut.
+  const timing = !dateFrom && !dateTo && timingOptions.some((option) => option.value === param('timing'))
+    ? param('timing')
+    : ''
+  const eventType = param('event_type')
+  const requestedPage = Number(param('page') || '1')
+  const page = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
 
   const today = getTodayString()
   const next7End = addDays(today, 6)
-
+  const weekend = getWeekendRange(today)
+  const invalidDateRange = Boolean(dateFrom && dateTo && dateTo < dateFrom)
+  const invalidDateInput = Boolean(
+    (param('date_from') && !dateFrom) || (param('date_to') && !dateTo)
+  )
   const postcodeSearchAttempt = looksLikeUkPostcodeSearch(search)
-  const postcodeOrigin = postcodeSearchAttempt
-    ? await resolvePostcodeOrigin(search)
-    : null
 
   const [
     { data: venueData, error: venueError },
     { data: eventTypeData, error: eventTypeError },
-    { count: totalPublishedEventCount },
+    postcodeOrigin,
   ] = await Promise.all([
     supabase
       .from('venues')
       .select(
-        'venue_id, name, city_area, region, canonical_city, canonical_region, postcode, latitude, longitude, location_kind, address_visibility, category, status, image_url'
+        'venue_id, name, city_area, region, canonical_city, canonical_region, postcode, latitude, longitude, location_kind, address_visibility, address_verified, category, status, image_url'
       )
       .order('name', { ascending: true })
       .limit(5000),
@@ -481,675 +447,347 @@ export default async function EventsPage({
       .from('events')
       .select('event_type')
       .eq('is_published', true)
+      .gte('event_date', today)
       .not('event_type', 'is', null)
       .limit(5000),
-    supabase
-      .from('events')
-      .select('*', { count: 'exact', head: true })
-      .eq('is_published', true),
+    postcodeSearchAttempt ? resolvePostcodeOrigin(search) : Promise.resolve(null),
   ])
 
-  if (venueError) {
-    return (
-      <main className="min-h-screen bg-zinc-950 p-8 text-white">
-        Error loading event locations: {venueError.message}
-      </main>
-    )
-  }
-
-  if (eventTypeError) {
-    console.error('Error loading event types:', eventTypeError.message)
-  }
+  if (venueError) console.error('Error loading event locations:', venueError.message)
+  if (eventTypeError) console.error('Error loading event types:', eventTypeError.message)
 
   const venues = ((venueData || []) as VenueRow[]).filter(shouldShowPublicVenue)
   const venueById = new Map(venues.map((venue) => [venue.venue_id, venue]))
-
-  const cityOptions = uniqueSorted(venues.map((venue) => getCanonicalVenueCity(venue)))
-  const regionOptions = FALLBACK_REGIONS
-  const eventTypeOptions = uniqueSorted(
-    (eventTypeData || []).map((item: any) => item.event_type)
-  )
+  const cityOptions = uniqueSorted([...venues.map(getCanonicalVenueCity), city])
+  const regionOptions = uniqueSorted([...FALLBACK_REGIONS, region])
+  const eventTypeOptions = uniqueSorted([
+    ...(eventTypeData || []).map((item: { event_type: string | null }) => item.event_type),
+    eventType,
+  ])
 
   const venueCoordinatesById = postcodeOrigin
     ? await resolveVenueCoordinates(venues)
     : new Map<string, { latitude: number; longitude: number }>()
-
   const distanceMilesByVenue = new Map<string, number>()
 
   if (postcodeOrigin) {
     for (const venue of venues) {
       const coordinates = venueCoordinatesById.get(venue.venue_id)
-      if (!coordinates) continue
-
-      distanceMilesByVenue.set(
-        venue.venue_id,
-        distanceMilesBetween(postcodeOrigin, coordinates)
-      )
+      if (coordinates) {
+        distanceMilesByVenue.set(venue.venue_id, distanceMilesBetween(postcodeOrigin, coordinates))
+      }
     }
   }
 
   const hasVenueFilters = Boolean(city || region || category || postcodeSearchAttempt)
-
-  const eligibleVenues = venues.filter((venue) => {
-    if (city) {
-      if (
-        normaliseFilterValue(getCanonicalVenueCity(venue)) !==
-        normaliseFilterValue(city)
-      ) {
-        return false
-      }
-    }
-
-    if (region) {
-      if (
-        normaliseFilterValue(getCanonicalVenueRegion(venue)) !==
-        normaliseFilterValue(region)
-      ) {
-        return false
-      }
-    }
-
-    if (!venueMatchesQuickCategory(venue, category)) {
-      return false
-    }
-
+  const eligibleVenueIds = venues.filter((venue) => {
+    if (city && normaliseFilterValue(getCanonicalVenueCity(venue)) !== normaliseFilterValue(city)) return false
+    if (region && normaliseFilterValue(getCanonicalVenueRegion(venue)) !== normaliseFilterValue(region)) return false
+    if (!venueMatchesQuickCategory(venue, category)) return false
     if (postcodeSearchAttempt) {
       if (!postcodeOrigin) return false
-
       const distance = distanceMilesByVenue.get(venue.venue_id)
-      if (
-        distance === undefined ||
-        distance > POSTCODE_SEARCH_RADIUS_MILES
-      ) {
-        return false
-      }
+      if (distance === undefined || distance > POSTCODE_SEARCH_RADIUS_MILES) return false
     }
-
     return true
-  })
-
-  const eligibleVenueIds = eligibleVenues.map((venue) => venue.venue_id)
+  }).map((venue) => venue.venue_id)
 
   const eventSelect =
     'event_id, venue_id, organiser_id, event_name, event_date, start_time, event_type, description, ticket_url, image_url, event_location_name, event_locality, event_postal_town, event_postcode, event_country, event_location_verified, event_address_visibility'
 
-  let eventQuery = supabase
-    .from('events')
-    .select(eventSelect, { count: 'exact' })
-    .eq('is_published', true)
-    .gte('event_date', today)
-
-  if (hasVenueFilters) {
-    if (eligibleVenueIds.length === 0) {
-      eventQuery = eventQuery.in('venue_id', ['__no_matching_venue__'])
-    } else {
-      eventQuery = eventQuery.in('venue_id', eligibleVenueIds)
-    }
-  }
-
-  if (eventType) {
-    eventQuery = eventQuery.eq('event_type', eventType)
-  }
-
-  if (timing === 'tonight') {
-    eventQuery = eventQuery.eq('event_date', today)
-  } else if (timing === 'next7') {
-    eventQuery = eventQuery
+  const createEventQuery = (countOnly = false) => {
+    let query = supabase
+      .from('events')
+      .select(countOnly ? 'event_id' : eventSelect, countOnly ? { count: 'exact', head: true } : {})
+      .eq('is_published', true)
       .gte('event_date', today)
-      .lte('event_date', next7End)
-  } else {
-    if (dateFrom) {
-      eventQuery = eventQuery.gte('event_date', dateFrom)
+
+    if (hasVenueFilters) query = query.in('venue_id', eligibleVenueIds)
+    if (eventType) query = query.eq('event_type', eventType)
+
+    if (timing === 'tonight') {
+      query = query.eq('event_date', today)
+        .or('start_time.is.null,start_time.eq.00:00:00,start_time.gte.17:00:00')
+    } else if (timing === 'weekend') {
+      query = query.gte('event_date', weekend.start).lte('event_date', weekend.end)
+    } else if (timing === 'next7') {
+      query = query.lte('event_date', next7End)
+    } else {
+      if (dateFrom) query = query.gte('event_date', dateFrom)
+      if (dateTo) query = query.lte('event_date', dateTo)
     }
 
-    if (dateTo) {
-      eventQuery = eventQuery.lte('event_date', dateTo)
-    }
+    if (search && !postcodeSearchAttempt) query = query.ilike('event_name', `%${search}%`)
+    return query
   }
-
-  if (search && !postcodeSearchAttempt) {
-    eventQuery = eventQuery.ilike('event_name', `%${search}%`)
-  }
-
-  eventQuery = eventQuery
-    .order('event_date', { ascending: true, nullsFirst: false })
-    .order('start_time', { ascending: true, nullsFirst: false })
-    .order('event_name', { ascending: true })
 
   let events: EventRow[] = []
   let filteredCount = 0
+  let loadError = Boolean(venueError)
+  let safePage = 1
+  let totalPages = 1
 
-  if (timing === 'tonight') {
-    // Filter in Postgres before pagination, so the first 1,000 events
-    // cannot hide later evening matches.
-    eventQuery = eventQuery.or('start_time.is.null,start_time.eq.00:00:00,start_time.gte.17:00:00')
+  if (!loadError && !invalidDateRange && (!hasVenueFilters || eligibleVenueIds.length > 0)) {
+    // Count before choosing the range: an old/bookmarked page number must never
+    // render an empty page while claiming to show the last page of results.
+    const { count, error: countError } = await createEventQuery(true)
+    if (countError) {
+      console.error('Error counting events:', countError.message)
+      loadError = true
+    } else {
+      filteredCount = count || 0
+      totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE))
+      safePage = Math.min(page, totalPages)
+      if (filteredCount > 0) {
+        const from = (safePage - 1) * PAGE_SIZE
+        const { data, error } = await createEventQuery()
+          .order('event_date', { ascending: true, nullsFirst: false })
+          .order('start_time', { ascending: true, nullsFirst: false })
+          .order('event_name', { ascending: true })
+          .order('event_id', { ascending: true })
+          .range(from, from + PAGE_SIZE - 1)
+        if (error) {
+          console.error('Error loading events:', error.message)
+          loadError = true
+        } else {
+          events = (data || []) as unknown as EventRow[]
+        }
+      }
+    }
   }
 
-  const from = (page - 1) * PAGE_SIZE
-  const to = from + PAGE_SIZE - 1
-  const { data, error, count } = await eventQuery.range(from, to)
-
-  if (error) {
-    return (
-      <main className="min-h-screen bg-zinc-950 p-8 text-white">
-        Error loading events: {error.message}
-      </main>
-    )
-  }
-
-  events = (data || []) as EventRow[]
-  filteredCount = count || 0
-
-  const totalPages = Math.max(1, Math.ceil(filteredCount / PAGE_SIZE))
-  const safePage = Math.min(page, totalPages)
-
-  const hasAdvancedFilters = Boolean(
-    city || region || dateFrom || dateTo || eventType
-  )
-  const hasFilters = Boolean(
-    search || timing || category || hasAdvancedFilters
-  )
-
-  const makeFilterHref = (
-    updates: Partial<{
-      search: string
-      timing: string
-      category: string
-      city: string
-      region: string
-      date_from: string
-      date_to: string
-      event_type: string
-      page: string
-    }>
-  ) => {
-    const next = {
-      search,
-      timing,
-      category,
-      city,
-      region,
-      date_from: dateFrom,
-      date_to: dateTo,
-      event_type: eventType,
-      page: '',
+  const makeFilterHref = (updates: Partial<SearchFilters>) => {
+    const next: SearchFilters = {
+      search, timing, category, city, region,
+      date_from: dateFrom, date_to: dateTo, event_type: eventType, page: '',
       ...updates,
     }
-
     const query = new URLSearchParams()
-
-    if (next.search) query.set('search', next.search)
-    if (next.timing) query.set('timing', next.timing)
-    if (next.category) query.set('category', next.category)
-    if (next.city) query.set('city', next.city)
-    if (next.region) query.set('region', next.region)
-    if (next.date_from) query.set('date_from', next.date_from)
-    if (next.date_to) query.set('date_to', next.date_to)
-    if (next.event_type) query.set('event_type', next.event_type)
-    if (next.page && next.page !== '1') query.set('page', next.page)
-
-    const queryString = query.toString()
-    return queryString ? `/events?${queryString}` : '/events'
+    for (const [name, value] of Object.entries(next)) {
+      if (value && !(name === 'page' && value === '1')) query.set(name, value)
+    }
+    return query.size ? `/events?${query.toString()}` : '/events'
   }
 
+  const currentHref = makeFilterHref({ page: String(safePage) })
+  const fromQuery = `?from=${encodeURIComponent(currentHref)}`
+  const timingLabel = timingOptions.find((option) => option.value === timing)?.label || 'All upcoming'
+  const categoryLabel = categoryOptions.find((option) => option.value === category)?.label
+  const advancedFilterCount = [city, region, category, eventType, dateFrom || dateTo].filter(Boolean).length
+  const activeFilters: Array<{ label: string; href: string }> = [
+    ...(search ? [{
+      label: postcodeOrigin ? `Within ${POSTCODE_SEARCH_RADIUS_MILES} miles of ${postcodeOrigin.label}` : `Search: ${search}`,
+      href: makeFilterHref({ search: '' }),
+    }] : []),
+    ...(timing ? [{ label: timingLabel, href: makeFilterHref({ timing: '' }) }] : []),
+    ...(categoryLabel ? [{ label: categoryLabel, href: makeFilterHref({ category: '' }) }] : []),
+    ...(city ? [{ label: city, href: makeFilterHref({ city: '' }) }] : []),
+    ...(region ? [{ label: region, href: makeFilterHref({ region: '' }) }] : []),
+    ...(eventType ? [{ label: eventType, href: makeFilterHref({ event_type: '' }) }] : []),
+    ...(dateFrom || dateTo ? [{
+      label: `${dateFrom ? formatDate(dateFrom) : 'Any date'} – ${dateTo ? formatDate(dateTo) : 'onwards'}`,
+      href: makeFilterHref({ date_from: '', date_to: '' }),
+    }] : []),
+  ]
+  const hasFilters = activeFilters.length > 0
+
   return (
-    <main className="min-h-screen w-full overflow-x-hidden bg-zinc-950 px-3 py-5 pb-24 text-white sm:px-6 sm:py-10">
-      <section className="mx-auto w-full max-w-7xl">
-        <div className="relative overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-5 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20 sm:p-8">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.2),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.1),transparent_28%)]" />
-
-          <div className="relative">
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-blue-300">
-              Scene Finder
-            </p>
-            <h1 className="mt-2 text-3xl font-black sm:text-5xl">
-              Find events
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-300 sm:text-base">
-              Find UK lifestyle, club, sauna and kink events by date, type or postcode.
-            </p>
-
-            <div className="mt-5 flex flex-wrap gap-2">
-              <span className="rounded-full border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-200">
-                {totalPublishedEventCount || 0} events
-              </span>
-              <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1.5 text-xs font-semibold text-zinc-300">
-                Updated daily
-              </span>
-            </div>
+    <main className="min-h-screen bg-zinc-950 px-4 pb-8 pt-6 text-white sm:px-6 sm:pt-8">
+      <div className="mx-auto w-full max-w-6xl">
+        <header className="mb-6 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-blue-300">Scene Finder</p>
+            <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Events</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-zinc-400">Club nights, socials & more.</p>
           </div>
-        </div>
+          <Link href="/" aria-label="Scene Finder home" className="shrink-0 rounded-xl">
+            <FallbackImage src="/images/scene-finder-logo-transparent.png" fallbackSrc="/images/home-hero.jpg" alt="" className="h-20 w-24 object-contain sm:h-24 sm:w-28" loading="eager" />
+          </Link>
+        </header>
 
-        <div className="mt-5 rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 p-3 shadow-xl shadow-blue-950/20 ring-1 ring-purple-500/10 sm:p-5">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-300">
-              Quick find
-            </p>
-            <p className="mt-1 text-sm text-zinc-400">
-              See what is happening tonight, over the next 7 days, or by venue type.
-            </p>
-          </div>
-
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <Link
-              href={makeFilterHref({
-                timing: timing === 'tonight' ? '' : 'tonight',
-                date_from: '',
-                date_to: '',
-              })}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(timing === 'tonight')}`}
-            >
-              Tonight
-            </Link>
-
-            <Link
-              href={makeFilterHref({
-                timing: timing === 'next7' ? '' : 'next7',
-                date_from: '',
-                date_to: '',
-              })}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(timing === 'next7')}`}
-            >
-              Next 7 days
-            </Link>
-
-            <Link
-              href={makeFilterHref({
-                category: category === 'clubs' ? '' : 'clubs',
-              })}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'clubs')}`}
-            >
-              Clubs
-            </Link>
-
-            <Link
-              href={makeFilterHref({
-                category: category === 'saunas' ? '' : 'saunas',
-              })}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'saunas')}`}
-            >
-              Saunas
-            </Link>
-
-            <Link
-              href={makeFilterHref({
-                category: category === 'kink' ? '' : 'kink',
-              })}
-              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition ${quickChipClass(category === 'kink')}`}
-            >
-              Kink
-            </Link>
-          </div>
-
-          <form className="mt-4">
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <input
-                name="search"
-                defaultValue={search}
-                placeholder="Event or postcode..."
-                aria-label="Search events by name or postcode"
-                className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white placeholder:text-zinc-500 focus:border-blue-500 focus:outline-none sm:text-base"
-              />
-
-              <button
-                type="submit"
-                className="rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40 sm:px-6"
-              >
+        <section aria-label="Find events" className="overflow-hidden rounded-3xl border border-blue-500/25 bg-gradient-to-br from-zinc-900 via-zinc-950 to-purple-950/20 shadow-xl shadow-blue-950/15">
+          <Form action="/events" scroll={false} className="p-4 sm:p-5">
+            <label htmlFor="event-search" className="sr-only">Search events by name or postcode</label>
+            <div className="flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400"><Icon name="search" /></span>
+                <input
+                  key={`search-${search}`}
+                  id="event-search"
+                  name="search"
+                  type="search"
+                  defaultValue={search}
+                  placeholder="Event or postcode"
+                  autoComplete="off"
+                  className={`${fieldClass} pl-11`}
+                />
+              </div>
+              <button type="submit" className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/15 transition hover:brightness-110 sm:px-6">
                 Search
               </button>
             </div>
-
             {timing && <input type="hidden" name="timing" value={timing} />}
-            {category && <input type="hidden" name="category" value={category} />}
 
-            <details
-              className="mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/60"
-              open={hasAdvancedFilters}
-            >
-              <summary className="cursor-pointer list-none px-4 py-3 text-sm font-bold text-zinc-200 marker:hidden">
-                <span className="flex items-center justify-between gap-3">
-                  <span>Advanced filters</span>
-                  <span className="text-blue-300">
-                    {hasAdvancedFilters ? 'Active' : 'Open'}
-                  </span>
-                </span>
+            <div aria-label="When" className="mt-4 grid grid-cols-4 gap-1.5 sm:flex sm:gap-2">
+              {timingOptions.map((option) => {
+                const active = timing === option.value && !dateFrom && !dateTo
+                return (
+                  <Link key={option.label}
+                    href={makeFilterHref({ timing: option.value, date_from: '', date_to: '' })}
+                    scroll={false}
+                    aria-current={active ? 'true' : undefined}
+                    className={`inline-flex min-h-11 items-center justify-center rounded-xl border px-2 py-2 text-center text-xs font-semibold leading-4 transition sm:px-4 sm:text-sm ${quickChipClass(active)}`}
+                  >{option.label}</Link>
+                )
+              })}
+            </div>
+
+            <details key={currentHref} className="group mt-4 border-t border-zinc-800/80 pt-1">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-semibold text-zinc-300 marker:hidden [&::-webkit-details-marker]:hidden">
+                <span className="inline-flex items-center gap-2"><Icon name="filter" className="h-4 w-4 text-blue-300" />Filters{advancedFilterCount > 0 && <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-xs text-blue-200">{advancedFilterCount}</span>}</span>
+                <span className="inline-flex items-center gap-2 text-xs font-normal text-zinc-400"><span className="hidden sm:inline">Location, type & dates</span><Icon name="chevron-down" className="h-4 w-4 transition group-open:rotate-180" /></span>
               </summary>
-
-              <div className="grid grid-cols-1 gap-3 border-t border-zinc-800 p-3 sm:grid-cols-2 lg:grid-cols-5">
-                <select
-                  name="city"
-                  defaultValue={city}
-                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white"
-                >
-                  <option value="">Any city</option>
-                  {cityOptions.map((cityName) => (
-                    <option key={cityName} value={cityName}>
-                      {cityName}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  name="region"
-                  defaultValue={region}
-                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white"
-                >
-                  <option value="">Any region</option>
-                  {regionOptions.map((regionName) => (
-                    <option key={regionName} value={regionName}>
-                      {regionName}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  name="event_type"
-                  defaultValue={eventType}
-                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white"
-                >
-                  <option value="">Any event type</option>
-                  {eventTypeOptions.map((typeName) => (
-                    <option key={typeName} value={typeName}>
-                      {typeName}
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  type="date"
-                  name="date_from"
-                  defaultValue={dateFrom}
-                  aria-label="Events from date"
-                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white"
-                />
-
-                <input
-                  type="date"
-                  name="date_to"
-                  defaultValue={dateTo}
-                  aria-label="Events to date"
-                  className="min-w-0 rounded-2xl border border-zinc-700 bg-zinc-950/80 px-3 py-3 text-sm text-white"
-                />
-
-                <div className="grid grid-cols-2 gap-2 sm:col-span-2 lg:col-span-5">
-                  <button
-                    type="submit"
-                    className="rounded-2xl border border-blue-400/70 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-100 transition hover:bg-blue-500/20"
-                  >
-                    Apply filters
-                  </button>
-
-                  <Link
-                    href="/events"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-bold text-zinc-300 transition hover:border-blue-500 hover:text-white"
-                  >
-                    Clear all
-                  </Link>
+              <div className="grid grid-cols-1 gap-4 pb-2 pt-2 sm:grid-cols-2 lg:grid-cols-3">
+                <label className="min-w-0 space-y-2 text-xs font-semibold text-zinc-400">
+                  <span>City or area</span>
+                  <select key={`city-${city}`} name="city" defaultValue={city} className={fieldClass}>
+                    <option value="">Any city</option>
+                    {cityOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className="min-w-0 space-y-2 text-xs font-semibold text-zinc-400">
+                  <span>Region</span>
+                  <select key={`region-${region}`} name="region" defaultValue={region} className={fieldClass}>
+                    <option value="">Any region</option>
+                    {regionOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className="min-w-0 space-y-2 text-xs font-semibold text-zinc-400">
+                  <span>Venue type</span>
+                  <select key={`category-${category}`} name="category" defaultValue={category} className={fieldClass}>
+                    <option value="">All venue types</option>
+                    {categoryOptions.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label className="min-w-0 space-y-2 text-xs font-semibold text-zinc-400">
+                  <span>Event type</span>
+                  <select key={`type-${eventType}`} name="event_type" defaultValue={eventType} className={fieldClass}>
+                    <option value="">All event types</option>
+                    {eventTypeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+                  </select>
+                </label>
+                <label className="min-w-0 space-y-2 text-xs font-semibold text-zinc-400">
+                  <span>From date</span>
+                  <input key={`from-${dateFrom}`} type="date" name="date_from" defaultValue={dateFrom} min={today} className={fieldClass} />
+                </label>
+                <label className="min-w-0 space-y-2 text-xs font-semibold text-zinc-400">
+                  <span>Until date</span>
+                  <input key={`to-${dateTo}`} type="date" name="date_to" defaultValue={dateTo} min={dateFrom || today} className={fieldClass} />
+                </label>
+                <div className="flex flex-wrap items-center gap-3 border-t border-zinc-800 pt-4 sm:col-span-2 lg:col-span-3">
+                  <button type="submit" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-blue-400/40 bg-blue-500/15 px-5 py-2.5 text-sm font-bold text-blue-100 transition hover:bg-blue-500/25">Apply filters</button>
+                  <Link href="/events" className="inline-flex min-h-11 items-center px-2 text-sm font-medium text-zinc-400 hover:text-white">Reset all</Link>
+                  {timing && <p className="text-xs leading-5 text-zinc-500 sm:ml-auto">Choosing dates replaces “{timingLabel}”.</p>}
                 </div>
               </div>
             </details>
-          </form>
+          </Form>
+        </section>
 
-          {hasFilters && (
-            <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold">
-              {postcodeOrigin && (
-                <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-emerald-200">
-                  Within {POSTCODE_SEARCH_RADIUS_MILES} miles of {postcodeOrigin.label}
-                </span>
-              )}
+        {hasFilters && (
+          <div aria-label="Active filters" className="mt-3 flex flex-wrap items-center gap-2">
+            {activeFilters.map(({ label, href }) => (
+              <Link key={label} href={href} scroll={false} aria-label={`Remove filter: ${label}`} className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/70 py-2 pl-3.5 pr-3 text-xs text-zinc-200 transition hover:border-blue-400/60 hover:bg-blue-500/10">
+                <span className="truncate">{label}</span><Icon name="close" className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+              </Link>
+            ))}
+            <Link href="/events" scroll={false} className="inline-flex min-h-11 items-center px-2 text-xs font-medium text-blue-300 hover:text-blue-200">Clear all</Link>
+          </div>
+        )}
 
-              {postcodeSearchAttempt && !postcodeOrigin && (
-                <span className="rounded-full border border-amber-400/40 bg-amber-500/10 px-3 py-1.5 text-amber-200">
-                  Postcode not recognised
-                </span>
-              )}
+        {postcodeSearchAttempt && !postcodeOrigin && (
+          <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/5 px-4 py-3 text-sm leading-6 text-amber-200">We couldn’t find that postcode. Try a full postcode or a postcode area, such as M1.</p>
+        )}
+        {invalidDateInput && (
+          <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/5 px-4 py-3 text-sm leading-6 text-amber-200">One of the dates was not recognised. Choose a date using Filters.</p>
+        )}
 
-              {timing === 'tonight' && (
-                <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3 py-1.5 text-blue-200">
-                  Tonight
-                </span>
-              )}
+        <section id="event-results" aria-labelledby="results-heading" className="mt-7 scroll-mt-6">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 id="results-heading" className="text-xl font-bold tracking-tight sm:text-2xl">{hasFilters ? 'Your results' : 'Upcoming events'}</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                {loadError ? 'Events are temporarily unavailable' : `${filteredCount.toLocaleString('en-GB')} event${filteredCount === 1 ? '' : 's'} found`}
+                {!loadError && filteredCount > 0 && <span className="text-zinc-500"> · Soonest first</span>}
+              </p>
+            </div>
+            {!loadError && filteredCount > PAGE_SIZE && <p className="text-xs text-zinc-400">Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filteredCount)}</p>}
+          </div>
 
-              {timing === 'next7' && (
-                <span className="rounded-full border border-purple-400/40 bg-purple-500/10 px-3 py-1.5 text-purple-200">
-                  Next 7 days
-                </span>
-              )}
+          {loadError ? (
+            <div role="alert" className="rounded-2xl border border-blue-500/20 bg-zinc-900/50 px-5 py-10 text-center">
+              <Icon name="calendar" className="mx-auto h-8 w-8 text-blue-300" />
+              <h3 className="mt-4 text-xl font-bold">We couldn’t load the events</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-400">Please try again. Your search and filters have been kept.</p>
+              <a href={currentHref} className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-blue-500 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-400">Try again</a>
+            </div>
+          ) : events.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {events.map((event) => {
+                const venue = venueById.get(event.venue_id)
+                const organiser = event.organiser_id ? venueById.get(event.organiser_id) : null
+                const eventName = cleanText(event.event_name || '') || 'Event details'
+                const venueName = cleanText(venue?.name || '') || 'Venue to be confirmed'
+                const eventLocation = getEventLocation(event, venue)
+                const distance = venue ? distanceMilesByVenue.get(venue.venue_id) : undefined
+                const isTonight = isTonightEvent(event, today)
+                const detailsHref = `/events/${encodeURIComponent(event.event_id)}${fromQuery}`
+                const ticketUrl = httpUrl(event.ticket_url)
+                const typeLabel = cleanText(event.event_type || '')
 
-              {category && (
-                <span className="rounded-full border border-pink-400/40 bg-pink-500/10 px-3 py-1.5 text-pink-200">
-                  {category === 'clubs'
-                    ? 'Clubs'
-                    : category === 'saunas'
-                      ? 'Saunas'
-                      : 'Kink'}
-                </span>
-              )}
-
-              {city && (
-                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-200">
-                  {city}
-                </span>
-              )}
-
-              {region && (
-                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-200">
-                  {region}
-                </span>
-              )}
-
-              {eventType && (
-                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-200">
-                  {eventType}
-                </span>
-              )}
-
-              {(dateFrom || dateTo) && timing !== 'tonight' && timing !== 'next7' && (
-                <span className="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-200">
-                  {dateFrom || 'Any date'} → {dateTo || 'Any date'}
-                </span>
-              )}
+                return (
+                  <article key={event.event_id} className="group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border border-blue-500/20 bg-gradient-to-br from-zinc-900 to-zinc-950 transition duration-200 hover:border-blue-400/60 hover:shadow-lg hover:shadow-blue-950/30">
+                    <Link href={detailsHref} aria-label={`View ${eventName}`} className="block aspect-[16/10] overflow-hidden border-b border-zinc-800/70 bg-zinc-950/80">
+                      <FallbackImage src={event.image_url || venue?.image_url} fallbackSrc="/images/home-hero.jpg" alt={eventName} className="h-full w-full object-contain p-3" />
+                    </Link>
+                    <div className="flex flex-1 flex-col p-4 sm:p-5">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium text-blue-200">
+                        <span className="inline-flex items-center gap-1.5"><Icon name="calendar" className="h-3.5 w-3.5" /><time dateTime={event.event_date || undefined}>{formatDate(event.event_date)}</time></span>
+                        <span className="inline-flex items-center gap-1.5 text-zinc-400"><Icon name="clock" className="h-3.5 w-3.5" />{formatTime(event.start_time)}</span>
+                      </div>
+                      <h3 className="mt-3 text-lg font-bold leading-snug tracking-tight sm:text-xl"><Link href={detailsHref} className="line-clamp-2 hover:text-blue-200">{eventName}</Link></h3>
+                      {venue ? <Link href={`/venue/${encodeURIComponent(venue.venue_id)}${fromQuery}`} className="mt-2 w-fit max-w-full text-sm font-semibold text-zinc-300 hover:text-blue-200">{venueName}</Link> : <p className="mt-2 text-sm text-zinc-400">{venueName}</p>}
+                      <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-5 text-zinc-400"><Icon name="pin" className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{eventLocation}{postcodeOrigin && distance !== undefined && <span className="text-emerald-300"> · {formatDistanceMiles(distance)}</span>}</span></p>
+                      {(isTonight || typeLabel) && <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-medium">{isTonight && <span className="rounded-full bg-purple-500/15 px-2.5 py-1 text-purple-200">Tonight</span>}{typeLabel && <span className="text-zinc-500">{typeLabel}</span>}</div>}
+                      {organiser && organiser.venue_id !== venue?.venue_id && <Link href={`/venue/${encodeURIComponent(organiser.venue_id)}${fromQuery}`} className="mt-2 inline-flex min-h-8 items-center text-xs text-zinc-400 hover:text-blue-200">Hosted by {cleanText(organiser.name || 'Travelling organiser')}</Link>}
+                      <div className="mt-auto flex gap-2 pt-5">
+                        <Link href={detailsHref} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/15 px-3 py-2.5 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/25">Details <Icon name="arrow-right" className="h-4 w-4" /></Link>
+                        {ticketUrl && <a href={ticketUrl} target="_blank" rel="noreferrer noopener" aria-label={`Tickets and booking for ${eventName} (opens in a new tab)`} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm font-semibold text-zinc-200 transition hover:border-purple-400/60 hover:bg-purple-500/10">Tickets <Icon name="external" className="h-3.5 w-3.5" /></a>}
+                      </div>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 px-5 py-10 text-center sm:py-14">
+              <Icon name="search" className="mx-auto h-8 w-8 text-blue-300" />
+              <h3 className="mt-4 text-xl font-bold">{invalidDateRange ? 'Check your dates' : 'No events match just yet'}</h3>
+              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-400">{invalidDateRange ? 'The end date needs to be on or after the start date. Open Filters to change your dates.' : 'Try another area, widen your dates, or remove a filter above.'}</p>
+              <Link href="/events" className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/15 px-5 py-2.5 text-sm font-semibold text-blue-100 hover:bg-blue-500/25">See all upcoming events <Icon name="arrow-right" className="h-4 w-4" /></Link>
             </div>
           )}
-        </div>
 
-        <div className="mt-7 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-300">
-              Events
-            </p>
-            <h2 className="mt-1 text-2xl font-black sm:text-3xl">
-              {hasFilters ? 'Search results' : 'Upcoming events'}
-            </h2>
-            <p className="mt-2 text-sm text-zinc-400">
-              {filteredCount} event{filteredCount === 1 ? '' : 's'} found
-            </p>
-          </div>
-
-          {filteredCount > PAGE_SIZE && (
-            <p className="text-xs font-semibold text-zinc-500">
-              Page {safePage} of {totalPages}
-            </p>
+          {!loadError && totalPages > 1 && (
+            <nav aria-label="Event result pages" className="mt-7 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-5">
+              {safePage > 1 ? <Link href={`${makeFilterHref({ page: String(safePage - 1) })}#event-results`} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm font-semibold text-zinc-300 hover:border-blue-400/50"><Icon name="arrow-left" className="h-4 w-4" />Previous</Link> : <span className="inline-flex min-h-11 items-center gap-2 px-4 text-sm text-zinc-600"><Icon name="arrow-left" className="h-4 w-4" />Previous</span>}
+              <span className="text-xs text-zinc-400" aria-current="page">Page {safePage} of {totalPages}</span>
+              {safePage < totalPages ? <Link href={`${makeFilterHref({ page: String(safePage + 1) })}#event-results`} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-blue-400/40 bg-blue-500/15 px-4 py-2.5 text-sm font-semibold text-blue-100 hover:bg-blue-500/25">Next<Icon name="arrow-right" className="h-4 w-4" /></Link> : <span className="inline-flex min-h-11 items-center gap-2 px-4 text-sm text-zinc-600">Next<Icon name="arrow-right" className="h-4 w-4" /></span>}
+            </nav>
           )}
-        </div>
-
-        {events.length > 0 ? (
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {events.map((event) => {
-              const venue = venueById.get(event.venue_id)
-              const organiser = event.organiser_id ? venueById.get(event.organiser_id) : null
-              const eventName = cleanText(event.event_name || '') || 'Untitled event'
-              const venueName = cleanText(venue?.name || '') || 'Venue TBC'
-              const venueCategory = getEventCategoryLabel(venue)
-              const description = cleanDescription(event.description)
-              const eventLocation = getEventLocation(event, venue)
-              const distance = venue
-                ? distanceMilesByVenue.get(venue.venue_id)
-                : undefined
-              const cardImage = event.image_url || venue?.image_url || '/images/home-hero.jpg'
-              const isTonight = isTonightEvent(event, today)
-
-              return (
-                <article
-                  key={event.event_id}
-                  className="group flex h-full flex-col overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20"
-                >
-                  <div className="relative aspect-[16/9] overflow-hidden border-b border-blue-500/15 bg-zinc-950">
-                    <FallbackImage
-                      src={cardImage}
-                      fallbackSrc="/images/home-hero.jpg"
-                      alt={eventName}
-                      className="h-full w-full object-contain p-3 transition duration-300 group-hover:scale-[1.02]"
-                    />
-
-                    <div className="absolute left-3 top-3 flex flex-wrap gap-2">
-                      {isTonight && (
-                        <span className="rounded-full border border-blue-300/60 bg-blue-500/90 px-2.5 py-1 text-[11px] font-black text-white shadow-lg">
-                          Tonight
-                        </span>
-                      )}
-
-                      <span
-                        className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${getVenueCategoryPillClass(
-                          venue?.category
-                        )}`}
-                      >
-                        {venueCategory}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-1 flex-col p-4 sm:p-5">
-                    <div className="flex flex-wrap gap-2 text-xs font-semibold text-zinc-400">
-                      <span>{formatDate(event.event_date)}</span>
-                      <span>•</span>
-                      <span>{formatTime(event.start_time)}</span>
-                    </div>
-
-                    <h3 className="mt-3 line-clamp-2 text-xl font-black leading-tight text-white">
-                      {eventName}
-                    </h3>
-
-                    <p className="mt-2 text-sm font-semibold text-blue-200">
-                      {venueName}
-                    </p>
-
-                    <p className="mt-1 text-sm text-zinc-400">
-                      📍 {eventLocation}
-                    </p>
-
-                    {postcodeOrigin && distance !== undefined && (
-                      <p className="mt-1 text-xs font-bold text-emerald-300">
-                        {formatDistanceMiles(distance)}
-                      </p>
-                    )}
-
-                    {event.event_type && (
-                      <div className="mt-3">
-                        <span className="rounded-full border border-zinc-700 bg-zinc-950/70 px-2.5 py-1 text-xs font-semibold text-zinc-300">
-                          {cleanText(event.event_type)}
-                        </span>
-                      </div>
-                    )}
-
-                    {description && (
-                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">
-                        {description}
-                      </p>
-                    )}
-
-                    <div className="mt-auto grid grid-cols-2 gap-2 pt-5">
-                      <Link
-                        href={`/events/${event.event_id}`}
-                        className="inline-flex items-center justify-center rounded-2xl border border-blue-400/60 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-100 transition hover:bg-blue-500/20"
-                      >
-                        View details →
-                      </Link>
-
-                      {event.ticket_url ? (
-                        <a
-                          href={event.ticket_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-bold text-zinc-200 transition hover:border-blue-500 hover:text-white"
-                        >
-                          Tickets / booking ↗
-                        </a>
-                      ) : (
-                        <Link
-                          href={`/venue/${event.venue_id}`}
-                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-bold text-zinc-300 transition hover:border-blue-500 hover:text-white"
-                        >
-                          View venue →
-                        </Link>
-                      )}
-                    </div>
-                    {organiser && (
-                      <Link href={`/venue/${organiser.venue_id}`} className="mt-3 text-xs font-semibold text-blue-200 underline underline-offset-2">
-                        By {cleanText(organiser.name || 'Travelling organiser')}
-                      </Link>
-                    )}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="mt-5 rounded-3xl border border-zinc-800 bg-zinc-950/70 p-8 text-center">
-            <h3 className="text-xl font-black">No events found</h3>
-
-            <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-zinc-400">
-              Try a nearby postcode, widen the date range, or remove one of the filters.
-            </p>
-
-            <Link
-              href="/events"
-              className="mt-5 inline-flex rounded-2xl border border-blue-400/60 bg-blue-500/10 px-5 py-3 text-sm font-bold text-blue-100 transition hover:bg-blue-500/20"
-            >
-              Clear filters
-            </Link>
-          </div>
-        )}
-
-        {filteredCount > PAGE_SIZE && (
-          <nav className="mt-8 flex items-center justify-center gap-3">
-            {safePage > 1 ? (
-              <Link
-                href={makeFilterHref({ page: String(safePage - 1) })}
-                className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-3 text-sm font-bold text-zinc-200 transition hover:border-blue-500 hover:text-white"
-              >
-                ← Previous
-              </Link>
-            ) : (
-              <span className="rounded-2xl border border-zinc-800 bg-zinc-950 px-5 py-3 text-sm font-bold text-zinc-600">
-                ← Previous
-              </span>
-            )}
-
-            <span className="text-sm font-semibold text-zinc-400">
-              {safePage} / {totalPages}
-            </span>
-
-            {safePage < totalPages ? (
-              <Link
-                href={makeFilterHref({ page: String(safePage + 1) })}
-                className="rounded-2xl border border-blue-400/60 bg-blue-500/10 px-5 py-3 text-sm font-bold text-blue-100 transition hover:bg-blue-500/20"
-              >
-                Next →
-              </Link>
-            ) : (
-              <span className="rounded-2xl border border-zinc-800 bg-zinc-950 px-5 py-3 text-sm font-bold text-zinc-600">
-                Next →
-              </span>
-            )}
-          </nav>
-        )}
-
-        <p className="mx-auto mt-10 max-w-3xl text-center text-xs leading-5 text-zinc-500">
-          Scene Finder is an independent directory. Always check the official venue
-          or event source before travelling, booking or attending.
-        </p>
-      </section>
+        </section>
+        <p className="mx-auto mt-8 max-w-2xl text-center text-xs leading-5 text-zinc-500">Check the official event page for entry requirements, prices and any last-minute changes.</p>
+      </div>
     </main>
   )
 }

@@ -1,424 +1,248 @@
-import { supabase } from "@/lib/supabase";
-import Link from "next/link";
-import FallbackImage from "@/app/components/FallbackImage";
+import { supabase } from '@/lib/supabase'
+import Link from 'next/link'
+import FallbackImage from '@/app/components/FallbackImage'
+import Icon from '@/app/components/Icon'
+import { cleanText } from '@/lib/cleanText'
 
-function cleanDisplayText(value?: string | null) {
-  if (!value) return "";
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
-  return String(value)
-    .replace(/&amp;hellip;/gi, "…")
-    .replace(/&hellip;/gi, "…")
-    .replace(/&amp;nbsp;/gi, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;quot;/gi, '"')
-    .replace(/&quot;/gi, '"')
-    .replace(/&amp;#39;/gi, "'")
-    .replace(/&#39;/gi, "'")
-    .replace(/&amp;apos;/gi, "'")
-    .replace(/&apos;/gi, "'")
-    .replace(/&rsquo;/gi, "'")
-    .replace(/&lsquo;/gi, "'")
-    .replace(/&rdquo;/gi, '"')
-    .replace(/&ldquo;/gi, '"')
-    .replace(/&amp;lt;/gi, "<")
-    .replace(/&lt;/gi, "<")
-    .replace(/&amp;gt;/gi, ">")
-    .replace(/&gt;/gi, ">")
-    .replace(/&amp;/gi, "&")
-    .replace(/\\r\\n|\\n|\\r/g, " ")
-    .replace(/[\r\n\t]+/g, " ")
-    .replace(/<br\s*\/?>/gi, " ")
-    .replace(/<\/p>/gi, " ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/\[…\]|\[\.\.\.\]/g, "…")
-    .replace(/\s+/g, " ")
-    .trim();
+function cleanDisplayText(value: string | null | undefined) {
+  if (!value) return ''
+  return cleanText(cleanText(String(value)))
+    .replace(/&#(x[0-9a-f]+|\d+);/gi, (match, entity: string) => {
+      const codePoint = Number.parseInt(entity.replace(/^x/i, ''), /^x/i.test(entity) ? 16 : 10)
+      return Number.isFinite(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match
+    })
+    .replace(/&(?:rsquo|lsquo);/gi, "'")
+    .replace(/&(?:rdquo|ldquo);/gi, '"')
+    .replace(/&hellip;/gi, '…')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\\[rnt]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-function cleanDisplayUrl(value?: string | null) {
-  const cleaned = cleanDisplayText(value);
-  return cleaned || null;
-}
-
-function formatDate(date: string | null) {
-  if (!date) return "Date TBC";
-
-  return new Date(date).toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatTime(time: string | null) {
-  if (!time) return null;
-
-  const formatted = time.slice(0, 5);
-
-  // Most scraped 00:00 values mean the source gave no time.
-  // Show Time TBC instead of misleading users with midnight.
-  if (formatted === "00:00") return null;
-
-  return formatted;
-}
-
-function getTodayString() {
-  return new Date().toISOString().split("T")[0];
-}
-
-function formatEventTime(startTime: string | null, endTime: string | null) {
-  if (startTime && endTime) return `${startTime} - ${endTime}`;
-  if (startTime) return startTime;
-  return "Time TBC";
-}
-
-function getEventTags(event: any) {
-  const text = cleanDisplayText(
-    `${event.event_name || ""} ${event.description || ""} ${event.event_type || ""}`,
-  ).toLowerCase();
-
-  const compactText = text.replace(/[^a-z0-9]/g, "");
-  const tags = new Set<string>();
-
-  if (
-    text.includes("newbie") ||
-    text.includes("newcomer") ||
-    text.includes("first time") ||
-    text.includes("beginner")
-  ) {
-    tags.add("Newbie Friendly");
+function publicUrl(value: string | null | undefined) {
+  try {
+    const url = new URL(cleanDisplayText(value))
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : null
+  } catch {
+    return null
   }
+}
 
-  if (text.includes("couple")) tags.add("Couples");
+function uniqueDisplayParts(values: Array<string | null | undefined>) {
+  const seen = new Set<string>()
+  return values.map(cleanDisplayText).filter((value) => {
+    if (!value || seen.has(value.toLowerCase())) return false
+    seen.add(value.toLowerCase())
+    return true
+  })
+}
 
-  if (
-    text.includes("single men") ||
-    text.includes("single man") ||
-    text.includes("single male") ||
-    text.includes("single guy") ||
-    text.includes("single gent")
-  ) {
-    tags.add("Single Men Welcome");
+function descriptionParagraphs(value: string | null | undefined) {
+  if (!value) return []
+  const raw = String(value)
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<\/(?:p|div|li|h[1-6])>|<br\s*\/?>/gi, '\n')
+    .replace(/\\r\\n|\\n|\\r/g, '\n')
+  const paragraphs = raw.split(/\n+/).map(cleanDisplayText).filter(Boolean)
+  if (paragraphs.length) {
+    paragraphs[0] = paragraphs[0].replace(/^click\s+(?:on\s+)?(?:the\s+)?icon\s+for\s+(?:more\s+)?(?:details|information|info)\b[.!:;\s-]*/i, '').trim()
   }
+  return paragraphs.filter(Boolean)
+}
 
-  if (
-    text.includes("single women") ||
-    text.includes("single woman") ||
-    text.includes("single female") ||
-    text.includes("single ladies") ||
-    text.includes("single lady")
-  ) {
-    tags.add("Single Women Welcome");
+function formatDate(value: string | null) {
+  if (!value) return 'Date to be confirmed'
+  const date = new Date(`${value.slice(0, 10)}T12:00:00Z`)
+  if (Number.isNaN(date.getTime())) return 'Date to be confirmed'
+  return date.toLocaleDateString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London',
+  })
+}
+
+function formatTime(value: string | null) {
+  const time = cleanDisplayText(value).slice(0, 5)
+  // Imported midnight values often mean that the source supplied no time.
+  return time && time !== '00:00' ? time : null
+}
+
+function getReturnHref(value: string | string[] | undefined) {
+  const candidate = Array.isArray(value) ? value[0] : value
+  if (!candidate || candidate.length > 4096 || !candidate.startsWith('/') || candidate.startsWith('//')) return '/events'
+  try {
+    const url = new URL(candidate, 'https://www.scenefinder.co.uk')
+    if (url.origin !== 'https://www.scenefinder.co.uk' || !/^\/(?:venues|events|venue\/[^/]+)$/.test(url.pathname)) return '/events'
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return '/events'
   }
-
-  if (text.includes("bbw") || text.includes("curvy")) tags.add("Curvy / BBW");
-  if (text.includes("interracial") || text.includes("black magic"))
-    tags.add("Interracial");
-  if (text.includes("greedy girl")) tags.add("Greedy Girls");
-  if (text.includes("bi") || text.includes("bisexual")) tags.add("Bi");
-  if (text.includes("hotwife") || text.includes("hot wife"))
-    tags.add("Hotwife");
-  if (text.includes("cuckold") || text.includes("cuck")) tags.add("Cuckold");
-  if (text.includes("fetish")) tags.add("Fetish");
-
-  if (
-    text.includes("kink") ||
-    text.includes("bdsm") ||
-    compactText.includes("bdsm") ||
-    text.includes("bondage") ||
-    text.includes("domination") ||
-    text.includes("dominance") ||
-    text.includes("submission") ||
-    text.includes("submissive") ||
-    text.includes("dom/sub") ||
-    text.includes("dom sub") ||
-    text.includes("d/s")
-  ) {
-    tags.add("Kink");
-  }
-
-  if (
-    text.includes("bdsm") ||
-    compactText.includes("bdsm") ||
-    text.includes("bondage") ||
-    text.includes("discipline") ||
-    text.includes("dominance") ||
-    text.includes("domination") ||
-    text.includes("submission") ||
-    text.includes("submissive")
-  ) {
-    tags.add("BDSM");
-  }
-
-  if (text.includes("social")) tags.add("Social");
-  if (text.includes("munch")) tags.add("Munch");
-  if (text.includes("party")) tags.add("Party");
-  if (text.includes("club night")) tags.add("Club Night");
-  if (text.includes("play party")) tags.add("Play Party");
-  if (text.includes("sauna")) tags.add("Sauna");
-  if (text.includes("workshop")) tags.add("Workshop");
-  if (text.includes("weekender") || text.includes("weekend"))
-    tags.add("Weekender");
-  if (text.includes("festival") || text.includes("fest")) tags.add("Festival");
-
-  if (tags.size === 0 && event.event_type)
-    tags.add(cleanDisplayText(event.event_type));
-  if (tags.size === 0) tags.add("Event");
-
-  return [...tags];
 }
 
 export default async function EventDetailPage({
   params,
+  searchParams,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ id: string }>
+  searchParams?: Promise<{ from?: string | string[] }>
 }) {
-  const { id } = await params;
-  const today = getTodayString();
-
+  const { id } = await params
+  const query = searchParams ? await searchParams : {}
+  const returnHref = getReturnHref(query.from)
+  const backLabel = returnHref.startsWith('/venue/') ? 'Back to venue' : 'Back to results'
   const { data: event, error } = await supabase
-    .from("events")
-    .select(
-      `
-      event_id,
-      venue_id,
-      event_name,
-      event_date,
-      start_time,
-      end_time,
-      event_type,
-      description,
-      ticket_url,
-      source_url,
-      image_url,
-      status
-    `,
-    )
-    .eq("event_id", id)
-    .eq("is_published", true)
-    .single();
+    .from('events')
+    .select('event_id, venue_id, organiser_id, event_name, event_date, start_time, end_time, event_type, description, ticket_url, source_url, image_url, status, event_location_name, event_address_line_1, event_address_line_2, event_locality, event_postal_town, event_county, event_postcode, event_country, event_location_verified, event_address_visibility')
+    .eq('event_id', id)
+    .eq('is_published', true)
+    .single()
 
   if (error || !event) {
     return (
-      <main className="relative min-h-screen overflow-hidden bg-zinc-950 px-6 py-10 text-white">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_30%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_30%)]" />
-
-        <section className="relative mx-auto max-w-4xl">
-          <div className="rounded-3xl border border-blue-500/30 bg-zinc-900/80 p-6 shadow-2xl shadow-blue-950/30 ring-1 ring-purple-500/20">
-            <p className="text-zinc-300">Event not found.</p>
-
-            <Link
-              href="/events"
-              className="mt-5 inline-flex items-center rounded-xl border border-blue-500/40 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200 transition hover:border-blue-400 hover:bg-blue-500/20"
-            >
-              ← Back to Events
-            </Link>
-          </div>
+      <main className="min-h-screen bg-zinc-950 px-4 py-8 text-white sm:px-6">
+        <section className="mx-auto max-w-6xl rounded-3xl border border-blue-500/20 bg-zinc-900/70 p-7">
+          <h1 className="text-2xl font-bold">This event isn’t available</h1>
+          <p className="mt-2 text-zinc-400">The listing may have changed. Browse the latest events to find another date.</p>
+          <Link href={returnHref} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-blue-400/30 bg-blue-500/10 px-4 text-sm font-semibold text-blue-200"><Icon name="arrow-left" className="h-4 w-4" />{backLabel}</Link>
         </section>
       </main>
-    );
+    )
   }
 
-  const { data: venue } = await supabase
-    .from("venues")
-    .select("venue_id, name, city_area, region, website")
-    .eq("venue_id", event.venue_id)
-    .single();
+  const profileIds = [...new Set([event.venue_id, event.organiser_id].filter((value): value is string => Boolean(value)))]
+  const { data: profiles } = profileIds.length
+    ? await supabase.from('venues')
+        .select('venue_id, name, canonical_city, city_area, canonical_region, region, website, image_url, location_kind, address_visibility, address_verified, address_line_1, address_line_2, locality, postal_town, county, postcode, country')
+        .in('venue_id', profileIds)
+    : { data: [] }
+  const venue = profiles?.find((profile) => profile.venue_id === event.venue_id)
+  const organiser = profiles?.find((profile) => profile.venue_id === event.organiser_id)
 
-  const startTime = formatTime(event.start_time);
-  const endTime = formatTime(event.end_time);
-  const eventTime = formatEventTime(startTime, endTime);
-  const eventTags = getEventTags(event);
-
-  const eventName = cleanDisplayText(event.event_name || "Untitled event");
-  const eventDescription = event.description
-    ? cleanDisplayText(event.description)
-    : "";
-  const venueName = venue?.name ? cleanDisplayText(venue.name) : "";
-  const venueCity = venue?.city_area ? cleanDisplayText(venue.city_area) : "";
-  const venueRegion = venue?.region ? cleanDisplayText(venue.region) : "";
-  const locationText = [venueCity, venueRegion].filter(Boolean).join(" • ");
-  const ticketUrl = cleanDisplayUrl(event.ticket_url);
-  const sourceUrl = cleanDisplayUrl(event.source_url);
-  const venueWebsite = cleanDisplayUrl(venue?.website);
-  const eventImage = cleanDisplayUrl(event.image_url);
+  const eventName = cleanDisplayText(event.event_name) || 'Untitled event'
+  const eventType = cleanDisplayText(event.event_type).replace(/_/g, ' ')
+  const paragraphs = descriptionParagraphs(event.description)
+  const startTime = formatTime(event.start_time)
+  const endTime = formatTime(event.end_time)
+  const eventTime = startTime ? `${startTime}${endTime ? ` – ${endTime}` : ''}` : 'Time to be confirmed'
+  const venueName = cleanDisplayText(venue?.name)
+  const organiserName = cleanDisplayText(organiser?.name)
+  const venueCity = cleanDisplayText(venue?.canonical_city || venue?.city_area)
+  const venueRegion = cleanDisplayText(venue?.canonical_region || venue?.region)
+  const hostArea = uniqueDisplayParts([venueCity, venueRegion]).join(', ')
+  const ticketUrl = publicUrl(event.ticket_url)
+  const sourceUrl = publicUrl(event.source_url)
+  const venueWebsite = publicUrl(venue?.website)
+  const bookingHref = ticketUrl || sourceUrl || venueWebsite
+  const bookingLabel = ticketUrl ? 'Tickets / booking' : sourceUrl ? 'View event website' : 'Visit venue website'
+  const eventImage = cleanDisplayText(event.image_url || venue?.image_url)
+  const eventVisibility = cleanDisplayText(event.event_address_visibility).toLowerCase()
+  const eventIsPrivate = eventVisibility === 'private'
+  const canShowEventAddress = event.event_location_verified === true && eventVisibility === 'public'
+  const hasEventLocation = uniqueDisplayParts([
+    event.event_location_name, event.event_address_line_1, event.event_address_line_2,
+    event.event_locality, event.event_postal_town, event.event_county, event.event_postcode,
+  ]).length > 0
+  const canShowVenueAddress = !eventIsPrivate && !hasEventLocation &&
+    venue?.location_kind === 'fixed_venue' && venue?.address_visibility === 'public' && venue?.address_verified === true
+  const publicAddress = canShowEventAddress
+    ? uniqueDisplayParts([event.event_location_name, event.event_address_line_1, event.event_address_line_2, event.event_locality, event.event_postal_town, event.event_county, event.event_postcode]).join(', ')
+    : canShowVenueAddress
+      ? uniqueDisplayParts([venue?.address_line_1, venue?.address_line_2, venue?.locality, venue?.postal_town, venue?.canonical_city, venue?.county, venue?.postcode]).join(', ')
+      : ''
+  const generalEventArea = event.event_location_verified && !eventIsPrivate
+    ? uniqueDisplayParts([event.event_locality, event.event_postal_town]).join(', ')
+    : ''
+  const locationText = publicAddress || generalEventArea || hostArea || 'Location to be confirmed'
+  const mapsHref = publicAddress
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(publicAddress)}`
+    : null
+  const profileHref = (profileId: string) => `/venue/${encodeURIComponent(profileId)}?from=${encodeURIComponent(returnHref.startsWith('/venue/') ? '/events' : returnHref)}`
+  const reportQuery = new URLSearchParams({
+    type: 'incorrect_information',
+    message: `Event: ${eventName}\nhttps://www.scenefinder.co.uk/events/${encodeURIComponent(id)}\n\nWhat needs updating?\n`,
+  })
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-zinc-950 px-3 pb-28 pt-5 text-white sm:px-6 sm:py-10">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.20),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.13),transparent_30%)]" />
+    <main className="relative min-h-screen bg-zinc-950 px-4 pb-8 pt-5 text-white sm:px-6 sm:pt-8">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_at_top,rgba(59,130,246,0.10),transparent_70%)]" />
+      <div className="relative mx-auto max-w-6xl">
+        <Link href={returnHref} className="mb-4 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-zinc-400 transition hover:text-blue-200"><Icon name="arrow-left" className="h-4 w-4" />{backLabel}</Link>
 
-      <section className="relative mx-auto max-w-5xl">
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/events"
-            className="inline-flex items-center rounded-xl border border-blue-500/30 bg-zinc-950/80 px-4 py-2 text-sm font-semibold text-zinc-200 shadow-lg shadow-blue-950/20 transition hover:border-blue-400 hover:bg-blue-500/10 hover:text-blue-200"
-          >
-            ← Back to Events
-          </Link>
-
-          {venue && (
-            <Link
-              href={`/venue/${venue.venue_id}`}
-              className="inline-flex items-center rounded-xl border border-purple-500/30 bg-zinc-950/80 px-4 py-2 text-sm font-semibold text-zinc-200 shadow-lg shadow-purple-950/20 transition hover:border-purple-400 hover:bg-purple-500/10 hover:text-purple-200"
-            >
-              View Venue
-            </Link>
-          )}
-        </div>
-
-        <article className="mt-6 overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-900 via-zinc-950 to-purple-950/30 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20">
-          <div className="relative bg-zinc-950">
-            <FallbackImage
-              src={eventImage || "/images/venue-placeholder.jpg"}
-              fallbackSrc="/images/venue-placeholder.jpg"
-              alt={eventName}
-              className="h-64 w-full object-contain p-3 sm:h-80 sm:p-5"
-            />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-zinc-950 to-transparent" />
-          </div>
-
-          <div className="p-5 sm:p-7">
-            <div className="flex flex-wrap gap-2">
-              {eventTags.slice(0, 6).map((tag) => (
-                <span
-                  key={tag}
-                  className="inline-flex rounded-full border border-blue-400/50 bg-blue-500/15 px-3 py-1 text-xs font-bold text-blue-200 shadow-sm shadow-blue-950/40"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-
-            <h1 className="mt-4 max-w-4xl break-words text-4xl font-black tracking-tight text-white sm:text-5xl">
-              {eventName}
-            </h1>
-
-            {venueName && (
-              <p className="mt-3 text-lg font-bold text-blue-300">
-                {venueName}
-              </p>
-            )}
-
-            <div className="mt-7 grid gap-3 rounded-2xl border border-zinc-800/90 bg-black/50 p-4 shadow-inner shadow-black/50 sm:grid-cols-3 sm:p-5">
-              <div className="rounded-2xl border border-blue-500/20 bg-zinc-900/80 p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
-                  Location
-                </p>
-                <p className="mt-2 font-semibold text-zinc-100">
-                  📍 {locationText || "Location TBC"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-purple-500/20 bg-zinc-900/80 p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
-                  Date
-                </p>
-                <p className="mt-2 font-semibold text-zinc-100">
-                  🗓️ {formatDate(event.event_date)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-pink-500/20 bg-zinc-900/80 p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
-                  Time
-                </p>
-                <p className="mt-2 font-semibold text-zinc-100">
-                  🕘 {eventTime}
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-blue-500/20 bg-black/45 p-4 shadow-lg shadow-blue-950/10 sm:p-5">
-              <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">
-                Event Information
-              </p>
-
-              <div className="mt-3 grid gap-2 text-sm text-zinc-300 sm:grid-cols-2">
-                <p>✓ Listed from venue event data</p>
-                <p>
-                  ✓ Official source available:{" "}
-                  {sourceUrl || ticketUrl ? "Yes" : "Not listed"}
-                </p>
-                <p>✓ Venue page available: {venue ? "Yes" : "Not listed"}</p>
-                <p>🔄 Last Updated: {formatDate(today)}</p>
-              </div>
-            </div>
-
-            {eventDescription && (
-              <div className="mt-6 rounded-2xl border border-purple-500/20 bg-black/45 p-4 shadow-lg shadow-purple-950/10 sm:p-5">
-                <h2 className="text-xl font-black text-white">
-                  About this event
-                </h2>
-                <p className="mt-4 whitespace-pre-line break-words leading-7 text-zinc-300">
-                  {eventDescription}
-                </p>
-              </div>
-            )}
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              {ticketUrl && (
-                <a
-                  href={ticketUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center rounded-xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/40 transition hover:scale-[1.02] hover:from-blue-400 hover:to-purple-500"
-                >
-                  Tickets / Booking ↗
-                </a>
-              )}
-
-              {sourceUrl && !ticketUrl && (
-                <a
-                  href={sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center rounded-xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-950/40 transition hover:scale-[1.02] hover:from-blue-400 hover:to-purple-500"
-                >
-                  Open Original Source ↗
-                </a>
-              )}
-
+        <article className="overflow-hidden rounded-3xl border border-blue-400/25 bg-gradient-to-br from-blue-950/25 via-zinc-900/90 to-purple-950/20 shadow-xl shadow-blue-950/15">
+          <div className="h-px bg-gradient-to-r from-blue-400/70 via-purple-400/70 to-pink-400/50" />
+          <div className={`grid ${eventImage ? 'md:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]' : ''}`}>
+            <div className="order-1 p-5 sm:p-7 md:order-2 md:p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">{eventType || 'Event'}</p>
+              <h1 className="mt-3 break-words text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{eventName}</h1>
               {venue && (
-                <Link
-                  href={`/venue/${venue.venue_id}`}
-                  className="inline-flex items-center rounded-xl border border-blue-500/30 bg-zinc-950/80 px-5 py-3 text-sm font-bold text-zinc-200 transition hover:border-blue-400 hover:bg-blue-500/10 hover:text-blue-200"
-                >
-                  View Venue Page
+                <Link href={profileHref(venue.venue_id)} className="mt-3 inline-flex min-h-7 items-center gap-1.5 text-sm font-medium text-blue-300 hover:text-blue-200">
+                  {venueName} <Icon name="arrow-right" className="h-3.5 w-3.5 shrink-0" />
                 </Link>
               )}
+              {organiser && organiser.venue_id !== venue?.venue_id && <p className="mt-1 text-xs leading-6 text-zinc-400">Organised by <Link href={profileHref(organiser.venue_id)} className="text-purple-200 hover:underline">{organiserName}</Link></p>}
 
-              {venueWebsite && (
-                <a
-                  href={venueWebsite}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center rounded-xl border border-purple-500/30 bg-zinc-950/80 px-5 py-3 text-sm font-bold text-zinc-200 transition hover:border-purple-400 hover:bg-purple-500/10 hover:text-purple-200"
-                >
-                  Venue Website ↗
-                </a>
-              )}
+              <dl className="mt-5 grid grid-cols-2 gap-x-5 gap-y-4 border-y border-white/10 py-4">
+                <div>
+                  <dt className="flex items-center gap-1.5 text-xs text-zinc-400"><Icon name="calendar" className="h-4 w-4 text-blue-300" />Date</dt>
+                  <dd className="mt-1.5 text-sm font-semibold leading-6 text-zinc-100">{event.event_date ? <time dateTime={event.event_date}>{formatDate(event.event_date)}</time> : 'Date to be confirmed'}</dd>
+                </div>
+                <div>
+                  <dt className="flex items-center gap-1.5 text-xs text-zinc-400"><Icon name="clock" className="h-4 w-4 text-purple-300" />Time</dt>
+                  <dd className="mt-1.5 text-sm font-semibold leading-6 text-zinc-100">{eventTime}</dd>
+                </div>
+              </dl>
 
-              {sourceUrl && ticketUrl && (
-                <a
-                  href={sourceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-950/80 px-5 py-3 text-sm font-bold text-zinc-300 transition hover:border-blue-500 hover:bg-blue-500/10 hover:text-blue-200"
-                >
-                  Original Source ↗
-                </a>
-              )}
+              <div className="mt-4 flex gap-2.5">
+                <Icon name="pin" className="mt-0.5 h-5 w-5 shrink-0 text-pink-300" />
+                <div className="min-w-0">
+                  <p className="text-sm leading-6 text-zinc-300">{locationText}</p>
+                  {eventIsPrivate ? <p className="mt-1 text-xs leading-5 text-zinc-500">The organiser shares the exact address privately.</p> : mapsHref && <a href={mapsHref} target="_blank" rel="noreferrer" className="inline-flex min-h-8 items-center gap-1.5 text-xs font-semibold text-emerald-300 hover:text-emerald-200">Open map <Icon name="external" className="h-3 w-3" /><span className="sr-only">(opens in a new tab)</span></a>}
+                </div>
+              </div>
+
+              <div className="mt-6">
+                {bookingHref ? (
+                  <>
+                    <a href={bookingHref} target="_blank" rel="noreferrer" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-blue-400/40 bg-gradient-to-r from-blue-600 to-purple-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-950/30 transition hover:from-blue-500 hover:to-purple-500">
+                      {bookingLabel} <Icon name="external" className="h-4 w-4" /><span className="sr-only">(opens in a new tab)</span>
+                    </a>
+                    <p className="mt-2 text-center text-xs leading-5 text-zinc-500">Opens {new URL(bookingHref).hostname.replace(/^www\./, '')}</p>
+                  </>
+                ) : <p className="rounded-xl border border-white/10 bg-black/15 px-4 py-3 text-sm leading-6 text-zinc-400">Booking details haven’t been listed yet. Check with the venue or organiser.</p>}
+              </div>
             </div>
 
-            <p className="mt-5 text-xs leading-5 text-zinc-500">
-              Scene Finder is an independent directory. Always check the
-              official venue or event source before travelling, booking, or
-              attending.
-            </p>
+            {eventImage && (
+              <div className="order-2 flex items-center justify-center border-t border-white/8 bg-black/25 p-4 md:order-1 md:border-t-0 md:border-r md:p-6">
+                <FallbackImage src={eventImage} fallbackSrc="/images/scene-finder-logo-transparent.png" alt={`${eventName} event poster`} loading="eager" fetchPriority="high" className="h-64 w-full object-contain sm:h-80 md:h-full md:max-h-[480px]" />
+              </div>
+            )}
           </div>
         </article>
-      </section>
+
+        <section aria-labelledby="about-event" className="mt-8 max-w-3xl sm:mt-10">
+          <h2 id="about-event" className="text-xl font-bold tracking-tight sm:text-2xl">About this event</h2>
+          {paragraphs.length ? (
+            <div className="mt-4 space-y-4 break-words text-sm leading-7 text-zinc-300 sm:text-base sm:leading-8">
+              {paragraphs.map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+            </div>
+          ) : <p className="mt-3 text-sm leading-7 text-zinc-400">More details haven’t been added yet. Visit the event website for the latest information.</p>}
+        </section>
+
+        <div className="mt-8 border-t border-white/10 pt-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+            {sourceUrl && sourceUrl !== bookingHref && <a href={sourceUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1.5 font-medium text-zinc-400 hover:text-blue-200">Original event listing <Icon name="external" className="h-3.5 w-3.5" /><span className="sr-only">(opens in a new tab)</span></a>}
+            {venueWebsite && venueWebsite !== bookingHref && venueWebsite !== sourceUrl && <a href={venueWebsite} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-1.5 font-medium text-zinc-400 hover:text-blue-200">Venue website <Icon name="external" className="h-3.5 w-3.5" /><span className="sr-only">(opens in a new tab)</span></a>}
+            <Link href={`/submit/contact?${reportQuery}`} className="inline-flex min-h-11 items-center gap-1.5 font-medium text-zinc-400 hover:text-blue-200"><Icon name="support" className="h-3.5 w-3.5" />Report an issue</Link>
+          </div>
+          <p className="mt-2 max-w-3xl text-xs leading-6 text-zinc-500">Check entry requirements, times and the latest information with the venue or organiser before travelling or booking.</p>
+        </div>
+      </div>
     </main>
-  );
+  )
 }

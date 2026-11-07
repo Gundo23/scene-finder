@@ -1,1144 +1,379 @@
 import { supabase } from '@/lib/supabase'
-
 import Link from 'next/link'
 import FallbackImage from '@/app/components/FallbackImage'
-
+import Icon from '@/app/components/Icon'
 import { cleanText } from '@/lib/cleanText'
 
-
-
-function formatDate(date: string | null) {
-
-  if (!date) return 'Date TBC'
-
-
-
-  return new Date(date).toLocaleDateString('en-GB', {
-
-    weekday: 'short',
-
-    day: 'numeric',
-
-    month: 'short',
-
-    year: 'numeric',
-
-  })
-
-}
-
-
-
-function getEventDateBadge(date: string | null) {
-
-  if (!date) {
-
-    return {
-
-      day: 'TBC',
-
-      month: 'DATE',
-
-      weekday: '',
-
-    }
-
-  }
-
-
-
-  const eventDate = new Date(`${date}T00:00:00`)
-
-
-
-  return {
-
-    day: eventDate.toLocaleDateString('en-GB', { day: 'numeric' }),
-
-    month: eventDate.toLocaleDateString('en-GB', { month: 'short' }).toUpperCase(),
-
-    weekday: eventDate.toLocaleDateString('en-GB', { weekday: 'short' }).toUpperCase(),
-
-  }
-
-}
-
-
-
-function formatTime(time: string | null) {
-
-  if (!time) return null
-
-
-
-  const normalizedTime = time.trim()
-
-  const displayTime = normalizedTime.slice(0, 5)
-
-
-
-  // Many scrapers/database rows use 00:00:00 as a placeholder when no
-
-  // real start time was confirmed. Do not show fake midnight times on cards.
-
-  if (displayTime === '00:00') return null
-
-
-
-  return displayTime
-
-}
-
-
-
-function decodeHtmlEntities(value: string) {
-
-  const entities: Record<string, string> = {
-
-    amp: '&',
-
-    apos: "'",
-
-    gt: '>',
-
-    lt: '<',
-
-    nbsp: ' ',
-
-    quot: '"',
-
-  }
-
-
-
-  return value.replace(/&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);/g, (match, entity) => {
-
-    if (entity.startsWith('#x')) {
-
-      const codePoint = Number.parseInt(entity.slice(2), 16)
-
-
-
-      try {
-
-        return Number.isNaN(codePoint) ? match : String.fromCodePoint(codePoint)
-
-      } catch {
-
-        return match
-
-      }
-
-    }
-
-
-
-    if (entity.startsWith('#')) {
-
-      const codePoint = Number.parseInt(entity.slice(1), 10)
-
-
-
-      try {
-
-        return Number.isNaN(codePoint) ? match : String.fromCodePoint(codePoint)
-
-      } catch {
-
-        return match
-
-      }
-
-    }
-
-
-
-    return entities[entity.toLowerCase()] || match
-
-  })
-
-}
-
-
-
-function cleanDisplayText(value: string | null | undefined) {
-
-  if (!value) return ''
-
-
-
-  let text = String(value)
-
-
-
-  // Decode twice so encoded tags like &lt;p&gt; become real tags before stripping.
-
-  text = decodeHtmlEntities(decodeHtmlEntities(text))
-
-
-
-  return cleanText(text)
-
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-
-    .replace(/<[^>]*>/g, ' ')
-
-    .replace(/\\[rnt]/g, ' ')
-
-    .replace(/[\r\n\t]+/g, ' ')
-
-    .replace(/\s+/g, ' ')
-
-    .trim()
-
-}
-
-
-
-function getTodayString() {
-
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date())
-
-  const year = parts.find((part) => part.type === 'year')?.value
-  const month = parts.find((part) => part.type === 'month')?.value
-  const day = parts.find((part) => part.type === 'day')?.value
-
-  if (!year || !month || !day) {
-    return new Date().toISOString().split('T')[0]
-  }
-
-  return `${year}-${month}-${day}`
-
-}
-
-
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 const EVENT_BATCH_SIZE = 40
 
-
-
-function getEventCategory(event: any) {
-
-  const text = cleanDisplayText(
-
-    `${event.event_name || ''} ${event.description || ''} ${event.event_type || ''}`
-
-  ).toLowerCase()
-
-
-
-  if (text.includes('newbie') || text.includes('first time')) return 'Newbie Friendly'
-
-  if (text.includes('bbw') || text.includes('curvy')) return 'Curvy / BBW'
-
-  if (text.includes('interracial') || text.includes('black magic')) return 'Interracial'
-
-  if (text.includes('greedy girl')) return 'Greedy Girls'
-
-  if (text.includes('single men') || text.includes('single male') || text.includes('single guy')) return 'Single Men Welcome'
-
-  if (text.includes('single women') || text.includes('single ladies') || text.includes('single female')) return 'Single Women Welcome'
-
-  if (text.includes('couple')) return 'Couples'
-
-  if (text.includes('bi') || text.includes('bisexual')) return 'Bi'
-
-  if (text.includes('fetish')) return 'Fetish'
-
-  if (text.includes('kink') || text.includes('bdsm') || text.includes('bondage')) return 'Kink / BDSM'
-
-  if (text.includes('social') || text.includes('munch')) return 'Social'
-
-  if (text.includes('sauna')) return 'Sauna'
-
-  if (text.includes('party')) return 'Party'
-
-
-
-  return 'General'
-
-}
-
-
-
-function getCategoryPillClass(category: string) {
-
-  const lower = category.toLowerCase()
-
-
-
-  if (lower.includes('club')) {
-
-    return 'border-purple-400/40 bg-purple-500/15 text-purple-200 shadow-purple-500/10'
-
-  }
-
-
-
-  if (lower.includes('social') || lower.includes('greedy') || lower.includes('single')) {
-
-    return 'border-pink-400/40 bg-pink-500/15 text-pink-200 shadow-pink-500/10'
-
-  }
-
-
-
-  if (lower.includes('sauna')) {
-
-    return 'border-cyan-400/40 bg-cyan-500/15 text-cyan-200 shadow-cyan-500/10'
-
-  }
-
-
-
-  if (lower.includes('fetish') || lower.includes('kink') || lower.includes('bdsm')) {
-
-    return 'border-red-400/40 bg-red-500/15 text-red-200 shadow-red-500/10'
-
-  }
-
-
-
-  if (lower.includes('party')) {
-
-    return 'border-amber-400/40 bg-amber-500/15 text-amber-200 shadow-amber-500/10'
-
-  }
-
-
-
-  return 'border-blue-400/40 bg-blue-500/15 text-blue-200 shadow-blue-500/10'
-
-}
-
-
-
-function cleanVenueNotes(notes: string | null | undefined) {
-
-  if (!notes) return ''
-
-
-
-  return cleanDisplayText(notes)
-
-    .split('|')
-
-    .map((part) => part.trim())
-
-    .filter(Boolean)
-
-    .filter((part) => {
-
-      const lower = part.toLowerCase()
-
-
-
-      if (lower.includes('confidence:')) return false
-
-      if (lower.startsWith('confidence')) return false
-
-      if (lower.includes('waze listing')) return false
-
-      if (lower.includes('companies house result')) return false
-
-      if (lower.includes('source:')) return false
-
-      if (lower.includes('lead source')) return false
-
-      if (lower.includes('scrape')) return false
-
-
-
-      return true
-
+function cleanDisplayText(value: string | null | undefined) {
+  if (!value) return ''
+  return cleanText(cleanText(String(value)))
+    .replace(/&#(x[0-9a-f]+|\d+);/gi, (match, entity: string) => {
+      const codePoint = Number.parseInt(entity.replace(/^x/i, ''), /^x/i.test(entity) ? 16 : 10)
+      return Number.isFinite(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match
     })
-
-    .join(' ')
-
+    .replace(/&(?:rsquo|lsquo);/gi, "'")
+    .replace(/&(?:rdquo|ldquo);/gi, '"')
+    .replace(/&hellip;/gi, '…')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\\[rnt]/g, ' ')
     .replace(/\s+/g, ' ')
-
     .trim()
-
 }
 
+function cleanDescription(value: string | null | undefined) {
+  return cleanDisplayText(value)
+    .replace(/^click\s+(?:on\s+)?(?:the\s+)?icon\s+for\s+(?:more\s+)?(?:details|information|info)\b[.!:;\s-]*/i, '')
+    .trim()
+}
+
+function publicUrl(value: string | null | undefined) {
+  try {
+    const url = new URL(cleanDisplayText(value))
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : null
+  } catch {
+    return null
+  }
+}
+
+function formatDate(value: string | null) {
+  if (!value) return 'Date to be confirmed'
+  const date = new Date(`${value.slice(0, 10)}T12:00:00Z`)
+  if (Number.isNaN(date.getTime())) return 'Date to be confirmed'
+  return date.toLocaleDateString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Europe/London',
+  })
+}
+
+function formatTime(value: string | null) {
+  const time = cleanDisplayText(value).slice(0, 5)
+  return time && time !== '00:00' ? time : 'Time to be confirmed'
+}
+
+function getTodayString() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date())
+}
 
 function uniqueDisplayParts(values: Array<string | null | undefined>) {
   const seen = new Set<string>()
+  return values.map(cleanDisplayText).filter((value) => {
+    if (!value || seen.has(value.toLowerCase())) return false
+    seen.add(value.toLowerCase())
+    return true
+  })
+}
 
-  return values
-    .map((value) => cleanDisplayText(value))
-    .filter(Boolean)
-    .filter((value) => {
-      const key = value.toLowerCase()
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
+function cleanVenueNotes(value: string | null | undefined) {
+  return cleanDisplayText(value).split('|').map((part) => part.trim()).filter((part) => {
+    return part && !/(?:confidence|waze listing|companies house result|source:|lead source|scrape)/i.test(part)
+  }).join(' ')
 }
 
 function getLocationKindLabel(kind: string) {
-  switch (kind) {
-    case 'fixed_venue':
-      return 'Fixed venue'
-    case 'event_series':
-      return 'Travelling organiser / event series'
-    case 'multi_location':
-      return 'Multiple locations'
-    case 'private_location':
-      return 'Private location'
-    case 'closed':
-      return 'Closed / inactive'
-    case 'lead':
-      return 'Directory lead'
-    case 'needs_split':
-      return 'Needs review'
-    default:
-      return 'Location under review'
+  const labels: Record<string, string> = {
+    fixed_venue: 'Club & venue',
+    event_series: 'Event organiser',
+    multi_location: 'Multiple locations',
+    private_location: 'Private location',
+    closed: 'Closed / inactive',
+    lead: 'Directory listing',
+  }
+  return labels[kind] || 'Venue listing'
+}
+
+function getReturnHref(value: string | string[] | undefined) {
+  const candidate = Array.isArray(value) ? value[0] : value
+  if (!candidate || candidate.length > 2048 || !candidate.startsWith('/') || candidate.startsWith('//')) return '/venues'
+  try {
+    const url = new URL(candidate, 'https://www.scenefinder.co.uk')
+    if (url.origin !== 'https://www.scenefinder.co.uk' || !/^\/(?:venues|events)(?:\/[^/]+)?$/.test(url.pathname)) return '/venues'
+    return `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    return '/venues'
   }
 }
 
-
 export default async function VenuePage({
-
   params,
-
   searchParams,
-
 }: {
-
   params: Promise<{ id: string }>
-
-  searchParams?: Promise<{ show?: string }>
-
+  searchParams?: Promise<{ show?: string | string[]; from?: string | string[] }>
 }) {
-
   const { id } = await params
-
-  const resolvedSearchParams = searchParams ? await searchParams : {}
-
-  const requestedEventLimit = Number.parseInt(resolvedSearchParams.show || '', 10)
-
+  const query = searchParams ? await searchParams : {}
+  const show = Array.isArray(query.show) ? query.show[0] : query.show
+  const requestedEventLimit = Number.parseInt(show || '', 10)
+  const returnHref = getReturnHref(query.from)
   const today = getTodayString()
 
-
-
   const { data: venue, error } = await supabase
-
     .from('venues')
-
-    .select(
-
-      'venue_id, name, city_area, region, canonical_city, canonical_region, admin_district, country, website, notes, postcode, latitude, longitude, location_kind, address_line_1, address_line_2, locality, postal_town, county, address_visibility, address_verified, address_confidence, address_source_name, address_source_url, address_verified_at, address_notes, address_locked'
-
-    )
-
+    .select('venue_id, name, city_area, region, canonical_city, canonical_region, country, website, notes, image_url, postcode, location_kind, address_line_1, address_line_2, locality, postal_town, county, address_visibility, address_verified')
     .eq('venue_id', id)
-
     .single()
 
-
-
   if (error || !venue) {
-
     return (
-
-      <main className="min-h-screen bg-zinc-950 px-6 py-10 text-white">
-
-        <section className="mx-auto max-w-5xl">
-
-          <p>Venue not found.</p>
-
-          <Link
-
-            href="/venues"
-
-            className="mt-4 inline-flex items-center rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300 transition hover:border-blue-500 hover:text-white"
-
-          >
-
-            ← Back to Clubs
-
+      <main className="min-h-screen bg-zinc-950 px-4 py-8 text-white sm:px-6">
+        <section className="mx-auto max-w-6xl rounded-3xl border border-blue-500/20 bg-zinc-900/70 p-7">
+          <h1 className="text-2xl font-bold">This venue isn’t available</h1>
+          <p className="mt-2 text-zinc-400">Try again shortly, or explore other clubs and venues.</p>
+          <Link href={returnHref} className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-blue-400/30 bg-blue-500/10 px-4 text-sm font-semibold text-blue-200">
+            <Icon name="arrow-left" className="h-4 w-4" /> Back to results
           </Link>
-
         </section>
-
       </main>
-
     )
-
   }
 
-
-
   const { data: events, error: eventsError } = await supabase
-
     .from('events')
-
-    .select(
-
-      'event_id, venue_id, organiser_id, event_name, event_date, start_time, event_type, description, ticket_url, status, image_url, event_location_name, event_address_line_1, event_address_line_2, event_locality, event_postal_town, event_county, event_postcode, event_country, event_location_verified, event_location_source_url, event_address_visibility'
-
-    )
-
+    .select('event_id, venue_id, organiser_id, event_name, event_date, start_time, event_type, description, ticket_url, status, image_url, event_location_name, event_locality, event_postal_town, event_location_verified, event_address_visibility')
     .or(`venue_id.eq.${venue.venue_id},organiser_id.eq.${venue.venue_id}`)
-
     .eq('is_published', true)
-
     .or(`event_date.gte.${today},event_date.is.null`)
-
     .order('event_date', { ascending: true, nullsFirst: false })
-
-
+    .order('start_time', { ascending: true, nullsFirst: false })
+    .order('event_id', { ascending: true })
 
   const sortedEvents = events || []
-
   const linkedProfileIds = [...new Set(sortedEvents.flatMap((event) =>
     [event.venue_id, event.organiser_id].filter((value): value is string => Boolean(value))
   ))]
   const { data: linkedProfiles } = linkedProfileIds.length
-    ? await supabase.from('venues').select('venue_id, name, canonical_city, city_area')
-        .in('venue_id', linkedProfileIds)
+    ? await supabase.from('venues').select('venue_id, name, canonical_city, city_area').in('venue_id', linkedProfileIds)
     : { data: [] }
   const profileById = new Map((linkedProfiles || []).map((profile) => [profile.venue_id, profile]))
-
   const visibleEventLimit = Number.isFinite(requestedEventLimit)
-
     ? Math.min(Math.max(requestedEventLimit, EVENT_BATCH_SIZE), Math.max(sortedEvents.length, EVENT_BATCH_SIZE))
-
     : EVENT_BATCH_SIZE
-
   const visibleEvents = sortedEvents.slice(0, visibleEventLimit)
-
   const hiddenEventCount = Math.max(sortedEvents.length - visibleEvents.length, 0)
-
   const nextEventDisplayLimit = Math.min(visibleEventLimit + EVENT_BATCH_SIZE, sortedEvents.length)
 
-
-
-  const venueName = cleanDisplayText(venue.name)
-  const venueCity = cleanDisplayText(
-    venue.canonical_city || venue.postal_town || venue.city_area || ''
-  )
-  const venueRegion = cleanDisplayText(venue.canonical_region || venue.region || '')
-  const venuePostcode = cleanDisplayText(venue.postcode || '')
+  const venueName = cleanDisplayText(venue.name) || 'Venue'
+  const venueCity = cleanDisplayText(venue.canonical_city || venue.postal_town || venue.city_area)
+  const venueRegion = cleanDisplayText(venue.canonical_region || venue.region)
+  const area = uniqueDisplayParts([venueCity, venueRegion]).join(' · ')
   const venueNotes = cleanVenueNotes(venue.notes)
+  const venueWebsite = publicUrl(venue.website)
   const locationKind = cleanDisplayText(venue.location_kind || 'needs_review').toLowerCase()
   const addressVisibility = cleanDisplayText(venue.address_visibility || 'city_only').toLowerCase()
-  const addressSourceName = cleanDisplayText(venue.address_source_name || '')
-  const addressSourceUrl = String(venue.address_source_url || '').trim()
 
+  // A map link must never reveal an unverified, private or travelling address.
   const canShowPublicAddress =
     locationKind === 'fixed_venue' &&
     addressVisibility === 'public' &&
     venue.address_verified === true
-
-  const addressTownLine = uniqueDisplayParts([
-    venue.locality,
-    venue.postal_town,
-    venue.canonical_city,
-  ]).join(', ')
-
-  const addressCountyLine = uniqueDisplayParts([
-    venue.county,
-    venue.canonical_region,
-  ]).join(', ')
-
-  const venueAddressLines = canShowPublicAddress
-    ? [
-        cleanDisplayText(venue.address_line_1 || ''),
-        cleanDisplayText(venue.address_line_2 || ''),
-        addressTownLine,
-        addressCountyLine,
-        venuePostcode,
-        cleanDisplayText(venue.country || ''),
-      ].filter(Boolean)
-    : []
-
-  const venueAddressText = canShowPublicAddress
-    ? uniqueDisplayParts([
-        venue.address_line_1,
-        venue.address_line_2,
-        venue.locality,
-        venue.postal_town,
-        venue.canonical_city,
-        venue.county,
-        venue.canonical_region,
-        venue.postcode,
-        venue.country,
-      ]).join(', ')
+  const venueAddress = canShowPublicAddress
+    ? uniqueDisplayParts([venue.address_line_1, venue.address_line_2, venue.locality, venue.postal_town, venue.canonical_city, venue.county, venue.canonical_region, venue.postcode, venue.country]).join(', ')
     : ''
-
-  const mapsHref = venueAddressText
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venueAddressText)}`
+  const mapsHref = venueAddress
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venueAddress)}`
     : ''
+  const nearbyQuery = new URLSearchParams()
+  if (canShowPublicAddress && venue.postcode) nearbyQuery.set('search', cleanDisplayText(venue.postcode))
+  else if (venueCity) nearbyQuery.set('city', venueCity)
+  else if (venueRegion) nearbyQuery.set('region', venueRegion)
+  const nearbyHref = `/venues${nearbyQuery.size ? `?${nearbyQuery}` : ''}`
+  const nearbyEventsHref = `/events${venueCity ? `?city=${encodeURIComponent(venueCity)}` : venueRegion ? `?region=${encodeURIComponent(venueRegion)}` : ''}`
 
-  const locationKindLabel = getLocationKindLabel(locationKind)
+  const locationMessage = locationKind === 'event_series' || locationKind === 'multi_location'
+    ? 'Locations vary. Check each event for its venue and address.'
+    : locationKind === 'private_location' || addressVisibility === 'private'
+      ? 'The exact address is private. Check with the organiser before travelling.'
+      : locationKind === 'closed'
+        ? 'This location is listed as closed or inactive.'
+        : 'A verified public address is not available yet. Check the official website before travelling.'
+  const venueAboutText = locationKind === 'event_series'
+    ? `${venueName} is an event organiser${venueCity ? ` associated with ${venueCity}` : ''}. Event locations can vary.`
+    : locationKind === 'multi_location'
+      ? `${venueName} operates across multiple locations. The individual event listing has the relevant venue details.`
+      : `${venueName} is listed in ${area || 'the UK'}.`
 
-  const locationMessage = canShowPublicAddress
-    ? 'This fixed venue address has been verified by Scene Finder.'
-    : locationKind === 'event_series'
-      ? 'This organiser or event series can use different venues. Check each event for its actual address.'
-      : locationKind === 'multi_location'
-        ? 'This listing operates across multiple locations. Check each event for the correct address.'
-        : locationKind === 'private_location'
-          ? 'The exact street address is not publicly listed. Scene Finder only shows the confirmed general area.'
-          : locationKind === 'closed'
-            ? 'This is a closed or inactive historical location.'
-            : locationKind === 'lead'
-              ? 'This record is not a confirmed fixed physical venue.'
-              : 'The exact venue address is still being reviewed.'
-
-  const venueAboutText =
-    locationKind === 'fixed_venue'
-      ? `${venueName} is a fixed venue based in ${venueCity || 'the UK'}${venueRegion ? `, ${venueRegion}` : ''}.`
-      : locationKind === 'event_series'
-        ? `${venueName} is an event series or organiser${venueCity ? ` associated with ${venueCity}` : ''}. Event locations can vary.`
-        : locationKind === 'multi_location'
-          ? `${venueName} operates across multiple locations. Use the individual event listing for the correct venue details.`
-          : locationKind === 'private_location'
-            ? `${venueName} is listed in ${venueCity || venueRegion || 'the UK'}, but its exact address is not publicly displayed.`
-            : `${venueName} is listed by Scene Finder${venueCity ? ` in ${venueCity}` : ''}${venueRegion ? `, ${venueRegion}` : ''}.`
-
-  const hasEvents = sortedEvents.length > 0
-
-
-
+  const currentQuery = new URLSearchParams()
+  if (visibleEventLimit > EVENT_BATCH_SIZE) currentQuery.set('show', String(visibleEventLimit))
+  if (query.from) currentQuery.set('from', returnHref)
+  const currentVenueHref = `/venue/${encodeURIComponent(id)}${currentQuery.size ? `?${currentQuery}` : ''}`
+  const nextQuery = new URLSearchParams(currentQuery)
+  nextQuery.set('show', String(nextEventDisplayLimit))
+  const firstNewEvent = sortedEvents[visibleEventLimit]?.event_id
+  const showMoreHref = `/venue/${encodeURIComponent(id)}?${nextQuery}#${firstNewEvent ? `event-${encodeURIComponent(firstNewEvent)}` : 'upcoming-events'}`
+  const reportQuery = new URLSearchParams({
+    type: 'incorrect_information',
+    message: `Venue: ${venueName}\nhttps://www.scenefinder.co.uk/venue/${encodeURIComponent(id)}\n\nWhat needs updating?\n`,
+  })
+  const actionClass = 'flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition'
 
   return (
+    <main className="relative min-h-screen bg-zinc-950 px-4 pb-8 pt-5 text-white sm:px-6 sm:pt-8">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-96 bg-[radial-gradient(ellipse_at_top,rgba(59,130,246,0.10),transparent_70%)]" />
+      <div className="relative mx-auto max-w-6xl">
+        <Link href={returnHref} className="mb-4 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-zinc-400 transition hover:text-blue-200">
+          <Icon name="arrow-left" className="h-4 w-4" /> Back to results
+        </Link>
 
-    <main className="min-h-screen bg-zinc-950 px-4 py-8 text-white sm:px-6 sm:py-10">
-
-      <section className="mx-auto max-w-5xl">
-
-        <div className="relative overflow-hidden rounded-3xl border border-blue-500/30 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-2xl shadow-blue-950/40 ring-1 ring-purple-500/20">
-
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_28%)]" />
-
-          <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
-
-          <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400 to-transparent" />
-
-
-
-          <div className="relative p-4 sm:p-7">
-
-            <h1 className="break-words text-3xl font-bold sm:text-4xl">
-
-              {venueName}
-
-            </h1>
-
-
-
-            {(venueCity || venueRegion) && (
-
-              <p className="mt-3 text-zinc-400">
-
-                {[venueCity, venueRegion].filter(Boolean).join(' • ')}
-
-              </p>
-
-            )}
-
-
-
-            <section className="mt-5 overflow-hidden rounded-2xl border border-emerald-400/20 bg-zinc-950/70 p-4 sm:p-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-[0.12em] text-emerald-300">
-                  📍 {canShowPublicAddress ? 'Verified venue address' : 'Location'}
-                </span>
-                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2.5 py-1 text-[10px] font-semibold uppercase text-zinc-300">
-                  {locationKindLabel}
-                </span>
+        <section aria-labelledby="venue-name" className="overflow-hidden rounded-3xl border border-blue-400/25 bg-gradient-to-br from-blue-950/25 via-zinc-900/90 to-purple-950/20 shadow-xl shadow-blue-950/15">
+          <div className="h-px bg-gradient-to-r from-blue-400/70 via-purple-400/70 to-pink-400/50" />
+          <div className="p-5 sm:p-7">
+            <div className="flex items-start justify-between gap-5">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">{getLocationKindLabel(locationKind)}</p>
+                <h1 id="venue-name" className="mt-2 break-words text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{venueName}</h1>
+                {area && <p className="mt-2 text-sm leading-6 text-zinc-400 sm:text-base">{area}</p>}
               </div>
-              {canShowPublicAddress ? (
-                <address className="mt-3 not-italic text-sm leading-6 text-zinc-100 sm:text-base">
-                  {venueAddressLines.join(', ')}
-                </address>
-              ) : (
-                <p className="mt-3 text-sm text-zinc-200">
-                  {[venueCity, venueRegion].filter(Boolean).join(', ') || 'Location not published'}
-                </p>
-              )}
-              {canShowPublicAddress && venue.address_verified && (
-                <p className="mt-3 text-xs font-semibold text-emerald-300">
-                  ✓ Address verified
-                </p>
-              )}
-              {!canShowPublicAddress && (
-                <p className="mt-2 text-xs leading-5 text-zinc-400">{locationMessage}</p>
-              )}
-              {canShowPublicAddress && mapsHref && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {mapsHref && (
-                    <a href={mapsHref} target="_blank" rel="noreferrer"
-                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-200 transition hover:bg-emerald-500/20">
-                      Open in Maps ↗
-                    </a>
-                  )}
+              {venue.image_url && (
+                <div className="hidden h-20 w-24 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-black/25 p-2 sm:flex">
+                  <FallbackImage src={venue.image_url} fallbackSrc="/images/scene-finder-logo-transparent.png" alt="" className="h-full w-full object-contain" />
                 </div>
               )}
-            </section>
+            </div>
 
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
-              <Link href={`/venues?city=${encodeURIComponent(venueCity)}`}
-                className="group rounded-2xl border border-pink-400/20 bg-zinc-950/70 p-3 transition hover:border-pink-400/60 sm:p-4">
-                <span className="text-lg" aria-hidden="true">📍</span>
-                <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-pink-300">Clubs nearby</p>
-                <p className="mt-1 line-clamp-2 text-sm font-semibold text-white">{venueCity || venueRegion || 'UK'}</p>
-                <p className="mt-2 text-xs text-zinc-400">Explore area →</p>
-              </Link>
-              {venue.website ? (
-                <a href={venue.website} target="_blank" rel="noreferrer"
-                  className="group rounded-2xl border border-cyan-400/20 bg-zinc-950/70 p-3 transition hover:border-cyan-400/60 sm:p-4">
-                  <span className="text-lg" aria-hidden="true">🌐</span>
-                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-cyan-300">Official website</p>
-                  <p className="mt-1 text-sm font-semibold text-white">Visit website</p>
-                  <p className="mt-2 text-xs text-zinc-400">Open official site ↗</p>
+            <div className="mt-5 flex gap-3 border-t border-white/8 pt-4">
+              <Icon name="pin" className={`mt-0.5 h-5 w-5 shrink-0 ${canShowPublicAddress ? 'text-emerald-300' : 'text-zinc-400'}`} />
+              <div className="min-w-0">
+                {canShowPublicAddress && venueAddress ? (
+                  <>
+                    <address className="not-italic text-sm leading-6 text-zinc-200">{venueAddress}</address>
+                    <p className="mt-1 flex items-center gap-1 text-xs text-emerald-300"><Icon name="check" className="h-3.5 w-3.5" /> Address verified</p>
+                  </>
+                ) : <p className="text-sm leading-6 text-zinc-400">{locationMessage}</p>}
+              </div>
+            </div>
+
+            <nav aria-label="Venue actions" className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+              {mapsHref ? (
+                <a href={mapsHref} target="_blank" rel="noreferrer" className={`${actionClass} border-emerald-400/30 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20`}>
+                  <Icon name="map" className="h-4 w-4" /> Map <span className="sr-only">(opens in a new tab)</span>
                 </a>
               ) : (
-                <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3 sm:p-4">
-                  <span className="text-lg" aria-hidden="true">🌐</span>
-                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Official website</p>
-                  <p className="mt-1 text-sm font-semibold text-zinc-300">Not listed yet</p>
-                </div>
+                <span aria-disabled="true" title="No verified public address is available" className={`${actionClass} border-zinc-800 bg-zinc-950/40 text-zinc-500`}>
+                  <Icon name="map" className="h-4 w-4" /> Map unavailable
+                </span>
               )}
-              <Link href="#upcoming-events"
-                className="group rounded-2xl border border-purple-400/20 bg-zinc-950/70 p-3 transition hover:border-purple-400/60 sm:p-4">
-                <span className="text-lg" aria-hidden="true">📅</span>
-                <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-purple-300">
-                  {locationKind === 'event_series' ? 'Organiser events' : 'Venue events'}
-                </p>
-                <p className="mt-1 text-sm font-semibold text-white">
-                  {eventsError ? 'Events unavailable' : `${sortedEvents.length} upcoming`}
-                </p>
-                <p className="mt-2 text-xs text-zinc-400">View events ↓</p>
+              <a href="#upcoming-events" className={`${actionClass} border-purple-400/30 bg-purple-500/10 text-purple-200 hover:bg-purple-500/20`}>
+                <Icon name="calendar" className="h-4 w-4" /> Events
+                {!eventsError && <span className="rounded-md bg-purple-400/10 px-1.5 text-xs">{sortedEvents.length}</span>}
+              </a>
+              {venueWebsite ? (
+                <a href={venueWebsite} target="_blank" rel="noreferrer" className={`${actionClass} border-blue-400/30 bg-blue-500/10 text-blue-200 hover:bg-blue-500/20`}>
+                  <Icon name="external" className="h-4 w-4" /> Website <span className="sr-only">(opens in a new tab)</span>
+                </a>
+              ) : (
+                <span aria-disabled="true" className={`${actionClass} border-zinc-800 bg-zinc-950/40 text-zinc-500`}>
+                  <Icon name="external" className="h-4 w-4" /> Website unlisted
+                </span>
+              )}
+              <Link href={nearbyHref} className={`${actionClass} border-pink-400/30 bg-pink-500/10 text-pink-200 hover:bg-pink-500/20`}>
+                <Icon name="clubs" className="h-4 w-4" /> Nearby clubs
               </Link>
-            </div>
+            </nav>
 
-            <div className="mt-5 border-t border-zinc-800/80 pt-5 sm:mt-7 sm:pt-7">
-
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/65 p-4 shadow-lg shadow-black/20 sm:p-5">
-
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-
-                About this venue
-
-              </p>
-
-
-
-              <p className="mt-3 text-sm leading-6 text-zinc-300 sm:text-base">
-                {venueAboutText}
-              </p>
-
-              {venueNotes && (
-                <p className="mt-3 text-sm leading-6 text-zinc-400">
-                  {venueNotes}
-                </p>
-              )}
-
-              <p className="mt-3 text-sm leading-6 text-zinc-400">
-                Browse upcoming events below or visit the venue website for the latest information.
-              </p>
-
+            <details className="group mt-4 border-t border-white/8 pt-1">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-zinc-300 [&::-webkit-details-marker]:hidden">
+                About this {locationKind === 'event_series' ? 'organiser' : 'venue'}
+                <Icon name="chevron-down" className="h-4 w-4 text-zinc-500 transition group-open:rotate-180" />
+              </summary>
+              <div className="max-w-3xl space-y-3 pb-2 text-sm leading-7 text-zinc-400">
+                <p>{venueAboutText}</p>
+                {venueNotes && <p>{venueNotes}</p>}
               </div>
-
-            </div>
-
+            </details>
           </div>
+        </section>
 
-        </div>
-
-
-
-        <div id="upcoming-events" className="mt-7 flex flex-wrap items-end justify-between gap-4 sm:mt-10">
-
-          <div>
-
-            <h2 className="text-2xl font-bold">Upcoming events</h2>
-
-            <p className="mt-2 text-sm text-zinc-400">
-
-              {eventsError ? 'Event information is temporarily unavailable.' : `${sortedEvents.length} upcoming event${sortedEvents.length === 1 ? '' : 's'} listed for this venue`}
-
-            </p>
-
-            {hiddenEventCount > 0 && (
-
-              <p className="mt-1 text-xs font-semibold text-blue-300">
-
-                Showing {visibleEvents.length} of {sortedEvents.length} Scene Finder events for this venue.
-
+        <section id="upcoming-events" aria-labelledby="events-heading" className="mt-8 scroll-mt-5 sm:mt-10">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-x-5 gap-y-2">
+            <div>
+              <h2 id="events-heading" className="text-2xl font-bold tracking-tight">Upcoming events</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                {eventsError ? 'Please try again shortly.' : hiddenEventCount > 0 ? `Showing ${visibleEvents.length} of ${sortedEvents.length} events` : `${sortedEvents.length} event${sortedEvents.length === 1 ? '' : 's'} listed`}
               </p>
-
-            )}
-
+            </div>
+            <Link href={nearbyEventsHref} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-blue-300 hover:text-blue-200">
+              Explore nearby events <Icon name="arrow-right" className="h-4 w-4" />
+            </Link>
           </div>
 
-
-
-          <Link
-
-            href={`/venues?city=${encodeURIComponent(venueCity)}`}
-
-            className="inline-flex items-center rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-semibold text-zinc-300 transition hover:border-blue-500 hover:text-white"
-
-          >
-
-            Search nearby events
-
-          </Link>
-
-        </div>
-
-
-
-        <div className="mt-4 grid gap-4 sm:mt-5 sm:gap-5">
-
-          {eventsError ? (
-
-            <div role="alert" className="rounded-2xl border border-amber-400/40 bg-amber-500/10 p-6 text-amber-100">
-
-              Event information is temporarily unavailable. Please try again shortly.
-
-            </div>
-
-          ) : sortedEvents.length > 0 ? (
-
-            visibleEvents.map((event) => {
-
-              const startTime = formatTime(event.start_time)
-
-              const category = getEventCategory(event)
-
-              const eventName = cleanDisplayText(event.event_name)
+          <div className="space-y-4">
+            {eventsError ? (
+              <div role="alert" className="rounded-2xl border border-amber-400/25 bg-amber-500/5 p-6 text-sm text-amber-100">Event information is temporarily unavailable. Please try again shortly.</div>
+            ) : visibleEvents.length ? visibleEvents.map((event) => {
+              const eventName = cleanDisplayText(event.event_name) || 'Event'
+              const description = cleanDescription(event.description)
+              const eventType = cleanDisplayText(event.event_type).replace(/_/g, ' ')
+              const ticketUrl = publicUrl(event.ticket_url)
               const host = profileById.get(event.venue_id)
               const organiser = event.organiser_id ? profileById.get(event.organiser_id) : null
-              const hostArea = cleanDisplayText(host?.canonical_city || host?.city_area || '')
-
-              const eventType = event.event_type ? cleanDisplayText(event.event_type) : 'Event'
-
-              const eventDescription = event.description
-                ? cleanDisplayText(event.description)
-                    .replace(/^click on the icon for[^.!?]*(?:[.!?]\s*|$)/i, '')
-                    .trim()
-                : ''
-
-              const dateBadge = getEventDateBadge(event.event_date)
-              const eventAddressVisibility = cleanDisplayText(
-                event.event_address_visibility || 'public'
-              ).toLowerCase()
-              const eventLocationDisplay =
-                eventAddressVisibility === 'public'
-                  ? uniqueDisplayParts([
-                      event.event_location_name,
-                      event.event_address_line_1,
-                      event.event_address_line_2,
-                      event.event_locality,
-                      event.event_postal_town,
-                      event.event_county,
-                      event.event_postcode,
-                    ]).join(', ') || hostArea || 'Location TBC'
-                  : cleanDisplayText(event.event_location_name || '') ||
-                    hostArea ||
-                    'Location TBC'
-
-
+              const hostArea = cleanDisplayText(host?.canonical_city || host?.city_area)
+              const visibility = cleanDisplayText(event.event_address_visibility).toLowerCase()
+              const eventLocation = event.event_location_verified && visibility === 'public'
+                ? uniqueDisplayParts([event.event_location_name, event.event_locality, event.event_postal_town]).join(', ') || hostArea
+                : hostArea
+              const eventHref = `/events/${encodeURIComponent(event.event_id)}?from=${encodeURIComponent(`${currentVenueHref}#event-${encodeURIComponent(event.event_id)}`)}`
+              const currentProfileHref = (profileId: string) => `/venue/${encodeURIComponent(profileId)}?from=${encodeURIComponent(returnHref)}`
 
               return (
-
-                <article
-                  key={event.event_id}
-                  className="group relative overflow-hidden rounded-3xl border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 shadow-xl shadow-blue-950/25 ring-1 ring-purple-500/10 transition hover:-translate-y-1 hover:border-blue-400/60 hover:shadow-blue-500/20"
-                >
-
-                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.16),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.12),transparent_30%)] opacity-75 transition group-hover:opacity-100" />
-
-                  <div className="pointer-events-none absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/70 to-transparent" />
-
-                  <div className="pointer-events-none absolute inset-y-6 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400/50 to-transparent" />
-
+                <article key={event.event_id} id={`event-${encodeURIComponent(event.event_id)}`} className="group scroll-mt-5 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/65 transition hover:border-blue-400/35 sm:flex">
                   {event.image_url && (
-                    <div className="flex h-48 w-full items-center justify-center overflow-hidden border-b border-blue-500/15 bg-zinc-950 p-3 sm:h-56 sm:p-4">
-                      <FallbackImage
-                        src={event.image_url}
-                        fallbackSrc="/images/home-hero.jpg"
-                        alt={eventName}
-                        className="h-full w-full object-contain"
-                      />
-                    </div>
+                    <Link href={eventHref} tabIndex={-1} aria-hidden="true" className="flex h-52 items-center justify-center border-b border-white/6 bg-black/25 p-3 sm:h-auto sm:w-52 sm:shrink-0 sm:border-r sm:border-b-0 lg:w-60">
+                      <FallbackImage src={event.image_url} fallbackSrc="/images/scene-finder-logo-transparent.png" alt="" className="h-full max-h-60 w-full object-contain" />
+                    </Link>
                   )}
-
-
-
-                  <div className="relative p-4 sm:p-5">
-
-                    <div className="absolute right-4 top-4 z-20 flex h-[94px] w-[74px] flex-col items-center justify-center rounded-2xl border border-purple-400/50 bg-zinc-950/90 text-center shadow-lg shadow-purple-500/25 ring-1 ring-white/5 backdrop-blur sm:right-5 sm:top-5 sm:h-[106px] sm:w-[82px]">
-
-                      <p className="text-3xl font-black leading-none text-white sm:text-4xl">
-
-                        {dateBadge.day}
-
-                      </p>
-
-                      <p className="mt-1 text-[10px] font-black uppercase tracking-[0.35em] text-purple-100 sm:text-xs">
-
-                        {dateBadge.month}
-
-                      </p>
-
-                      <div className="my-2 h-px w-10 bg-zinc-700/80" />
-
-                      {dateBadge.weekday ? (
-
-                        <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-200 sm:text-xs">
-
-                          {dateBadge.weekday}
-
-                        </p>
-
-                      ) : (
-
-                        <p className="text-[10px] font-black uppercase tracking-[0.32em] text-zinc-500 sm:text-xs">
-
-                          TBC
-
-                        </p>
-
-                      )}
-
+                  <div className="flex min-w-0 flex-1 flex-col p-5 sm:p-6">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium sm:text-sm">
+                      <span className="inline-flex items-center gap-1.5 text-blue-200"><Icon name="calendar" className="h-4 w-4" />{formatDate(event.event_date)}</span>
+                      <span className="inline-flex items-center gap-1.5 text-zinc-400"><Icon name="clock" className="h-4 w-4" />{formatTime(event.start_time)}</span>
                     </div>
-
-
-
-                    <div className="mb-3 flex max-w-[calc(100%-5.75rem)] flex-wrap gap-2 sm:max-w-[calc(100%-6.5rem)]">
-
-                      <p className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold shadow-lg ${getCategoryPillClass(category)}`}>
-
-                        🏷 {category}
-
+                    <h3 className="mt-3 break-words text-xl font-bold leading-snug tracking-tight sm:text-2xl"><Link href={eventHref} className="transition hover:text-blue-200">{eventName}</Link></h3>
+                    <p className="mt-2 flex items-start gap-1.5 text-sm leading-6 text-zinc-400"><Icon name="pin" className="mt-0.5 h-4 w-4 shrink-0" /><span>{eventLocation || 'Location to be confirmed'}</span></p>
+                    {organiser && organiser.venue_id !== host?.venue_id && (
+                      <p className="mt-1 text-xs leading-5 text-zinc-500">
+                        {host && <>At <Link href={currentProfileHref(host.venue_id)} className="text-blue-200 hover:underline">{cleanDisplayText(host.name)}</Link> · </>}
+                        By <Link href={currentProfileHref(organiser.venue_id)} className="text-blue-200 hover:underline">{cleanDisplayText(organiser.name)}</Link>
                       </p>
-
-
-
-                      {eventType && eventType !== 'Event' && (
-
-                        <p className="inline-flex rounded-full border border-purple-400/30 bg-purple-500/10 px-3 py-1 text-xs font-semibold text-purple-200 shadow-lg shadow-purple-500/10">
-
-                          {eventType}
-
-                        </p>
-
-                      )}
-
-
-
-                      {event.ticket_url ? (
-
-                        <p className="inline-flex rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
-
-                          🎟 Ticket / booking link
-
-                        </p>
-
-                      ) : (
-
-                        <p className="inline-flex rounded-full border border-zinc-700 bg-zinc-900/80 px-3 py-1 text-xs font-semibold text-zinc-400">
-
-                          Ticket info TBC
-
-                        </p>
-
-                      )}
-
-
-
-                      {event.event_location_verified && (
-
-                        <p className="inline-flex rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-200">
-
-                          ✓ Event location verified
-
-                        </p>
-
-                      )}
-
-                    </div>
-
-
-
-                    <h3 className="break-words pr-24 text-xl font-extrabold text-white transition group-hover:text-blue-200 group-hover:drop-shadow-[0_0_12px_rgba(59,130,246,0.45)] sm:pr-28 sm:text-2xl lg:text-3xl">
-
-                      {eventName}
-
-                    </h3>
-
-
-
-                    <div className="mt-4 grid grid-cols-2 gap-2 pr-0 text-xs sm:grid-cols-4 sm:text-sm">
-
-                      <div className="rounded-2xl border border-pink-400/20 bg-pink-500/10 p-3">
-
-                        <p className="font-black uppercase tracking-wide text-pink-200">Location</p>
-
-                        <p className="mt-1 line-clamp-2 font-semibold text-white">{eventLocationDisplay}</p>
-                        {event.organiser_id && host && (
-                          <p className="mt-2 text-sm text-blue-200">
-                            At <Link href={`/venue/${host.venue_id}`} className="underline">{cleanDisplayText(host.name)}</Link>
-                            {organiser && <> · By <Link href={`/venue/${organiser.venue_id}`} className="underline">{cleanDisplayText(organiser.name)}</Link></>}
-                          </p>
-                        )}
-
-                      </div>
-
-                      <div className="rounded-2xl border border-blue-400/20 bg-blue-500/10 p-3">
-
-                        <p className="font-black uppercase tracking-wide text-blue-200">Date</p>
-
-                        <p className="mt-1 font-semibold text-white">{formatDate(event.event_date)}</p>
-
-                      </div>
-
-                      <div className="rounded-2xl border border-purple-400/20 bg-purple-500/10 p-3">
-
-                        <p className="font-black uppercase tracking-wide text-purple-200">Starts</p>
-
-                        <p className="mt-1 font-semibold text-white">{startTime || 'Time TBC'}</p>
-
-                      </div>
-
-                      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3">
-
-                        <p className="font-black uppercase tracking-wide text-emerald-200">Tickets</p>
-
-                        <p className="mt-1 font-semibold text-white">
-                          {event.ticket_url ? 'Link available' : 'Check event details'}
-                        </p>
-
-                      </div>
-
-                    </div>
-
-
-
-                    {eventDescription && (
-
-                      <p className="mt-4 line-clamp-2 text-sm leading-6 text-zinc-400">
-
-                        {eventDescription}
-
-                      </p>
-
                     )}
-
-
-
-                    <div className={`mt-5 grid gap-2 ${event.ticket_url ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
-
-                      <Link
-
-                        href={`/events/${event.event_id}`}
-
-                        className="inline-flex items-center justify-center rounded-2xl border border-blue-400/70 bg-blue-500/10 px-4 py-3 text-sm font-bold text-blue-100 transition hover:-translate-y-0.5 hover:bg-gradient-to-r hover:from-blue-500 hover:to-purple-600 hover:text-white"
-
-                      >
-
-                        View event details →
-
-                      </Link>
-
-
-
-                      {event.ticket_url && (
-
-                        <a
-
-                          href={event.ticket_url}
-
-                          target="_blank"
-
-                          rel="noreferrer"
-
-                          className="inline-flex items-center justify-center rounded-2xl border border-emerald-400/50 bg-emerald-500/10 px-4 py-3 text-sm font-bold text-emerald-100 transition hover:-translate-y-0.5 hover:bg-emerald-500/20 hover:text-white"
-
-                        >
-
-                          Tickets / booking ↗
-
-                        </a>
-
-                      )}
-
+                    {description && <p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-400">{description}</p>}
+                    <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link href={eventHref} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-blue-400/35 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/20">View event <Icon name="arrow-right" className="h-4 w-4" /></Link>
+                        {ticketUrl && <a href={ticketUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white/5 hover:text-white">Tickets / booking <Icon name="external" className="h-3.5 w-3.5" /><span className="sr-only">(opens in a new tab)</span></a>}
+                      </div>
+                      {eventType && <span className="rounded-full border border-purple-400/20 bg-purple-500/5 px-2.5 py-1 text-xs text-purple-200">{eventType}</span>}
                     </div>
-
                   </div>
-
                 </article>
-
               )
-
-            })
-
-          ) : (
-
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-6">
-
-              <p className="text-zinc-300">No upcoming events listed for this venue.</p>
-
-              <p className="mt-2 text-sm text-zinc-500">
-
-                Check the venue website for the latest announcements or browse other events nearby.
-
-              </p>
-
-            </div>
-
-          )}
-
-        </div>
-
-
-
-        {hiddenEventCount > 0 && (
-
-          <div className="mt-6 flex flex-col items-center gap-3 rounded-2xl border border-blue-500/20 bg-zinc-950/70 p-4 text-center shadow-lg shadow-blue-950/20">
-
-            <p className="text-sm font-semibold text-zinc-300">
-
-              Showing {visibleEvents.length} of {sortedEvents.length} Scene Finder events for this venue.
-
-            </p>
-
-
-
-            <Link
-
-              href={`/venue/${encodeURIComponent(id)}?show=${nextEventDisplayLimit}#upcoming-events`}
-
-              className="inline-flex items-center justify-center rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40"
-
-            >
-
-              Show {Math.min(EVENT_BATCH_SIZE, hiddenEventCount)} more events
-
-            </Link>
-
+            }) : (
+              <div className="rounded-2xl border border-white/10 bg-zinc-900/60 px-6 py-9 text-center">
+                <h3 className="text-lg font-semibold">No upcoming events listed</h3>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-zinc-400">Check the venue’s website for announcements, or find another event in the area.</p>
+                <Link href={nearbyEventsHref} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl border border-blue-400/30 bg-blue-500/10 px-4 text-sm font-semibold text-blue-200">Find nearby events <Icon name="arrow-right" className="h-4 w-4" /></Link>
+              </div>
+            )}
           </div>
 
-        )}
+          {hiddenEventCount > 0 && (
+            <div className="mt-6 text-center">
+              <Link href={showMoreHref} className="inline-flex min-h-12 items-center gap-2 rounded-xl border border-blue-400/35 bg-blue-500/10 px-6 py-3 text-sm font-semibold text-blue-100 transition hover:bg-blue-500/20">Show {Math.min(EVENT_BATCH_SIZE, hiddenEventCount)} more events <Icon name="chevron-down" className="h-4 w-4" /></Link>
+            </div>
+          )}
+        </section>
 
-      </section>
-
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t border-white/8 pt-4 text-xs leading-6 text-zinc-500">
+          <p>Check the official event details before travelling or booking.</p>
+          <Link href={`/submit/contact?${reportQuery}`} className="inline-flex min-h-11 items-center gap-1.5 font-medium text-zinc-400 hover:text-blue-200"><Icon name="support" className="h-3.5 w-3.5" /> Report an issue</Link>
+        </div>
+      </div>
     </main>
-
   )
-
 }

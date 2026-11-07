@@ -1,37 +1,40 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter, usePathname } from 'next/navigation'
+import { usePathname } from 'next/navigation'
+import Icon, { type IconName } from '@/app/components/Icon'
 
 export default function BottomNav() {
-  const router = useRouter()
   const pathname = usePathname()
 
   if (pathname === '/') return null
 
-  const items = [
-    { href: '/', icon: '⌂', label: 'Home', active: pathname === '/' },
-    { href: '/venues', icon: '🏢', label: 'Clubs', active: pathname.startsWith('/venues') || pathname.startsWith('/venue/') },
-    { href: '/events', icon: '📅', label: 'Events', active: pathname.startsWith('/events') },
-    { href: '/submit', icon: '💜', label: 'Support', active: pathname.startsWith('/submit') },
+  const items: { href: string; icon: IconName; label: string; active: boolean }[] = [
+    { href: '/', icon: 'home', label: 'Home', active: pathname === '/' },
+    { href: '/venues', icon: 'clubs', label: 'Clubs', active: pathname.startsWith('/venues') || pathname.startsWith('/venue/') },
+    { href: '/events', icon: 'calendar', label: 'Events', active: pathname.startsWith('/events') },
+    { href: '/submit', icon: 'support', label: 'Support', active: pathname.startsWith('/submit') },
   ]
 
   return (
-    <nav aria-label="Main navigation" className="fixed bottom-0 left-0 right-0 z-50 border-t border-blue-500/20 bg-zinc-950/95 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-stretch justify-around gap-1 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-white">
-        {items.map(({ href, icon, label, active }) => (
-          <Link key={href} href={href} aria-current={active ? 'page' : undefined}
-            className={`flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-xs transition focus-visible:outline-2 focus-visible:outline-blue-400 ${active ? 'bg-blue-500/15 font-bold text-blue-300' : 'text-zinc-300 hover:bg-zinc-800/70 hover:text-white'}`}>
-            <span aria-hidden="true" className="text-lg">{icon}</span>
-            {label}
-          </Link>
-        ))}
-        <button type="button" onClick={() => router.back()}
-          className="flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-xs text-zinc-300 transition hover:bg-zinc-800/70 focus-visible:outline-2 focus-visible:outline-blue-400">
-          <span aria-hidden="true" className="text-lg">←</span>
-          Back
-        </button>
-      </div>
-    </nav>
+    <>
+      <div aria-hidden="true" className="h-[calc(5rem+env(safe-area-inset-bottom))] shrink-0" />
+      <nav aria-label="Main navigation" className="fixed inset-x-0 bottom-0 z-50 border-t border-blue-400/20 bg-zinc-950/95 shadow-[0_-8px_30px_rgba(0,0,0,0.2)] backdrop-blur-xl">
+        <div className="mx-auto grid max-w-xl grid-cols-4 gap-2 px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+          {items.map(({ href, icon, label, active }) => (
+            <Link
+              key={href}
+              href={href}
+              aria-current={active ? 'page' : undefined}
+              className={`relative flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-2 text-xs font-semibold transition-colors ${active ? 'bg-blue-500/12 text-blue-300' : 'text-zinc-400 hover:bg-white/5 hover:text-white'}`}
+            >
+              <Icon name={icon} className="h-5 w-5" />
+              {label}
+              {active && <span aria-hidden="true" className="absolute inset-x-6 top-0 h-0.5 rounded-full bg-gradient-to-r from-blue-400 to-purple-400" />}
+            </Link>
+          ))}
+        </div>
+      </nav>
+    </>
   )
 }

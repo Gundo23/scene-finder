@@ -26,6 +26,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#09090b',
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -38,8 +39,11 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-zinc-950 pb-20">
-        {children}
+      <body className="flex min-h-full flex-col bg-zinc-950">
+        <a href="#main-content" className="sf-skip-link">Skip to content</a>
+        <div id="main-content" tabIndex={-1} className="flex-1 outline-none">
+          {children}
+        </div>
         <BottomNav />
         <Analytics />
       </body>
