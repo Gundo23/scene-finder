@@ -36,15 +36,15 @@ const supportActions = [
 
 export default function SubmitPage() {
   return (
-    <main className="fixed inset-0 h-[100dvh] overflow-hidden bg-zinc-950 text-white">
-      <div className="relative m-3 flex h-[calc(100dvh-24px)] items-center justify-center overflow-hidden rounded-[42px] border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-5 py-4 shadow-[0_0_50px_rgba(59,130,246,0.15)] ring-1 ring-purple-500/20 sm:px-8 sm:py-6">
+    <main className="min-h-[100dvh] overflow-x-hidden bg-zinc-950 text-white">
+      <div className="relative m-3 flex min-h-[calc(100dvh-24px)] items-center justify-center overflow-hidden rounded-[42px] border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-5 py-4 shadow-[0_0_50px_rgba(59,130,246,0.15)] ring-1 ring-purple-500/20 sm:px-8 sm:py-6">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(236,72,153,0.12),transparent_28%)]" />
 
         <div className="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-blue-400 to-transparent" />
         <div className="pointer-events-none absolute inset-y-8 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400 to-transparent" />
         <div className="pointer-events-none absolute inset-y-8 left-0 w-px bg-gradient-to-b from-transparent via-blue-400/70 to-transparent" />
 
-        <section className="relative flex max-h-full w-full max-w-md flex-col items-center justify-center text-center">
+        <section className="relative flex w-full max-w-md flex-col items-center justify-center py-6 text-center">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full border border-yellow-400/20 bg-black/35 shadow-2xl shadow-yellow-950/20 sm:h-24 sm:w-24">
             <FallbackImage
               src="/images/home-hero.jpg"
