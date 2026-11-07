@@ -687,7 +687,7 @@ export default async function VenuePage({
               )}
             </section>
 
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3">
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3">
               <Link href={`/venues?city=${encodeURIComponent(venueCity)}`}
                 className="group rounded-2xl border border-pink-400/20 bg-zinc-950/70 p-3 transition hover:border-pink-400/60 sm:p-4">
                 <span className="text-lg" aria-hidden="true">📍</span>
@@ -721,53 +721,7 @@ export default async function VenuePage({
                 </p>
                 <p className="mt-2 text-xs text-zinc-400">View events ↓</p>
               </Link>
-              <div className="rounded-2xl border border-amber-400/15 bg-zinc-950/60 p-3 sm:p-4">
-                <span className="text-lg" aria-hidden="true">✨</span>
-                <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-amber-300">Before you travel</p>
-                <p className="mt-1 text-sm font-semibold text-white">Check current details</p>
-                <p className="mt-2 text-xs leading-5 text-zinc-400">Confirm with the organiser</p>
-              </div>
             </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-3 sm:mt-7 sm:flex sm:flex-wrap sm:gap-4">
-
-              {venue.website && (
-
-                <a
-
-                  href={venue.website}
-
-                  target="\_blank"
-
-                  rel="noreferrer"
-
-                  className="inline-flex items-center gap-2 rounded-2xl border border-blue-400 bg-gradient-to-r from-blue-500 to-purple-600 px-3 py-2.5 text-xs font-bold sm:px-5 sm:py-3 sm:text-sm text-white shadow-lg shadow-blue-500/25 transition hover:-translate-y-0.5 hover:shadow-blue-500/40"
-
-                >
-
-                  🌐 Visit Website ↗
-
-                </a>
-
-              )}
-
-
-
-              <Link
-
-                href={`/venues?city=${encodeURIComponent(venueCity)}`}
-
-                className="inline-flex items-center gap-2 rounded-2xl border border-blue-500/70 bg-zinc-950/70 px-3 py-2.5 text-xs font-bold sm:px-5 sm:py-3 sm:text-sm text-zinc-100 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:border-blue-400 hover:bg-zinc-900 hover:text-white"
-
-              >
-
-                📅 View Events →
-
-              </Link>
-
-            </div>
-
-
 
             <div className="mt-5 border-t border-zinc-800/80 pt-5 sm:mt-7 sm:pt-7">
 
