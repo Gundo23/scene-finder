@@ -954,7 +954,7 @@ export default async function VenuesPage({
             {sort === 'popular' && <input type="hidden" name="sort" value="popular" />}
             {view === 'list' && <input type="hidden" name="view" value="list" />}
 
-            <div aria-label="Filter by event date" className="mt-4 grid grid-cols-4 gap-1.5 sm:flex sm:gap-2">
+            <div aria-label="Filter by event date" className="mt-4 grid grid-cols-2 gap-1.5 min-[360px]:grid-cols-4 sm:flex sm:gap-2">
               {timings.map((item) => (
                 <Link key={item.value} href={makeFilterHref({ timing: item.value })} scroll={false} aria-current={timing === item.value ? 'true' : undefined} className={`inline-flex min-h-11 items-center justify-center rounded-xl border px-2 py-2 text-center text-xs font-semibold leading-4 transition sm:px-4 sm:text-sm ${quickChipClass(timing === item.value)}`}>{item.label}</Link>
               ))}
@@ -1056,7 +1056,7 @@ export default async function VenuesPage({
                       {distance !== undefined && <p className="mt-1 text-xs font-medium text-emerald-300">{formatDistanceMiles(distance)} away</p>}
                       <div className={`mt-auto pt-4 ${view === 'list' ? 'sm:flex sm:items-center sm:justify-between sm:gap-4' : ''}`}>
                         <p className="flex items-center gap-2 text-xs text-zinc-300"><Icon name="calendar" className="h-4 w-4 shrink-0 text-cyan-300" />{eventDiscoveryError ? 'Event dates unavailable' : nextDate ? <>Next event <span className="font-semibold text-white">{formatShortDate(nextDate)}</span></> : count > 0 ? 'Event dates to be confirmed' : 'No upcoming events listed'}</p>
-                        <div className={`mt-3 flex items-center justify-between gap-2 border-t border-white/10 pt-3 ${view === 'list' ? 'sm:mt-0 sm:shrink-0 sm:border-0 sm:pt-0' : ''}`}>
+                        <div className={`mt-3 flex items-center justify-between gap-2 border-t border-white/10 pt-3 ${view === 'list' ? 'flex-wrap sm:mt-0 sm:shrink-0 sm:flex-nowrap sm:border-0 sm:pt-0' : ''}`}>
                           <Link href={detailHref} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 text-xs font-bold text-blue-100 transition hover:border-blue-400/60 hover:bg-blue-500/20">View venue<Icon name="arrow-right" className="h-4 w-4" /></Link>
                           {!eventDiscoveryError && count > 0 && <Link href={`${detailHref}#upcoming-events`} className="inline-flex min-h-11 items-center rounded-lg px-1 text-xs font-semibold text-cyan-300 hover:text-cyan-100">{count} event{count === 1 ? '' : 's'}</Link>}
                         </div>

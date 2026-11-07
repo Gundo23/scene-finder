@@ -628,7 +628,7 @@ export default async function EventsPage({
             </div>
             {timing && <input type="hidden" name="timing" value={timing} />}
 
-            <div aria-label="When" className="mt-4 grid grid-cols-4 gap-1.5 sm:flex sm:gap-2">
+            <div aria-label="When" className="mt-4 grid grid-cols-2 gap-1.5 min-[360px]:grid-cols-4 sm:flex sm:gap-2">
               {timingOptions.map((option) => {
                 const active = timing === option.value && !dateFrom && !dateTo
                 return (

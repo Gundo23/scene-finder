@@ -212,7 +212,7 @@ export default async function VenuePage({
     type: 'incorrect_information',
     message: `Venue: ${venueName}\nhttps://www.scenefinder.co.uk/venue/${encodeURIComponent(id)}\n\nWhat needs updating?\n`,
   })
-  const actionClass = 'flex min-h-12 items-center justify-center gap-2 rounded-xl border px-3 py-3 text-sm font-semibold transition'
+  const actionClass = 'flex min-h-12 items-center justify-center gap-1.5 rounded-xl border px-2 py-3 text-center text-xs font-semibold transition sm:gap-2 sm:px-3 sm:text-sm'
 
   return (
     <main className="relative min-h-screen bg-zinc-950 px-4 pb-8 pt-5 text-white sm:px-6 sm:pt-8">
