@@ -590,6 +590,26 @@ export default async function EventsPage({
     }] : []),
   ]
   const hasFilters = activeFilters.length > 0
+  // A separate, small weekend discovery section; the existing search results
+  // and their pagination remain unchanged.
+  const { data: weekendSpotlightRows, error: weekendSpotlightError } = !hasFilters
+    ? await supabase.from('events')
+        .select(eventSelect)
+        .eq('is_published', true)
+        .gte('event_date', today > weekend.start ? today : weekend.start)
+        .lte('event_date', weekend.end)
+        .order('event_date', { ascending: true })
+        .order('start_time', { ascending: true })
+        .limit(60)
+    : { data: [], error: null }
+  if (weekendSpotlightError) console.error('Weekend spotlight unavailable:', weekendSpotlightError.message)
+  const weekendSpotlight = (weekendSpotlightRows || []) as EventRow[]
+  const weekendDays = [
+    { label: 'Friday', date: weekend.start },
+    { label: 'Saturday', date: addDays(weekend.start, 1) },
+    { label: 'Sunday', date: addDays(weekend.start, 2) },
+  ]
+
 
   return (
     <main className="min-h-screen bg-zinc-950 px-4 pb-8 pt-6 text-white sm:px-6 sm:pt-8">
@@ -710,6 +730,54 @@ export default async function EventsPage({
         )}
         {invalidDateInput && (
           <p role="status" className="mt-4 rounded-xl border border-amber-400/20 bg-amber-500/5 px-4 py-3 text-sm leading-6 text-amber-200">One of the dates was not recognised. Choose a date using Filters.</p>
+        )}
+
+        {!hasFilters && weekendSpotlight.length > 0 && (
+          <section aria-labelledby="weekend-spotlight-heading" className="mt-8">
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-purple-300">Weekend discovery</p>
+                <h2 id="weekend-spotlight-heading" className="mt-1 text-2xl font-bold tracking-tight">This weekend</h2>
+                <p className="mt-1 text-sm text-zinc-400">Explore upcoming events by day, with their posters and booking links.</p>
+              </div>
+              <Link href={makeFilterHref({ timing: 'weekend' })} className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-blue-300 hover:text-blue-100">All weekend events <Icon name="arrow-right" className="h-4 w-4" /></Link>
+            </div>
+            <div className="space-y-6">
+              {weekendDays.map((day) => {
+                const dayEvents = weekendSpotlight.filter((event) => event.event_date === day.date).slice(0, 3)
+                if (!dayEvents.length) return null
+                return (
+                  <div key={day.date}>
+                    <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-zinc-200"><span className="h-2 w-2 rounded-full bg-purple-400" />{day.label} <span className="font-normal text-zinc-500">{formatDate(day.date)}</span></h3>
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {dayEvents.map((event) => {
+                        const venue = venueById.get(event.venue_id)
+                        const organiser = event.organiser_id ? venueById.get(event.organiser_id) : null
+                        const name = cleanText(event.event_name || '') || 'Event details'
+                        const href = `/events/${encodeURIComponent(event.event_id)}?from=${encodeURIComponent('/events')}`
+                        const ticket = httpUrl(event.ticket_url)
+                        return (
+                          <article key={event.event_id} className="overflow-hidden rounded-2xl border border-purple-400/20 bg-zinc-900/70">
+                            <Link href={href} className="block aspect-[16/10] bg-zinc-950">
+                              <FallbackImage src={event.image_url} fallbackSources={[venue?.image_url, organiser?.image_url]} fallbackSrc="/images/home-hero.jpg" alt={name} className="h-full w-full object-contain p-3" />
+                            </Link>
+                            <div className="p-4">
+                              <p className="text-xs font-semibold text-blue-200">{formatTime(event.start_time)} · {getEventLocation(event, venue)}</p>
+                              <h4 className="mt-2 line-clamp-2 text-base font-bold leading-snug"><Link href={href} className="hover:text-blue-200">{name}</Link></h4>
+                              <div className="mt-4 flex flex-wrap items-center gap-3">
+                                <Link href={href} className="inline-flex min-h-11 items-center rounded-lg bg-blue-500/15 px-3 text-xs font-semibold text-blue-100">Details</Link>
+                                {ticket && <a href={ticket} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-purple-200">Tickets <Icon name="external" className="h-3 w-3" /></a>}
+                              </div>
+                            </div>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
         )}
 
         <section id="event-results" aria-labelledby="results-heading" className="mt-7 scroll-mt-6">
