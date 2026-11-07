@@ -17,18 +17,26 @@ function loadLeaflet(): Promise<LeafletApi> {
   if (window.L) return Promise.resolve(window.L)
   if (leafletPromise) return leafletPromise
   leafletPromise = new Promise<LeafletApi>((resolve, reject) => {
+    // Do not initialise Leaflet until its stylesheet has finished loading.
+    // Otherwise tiles render as oversized overlapping images on iOS Safari.
     const css = document.createElement('link')
     css.rel = 'stylesheet'
     css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
-    css.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoV3U+6iH4E7wM='
     css.crossOrigin = 'anonymous'
+    let cssReady = false
+    let scriptReady = false
+    const finish = () => {
+      if (cssReady && scriptReady && window.L) resolve(window.L)
+    }
+    css.onload = () => { cssReady = true; finish() }
+    css.onerror = () => reject(new Error('Map styles could not load'))
     document.head.appendChild(css)
     const script = document.createElement('script')
     script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
     script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo='
     script.crossOrigin = 'anonymous'
     script.async = true
-    script.onload = () => window.L ? resolve(window.L) : reject(new Error('Map library unavailable'))
+    script.onload = () => { scriptReady = true; finish() }
     script.onerror = () => reject(new Error('Map library could not load'))
     document.head.appendChild(script)
   }).catch((error) => { leafletPromise = null; throw error })
@@ -38,6 +46,7 @@ function loadLeaflet(): Promise<LeafletApi> {
 export default function VenueDiscoveryMap({ venues, totalMatches }: { venues: VenuePin[]; totalMatches: number }) {
   const node = useRef<HTMLDivElement>(null)
   const [error, setError] = useState(false)
+  const [ready, setReady] = useState(false)
   useEffect(() => {
     if (!node.current || !venues.length) return
     let cancelled = false
@@ -63,6 +72,15 @@ export default function VenueDiscoveryMap({ venues, totalMatches }: { venues: Ve
         popup.append(name, area, link)
         L.marker([venue.lat, venue.lng]).addTo(map).bindPopup(popup)
       }
+      // A stylesheet blocked by the browser must never leave a broken map.
+      const pane = node.current.querySelector('.leaflet-map-pane')
+      if (!pane || getComputedStyle(pane).position !== 'absolute') {
+        map.remove()
+        map = undefined
+        setError(true)
+        return
+      }
+      setReady(true)
       if (venues.length === 1) map.setView([venues[0].lat, venues[0].lng], 12)
       else map.fitBounds(venues.map((v) => [v.lat, v.lng]), { padding: [32, 32], maxZoom: 12 })
     }).catch(() => { if (!cancelled) setError(true) })
@@ -80,6 +98,7 @@ export default function VenueDiscoveryMap({ venues, totalMatches }: { venues: Ve
         <p className="text-sm font-semibold text-white">Explore {venues.length} verified public location{venues.length === 1 ? '' : 's'}</p>
         <span className="text-xs text-zinc-400">{totalMatches > venues.length ? 'Some results have no verified public map pin' : 'Tap a pin to view a venue'}</span>
       </div>
+      {!error && !ready && <p role="status" className="px-4 py-2 text-xs text-zinc-400">Loading interactive map…</p>}
       {error ? (
         <div role="status" className="p-8 text-center text-sm text-zinc-300">The map is temporarily unavailable. Switch to Grid or List to browse venues.</div>
       ) : <div ref={node} className="relative z-0 h-[420px] w-full bg-zinc-800 sm:h-[570px]" aria-label="Map showing verified venue locations" />}
