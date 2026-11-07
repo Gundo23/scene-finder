@@ -1464,6 +1464,8 @@ export default async function VenuesPage({
 
     timing?: string
 
+    sort?: string
+
   }>
 
 }) {
@@ -1477,6 +1479,8 @@ export default async function VenuesPage({
   const region = params.region || ''
 
   const category = params.category || ''
+
+  const sort = params.sort === 'popular' ? 'popular' : 'recommended'
 
   const requestedTiming = params.timing || ''
 
@@ -1688,6 +1692,12 @@ export default async function VenuesPage({
 
   const sortedVenues = publicVenues.sort((a, b) => {
 
+    if (sort === 'popular') {
+      const likesDifference = (b.like_count || 0) - (a.like_count || 0)
+      if (likesDifference !== 0) return likesDifference
+    }
+
+
     if (postcodeOrigin) {
 
       const aDistance = distanceMilesByVenue.get(a.venue_id) ?? Number.POSITIVE_INFINITY
@@ -1754,6 +1764,8 @@ export default async function VenuesPage({
 
       timing: string
 
+      sort: string
+
     }>
 
   ) => {
@@ -1770,6 +1782,8 @@ export default async function VenuesPage({
 
       timing,
 
+      sort,
+
       ...updates,
 
     }
@@ -1785,6 +1799,8 @@ export default async function VenuesPage({
     if (next.category) query.set('category', next.category)
 
     if (next.timing) query.set('timing', next.timing)
+
+    if (next.sort === 'popular') query.set('sort', 'popular')
 
     const queryString = query.toString()
 
@@ -2004,6 +2020,20 @@ export default async function VenuesPage({
 
           </div>
 
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-zinc-400">Sort venues:</span>
+            <Link
+              href={makeFilterHref({ sort: 'recommended' })}
+              aria-current={sort === 'recommended' ? 'true' : undefined}
+              className={`inline-flex min-h-10 items-center rounded-full border px-3 py-2 text-xs font-bold transition ${sort === 'recommended' ? 'border-blue-400 bg-blue-500/20 text-blue-100' : 'border-zinc-700 bg-zinc-950/70 text-zinc-300 hover:border-blue-500'}`}
+            >Recommended</Link>
+            <Link
+              href={makeFilterHref({ sort: 'popular' })}
+              aria-current={sort === 'popular' ? 'true' : undefined}
+              className={`inline-flex min-h-10 items-center rounded-full border px-3 py-2 text-xs font-bold transition ${sort === 'popular' ? 'border-pink-400 bg-pink-500/20 text-pink-100' : 'border-zinc-700 bg-zinc-950/70 text-zinc-300 hover:border-pink-500'}`}
+            >♥ Most liked</Link>
+          </div>
+
           <form className="mt-4">
 
             <div className="grid w-full grid-cols-[1fr_auto] gap-2">
@@ -2037,6 +2067,8 @@ export default async function VenuesPage({
             </div>
 
             {timing && <input type="hidden" name="timing" value={timing} />}
+
+            {sort === 'popular' && <input type="hidden" name="sort" value="popular" />}
 
             <details
 
