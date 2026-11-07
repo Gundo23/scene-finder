@@ -9,14 +9,16 @@ export default async function Home() {
   const today = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date())
-  const [venuesResult, eventsResult, lifetimeResult] = await Promise.all([
+  const [venuesResult, eventsResult, lifetimeResult, weekendResult] = await Promise.all([
     supabase.from('venues').select('venue_id', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }).eq('is_published', true).gte('event_date', today),
     supabase.rpc('sf_public_lifetime_event_count'),
+    supabase.from('events').select('event_id,event_name,event_date,image_url,start_time,venue_id').eq('is_published',true).gte('event_date',today).lte('event_date',(() => { const d = new Date(`${today}T12:00:00Z`); const day = d.getUTCDay(); d.setUTCDate(d.getUTCDate() + ((7 - day) % 7)); return d.toISOString().slice(0,10) })()).order('event_date',{ascending:true}).limit(6),
   ])
   const venueCount = venuesResult.error ? null : venuesResult.count
   const upcomingEventCount = eventsResult.error ? null : eventsResult.count
   const lifetimeCount = lifetimeResult.error ? null : lifetimeResult.data
+  const weekendEvents = weekendResult.error ? [] : (weekendResult.data || []).slice(0,4)
 
   return (
     <main className="relative isolate flex min-h-[100dvh] items-center bg-zinc-950 px-4 py-6 text-white sm:px-6 sm:py-10">
@@ -85,7 +87,30 @@ export default async function Home() {
               </Link>
             </div>
 
+            {weekendEvents.length > 0 && (
+              <section aria-labelledby="home-weekend-heading" className="mt-5 border-t border-white/10 pt-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h2 id="home-weekend-heading" className="text-sm font-bold text-white">Coming up this weekend</h2>
+                  <Link href="/events?timing=weekend" className="text-xs font-semibold text-purple-300 hover:text-purple-100">See all</Link>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {weekendEvents.map((event) => (
+                    <Link key={event.event_id} href={`/events/${encodeURIComponent(event.event_id)}?from=${encodeURIComponent('/')}`} className="group min-w-0 overflow-hidden rounded-xl border border-purple-400/20 bg-zinc-900/70 transition hover:border-purple-400/60">
+                      <div className="aspect-[16/10] bg-zinc-950">
+                        <FallbackImage src={event.image_url} fallbackSrc="/images/home-hero.jpg" alt="" className="h-full w-full object-contain p-2" />
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-[11px] font-medium text-blue-300">{new Date(`${event.event_date}T12:00:00Z`).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'Europe/London'})}</p>
+                        <p className="mt-1 line-clamp-2 text-xs font-bold text-zinc-100 group-hover:text-purple-200">{event.event_name || 'Event details'}</p>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <nav aria-label="Explore quickly" className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/10 pt-4">
+              <Link href="/venues?view=list" className="inline-flex min-h-11 items-center rounded-full border border-blue-400/30 bg-blue-500/10 px-3 text-xs font-semibold text-blue-100 transition-colors hover:border-blue-400/60">Explore clubs</Link>
               <Link href="/events?timing=tonight" className="inline-flex min-h-11 items-center rounded-full border border-zinc-700/80 px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-blue-400/50 hover:text-white">Tonight</Link>
               <Link href="/events?timing=weekend" className="inline-flex min-h-11 items-center rounded-full border border-zinc-700/80 px-3 text-xs font-semibold text-zinc-300 transition-colors hover:border-purple-400/50 hover:text-white">This weekend</Link>
               <Link href="/venues?sort=popular" className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-pink-400/25 bg-pink-500/5 px-3 text-xs font-semibold text-pink-200 transition-colors hover:border-pink-400/60"><Icon name="heart" className="h-3.5 w-3.5" />Most liked</Link>
