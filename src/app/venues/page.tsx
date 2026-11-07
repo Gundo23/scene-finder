@@ -724,7 +724,7 @@ export default async function VenuesPage({
   const category = params.category || ''
   const sort = params.sort === 'popular' ? 'popular' : 'recommended'
   const timing = ['tonight', 'weekend', 'next7days'].includes(params.timing || '') ? params.timing! : ''
-  const view = params.view === 'map' ? 'map' : params.view === 'list' ? 'list' : 'grid'
+  const view = params.view === 'map' ? 'map' : params.view === 'grid' ? 'grid' : 'list'
   const parsedPage = Number(params.page)
   const requestedPage = Number.isSafeInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1
   const PAGE_SIZE = 24
