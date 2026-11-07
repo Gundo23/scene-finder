@@ -648,301 +648,91 @@ export default async function VenuePage({
 
 
 
-            <div className="mt-6 overflow-hidden rounded-2xl border border-emerald-400/20 bg-zinc-950/75 p-4 shadow-lg shadow-black/20 sm:p-5">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">
-                      📍 {canShowPublicAddress ? 'Verified venue address' : 'Location'}
-                    </p>
-                    <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-zinc-300">
-                      {locationKindLabel}
-                    </span>
-                  </div>
-
-                  {canShowPublicAddress ? (
-                    <address className="mt-3 not-italic text-sm leading-6 text-white sm:text-base">
-                      {venueAddressLines.map((line) => (
-                        <div key={line}>{line}</div>
-                      ))}
-                    </address>
-                  ) : (
-                    <p className="mt-3 text-sm leading-6 text-zinc-300">
-                      {[venueCity, venueRegion].filter(Boolean).join(', ') || 'Location not published'}
-                    </p>
-                  )}
-
-                  <p className="mt-3 max-w-2xl text-xs leading-5 text-zinc-400 sm:text-sm">
-                    {locationMessage}
-                  </p>
-
-                  {canShowPublicAddress && venue.address_verified && (
-                    <p className="mt-2 text-xs font-semibold text-emerald-300">
-                      ✓ Address verified{addressSourceName ? ` • ${addressSourceName}` : ''}
-                    </p>
-                  )}
-                </div>
-
-                {canShowPublicAddress && (mapsHref || addressSourceUrl) && (
-                  <div className="flex shrink-0 flex-wrap gap-2 sm:max-w-[240px] sm:justify-end">
-                    {mapsHref && (
-                      <a
-                        href={mapsHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center justify-center rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-200 transition hover:border-emerald-300 hover:bg-emerald-500/20 hover:text-white"
-                      >
-                        Open in Maps ↗
-                      </a>
-                    )}
-                    {addressSourceUrl && (
-                      <a
-                        href={addressSourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:border-blue-400 hover:text-white"
-                      >
-                        Address source ↗
-                      </a>
-                    )}
-                  </div>
-                )}
+            <section className="mt-5 overflow-hidden rounded-2xl border border-emerald-400/20 bg-zinc-950/70 p-4 shadow-lg shadow-black/15 sm:p-5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-[0.12em] text-emerald-300">
+                  📍 {canShowPublicAddress ? 'Verified venue address' : 'Location'}
+                </span>
+                <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2.5 py-1 text-[10px] font-semibold uppercase text-zinc-300">
+                  {locationKindLabel}
+                </span>
               </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-
-              <Link
-
-                href={`/venues?city=${encodeURIComponent(venueCity)}`}
-
-                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-pink-500/70 hover:bg-zinc-900"
-
-              >
-
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-pink-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
-
-                <div className="relative flex items-start justify-between gap-3">
-
-                  <div>
-
-                    <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-pink-400/30 bg-pink-500/15 text-xl shadow-lg sm:text-2xl shadow-pink-500/10">
-
-                      📍
-
-                    </div>
-
-                    <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-pink-300">
-
-                      Clubs nearby
-
-                    </p>
-
-                    <p className="mt-1 text-sm font-bold text-white sm:text-base">
-
-                      {[venueCity, venueRegion].filter(Boolean).join(', ') || 'UK'}
-
-                    </p>
-
-                    <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
-
-                      Explore clubs in this area
-
-                    </p>
-
-                  </div>
-
-                  <span className="mt-1 text-xl text-zinc-500 sm:mt-2 sm:text-2xl transition group-hover:translate-x-1 group-hover:text-pink-300">
-
-                    ›
-
-                  </span>
-
-                </div>
-
-              </Link>
-
-
-
-              {venue.website ? (
-
-                <a
-
-                  href={venue.website}
-
-                  target="\_blank"
-
-                  rel="noreferrer"
-
-                  className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-cyan-400/70 hover:bg-zinc-900"
-
-                >
-
-                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-cyan-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
-
-                  <div className="relative flex items-start justify-between gap-3">
-
-                    <div>
-
-                      <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-cyan-400/30 bg-cyan-500/15 text-xl shadow-lg sm:text-2xl shadow-cyan-500/10">
-
-                        🌐
-
-                      </div>
-
-                      <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-cyan-300">
-
-                        Official website
-
-                      </p>
-
-                      <p className="mt-1 text-sm font-bold text-white sm:text-base">
-
-                        Visit Website
-
-                      </p>
-
-                      <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
-
-                        Open the venue's official site
-
-                      </p>
-
-                    </div>
-
-                    <span className="mt-1 text-xl text-zinc-500 sm:mt-2 sm:text-2xl transition group-hover:translate-x-1 group-hover:text-cyan-300">
-
-                      ›
-
-                    </span>
-
-                  </div>
-
-                </a>
-
+              {canShowPublicAddress ? (
+                <address className="mt-3 not-italic text-sm leading-6 text-zinc-100 sm:text-base">
+                  {venueAddressLines.map((line) => <div key={line}>{line}</div>)}
+                </address>
               ) : (
-
-                <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3 shadow-lg sm:p-4 shadow-black/30">
-
-                  <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-zinc-700 bg-zinc-900 text-2xl">
-
-                    🌐
-
-                  </div>
-
-                  <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-zinc-500">
-
-                    Official website
-
-                  </p>
-
-                  <p className="mt-1 text-sm font-bold text-white sm:text-base">
-
-                    Not Listed Yet
-
-                  </p>
-
-                  <p className="mt-1.5 text-[11px] leading-4 text-zinc-500 sm:mt-2 sm:text-xs sm:leading-5">
-
-                    Website details are being checked
-
-                  </p>
-
-                </div>
-
+                <p className="mt-3 text-sm text-zinc-200">
+                  {[venueCity, venueRegion].filter(Boolean).join(', ') || 'Location not published'}
+                </p>
               )}
-
-
-
-              <Link
-
-                href={`/venue/${venue.venue_id}`}
-
-                className="group relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30 transition hover:-translate-y-1 hover:border-purple-400/70 hover:bg-zinc-900"
-
-              >
-
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-purple-500/10 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
-
-                <div className="relative flex items-start justify-between gap-3">
-
-                  <div>
-
-                    <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-purple-400/30 bg-purple-500/15 text-xl shadow-lg sm:text-2xl shadow-purple-500/10">
-
-                      📅
-
-                    </div>
-
-                    <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-purple-300">
-
-                      {locationKind === 'event_series' ? 'Organiser events' : 'Venue events'}
-
-                    </p>
-
-                    <p className="mt-1 text-sm font-bold text-white sm:text-base">
-
-                      {eventsError ? 'Events unavailable' : `${sortedEvents.length} Upcoming Event${sortedEvents.length === 1 ? '' : 's'}`}
-
-                    </p>
-
-                    <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
-
-                      {locationKind === 'event_series' ? 'Events at their confirmed host venues' : 'View all events at this venue'}
-
-                    </p>
-
-                  </div>
-
-                  <span className="mt-1 text-xl text-zinc-500 sm:mt-2 sm:text-2xl transition group-hover:translate-x-1 group-hover:text-purple-300">
-
-                    ›
-
-                  </span>
-
+              {canShowPublicAddress && venue.address_verified && (
+                <p className="mt-3 text-xs font-semibold text-emerald-300">
+                  ✓ Address verified{addressSourceName ? ` • ${addressSourceName}` : ''}
+                </p>
+              )}
+              {!canShowPublicAddress && (
+                <p className="mt-2 text-xs leading-5 text-zinc-400">{locationMessage}</p>
+              )}
+              {canShowPublicAddress && (mapsHref || addressSourceUrl) && (
+                <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-800 pt-3">
+                  {mapsHref && (
+                    <a href={mapsHref} target="_blank" rel="noreferrer"
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-200 transition hover:bg-emerald-500/20">
+                      Open in Maps ↗
+                    </a>
+                  )}
+                  {addressSourceUrl && (
+                    <a href={addressSourceUrl} target="_blank" rel="noreferrer"
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:border-blue-400">
+                      Address source ↗
+                    </a>
+                  )}
                 </div>
+              )}
+            </section>
 
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3">
+              <Link href={`/venues?city=${encodeURIComponent(venueCity)}`}
+                className="group rounded-2xl border border-pink-400/20 bg-zinc-950/70 p-3 transition hover:border-pink-400/60 sm:p-4">
+                <span className="text-lg" aria-hidden="true">📍</span>
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-pink-300">Clubs nearby</p>
+                <p className="mt-1 line-clamp-2 text-sm font-semibold text-white">{venueCity || venueRegion || 'UK'}</p>
+                <p className="mt-2 text-xs text-zinc-400">Explore area →</p>
               </Link>
-
-
-
-              <div className="relative overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/75 p-3 shadow-lg sm:p-4 shadow-black/30">
-
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-amber-500/10 via-transparent to-transparent" />
-
-                <div className="relative">
-
-                  <div className="inline-flex h-9 w-9 items-center justify-center sm:h-11 sm:w-11 rounded-full border border-amber-400/30 bg-amber-500/15 text-xl shadow-lg sm:text-2xl shadow-amber-500/10">
-
-                    ✨
-
-                  </div>
-
-                  <p className="mt-3 text-[10px] font-bold uppercase tracking-wide sm:mt-4 sm:text-xs text-amber-300">
-
-                    Check current details
-
-                  </p>
-
-                  <p className="mt-1 text-sm font-bold text-white sm:text-base">
-
-                    On the venue website
-
-                  </p>
-
-                  <p className="mt-1.5 text-[11px] leading-4 text-zinc-400 sm:mt-2 sm:text-xs sm:leading-5">
-
-                    Event listings can change. Confirm details with the organiser before travelling.
-
-                  </p>
-
+              {venue.website ? (
+                <a href={venue.website} target="_blank" rel="noreferrer"
+                  className="group rounded-2xl border border-cyan-400/20 bg-zinc-950/70 p-3 transition hover:border-cyan-400/60 sm:p-4">
+                  <span className="text-lg" aria-hidden="true">🌐</span>
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-cyan-300">Official website</p>
+                  <p className="mt-1 text-sm font-semibold text-white">Visit website</p>
+                  <p className="mt-2 text-xs text-zinc-400">Open official site ↗</p>
+                </a>
+              ) : (
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-950/60 p-3 sm:p-4">
+                  <span className="text-lg" aria-hidden="true">🌐</span>
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-zinc-500">Official website</p>
+                  <p className="mt-1 text-sm font-semibold text-zinc-300">Not listed yet</p>
                 </div>
-
+              )}
+              <Link href={`#venue-events`}
+                className="group rounded-2xl border border-purple-400/20 bg-zinc-950/70 p-3 transition hover:border-purple-400/60 sm:p-4">
+                <span className="text-lg" aria-hidden="true">📅</span>
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                  {locationKind === 'event_series' ? 'Organiser events' : 'Venue events'}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {eventsError ? 'Events unavailable' : `${sortedEvents.length} upcoming`}
+                </p>
+                <p className="mt-2 text-xs text-zinc-400">View events ↓</p>
+              </Link>
+              <div className="rounded-2xl border border-amber-400/15 bg-zinc-950/60 p-3 sm:p-4">
+                <span className="text-lg" aria-hidden="true">✨</span>
+                <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-amber-300">Before you travel</p>
+                <p className="mt-1 text-sm font-semibold text-white">Check current details</p>
+                <p className="mt-2 text-xs leading-5 text-zinc-400">Confirm with the organiser</p>
               </div>
-
             </div>
-
-
 
             <div className="mt-5 grid grid-cols-2 gap-3 sm:mt-7 sm:flex sm:flex-wrap sm:gap-4">
 
