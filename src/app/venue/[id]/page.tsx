@@ -648,7 +648,7 @@ export default async function VenuePage({
 
 
 
-            <section className="mt-5 overflow-hidden rounded-2xl border border-emerald-400/20 bg-zinc-950/70 p-4 shadow-lg shadow-black/15 sm:p-5">
+            <section className="mt-5 overflow-hidden rounded-2xl border border-emerald-400/20 bg-zinc-950/70 p-4 sm:p-5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-[0.12em] text-emerald-300">
                   📍 {canShowPublicAddress ? 'Verified venue address' : 'Location'}
@@ -659,7 +659,7 @@ export default async function VenuePage({
               </div>
               {canShowPublicAddress ? (
                 <address className="mt-3 not-italic text-sm leading-6 text-zinc-100 sm:text-base">
-                  {venueAddressLines.map((line) => <div key={line}>{line}</div>)}
+                  {venueAddressLines.join(', ')}
                 </address>
               ) : (
                 <p className="mt-3 text-sm text-zinc-200">
@@ -668,24 +668,18 @@ export default async function VenuePage({
               )}
               {canShowPublicAddress && venue.address_verified && (
                 <p className="mt-3 text-xs font-semibold text-emerald-300">
-                  ✓ Address verified{addressSourceName ? ` • ${addressSourceName}` : ''}
+                  ✓ Address verified
                 </p>
               )}
               {!canShowPublicAddress && (
                 <p className="mt-2 text-xs leading-5 text-zinc-400">{locationMessage}</p>
               )}
-              {canShowPublicAddress && (mapsHref || addressSourceUrl) && (
-                <div className="mt-4 flex flex-wrap gap-2 border-t border-zinc-800 pt-3">
+              {canShowPublicAddress && mapsHref && (
+                <div className="mt-3 flex flex-wrap gap-2">
                   {mapsHref && (
                     <a href={mapsHref} target="_blank" rel="noreferrer"
                       className="inline-flex min-h-10 items-center justify-center rounded-xl border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-200 transition hover:bg-emerald-500/20">
                       Open in Maps ↗
-                    </a>
-                  )}
-                  {addressSourceUrl && (
-                    <a href={addressSourceUrl} target="_blank" rel="noreferrer"
-                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-bold text-zinc-200 transition hover:border-blue-400">
-                      Address source ↗
                     </a>
                   )}
                 </div>
