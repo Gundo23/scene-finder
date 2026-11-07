@@ -45,10 +45,10 @@ export default async function Home() {
             {typeof lifetimeCount === 'number' && (
               <div className="mx-auto mt-2 inline-flex items-center gap-2 rounded-full border border-fuchsia-400/35 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-bold text-fuchsia-100 sm:text-sm">
                 <span aria-hidden="true">✦</span>
-                <span>{lifetimeCount.toLocaleString('en-GB')} all-time event records</span>
+                <span>{lifetimeCount.toLocaleString('en-GB')} all-time published events</span>
               </div>
             )}
-            <p className="sr-only">All-time event records include historical entries and may include unpublished records.</p>
+            <p className="sr-only">All-time published events counts currently published historical events and future publication milestones.</p>
           </div>
 
           <div className="w-full space-y-3">
