@@ -6,9 +6,10 @@ export const dynamic = 'force-dynamic'
 
 export default async function Home() {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-  const [{ count: venueCount }, { count: upcomingEventCount }] = await Promise.all([
+  const [{ count: venueCount }, { count: upcomingEventCount }, { data: lifetimeCount }] = await Promise.all([
     supabase.from('venues').select('*', { count: 'exact', head: true }),
     supabase.from('events').select('*', { count: 'exact', head: true }).eq('is_published', true).gte('event_date', today),
+    supabase.rpc('sf_public_lifetime_event_count'),
   ])
   return (
     <main className="fixed inset-0 h-[100dvh] overflow-hidden bg-zinc-950 text-white">
@@ -40,6 +41,15 @@ export default async function Home() {
 
             <p className="mx-auto mt-3 max-w-sm text-sm font-bold leading-6 text-blue-200 sm:text-lg sm:leading-7">
               {venueCount !== null ? venueCount.toLocaleString('en-GB') : 'UK'} venues. {upcomingEventCount !== null ? upcomingEventCount.toLocaleString('en-GB') + ' upcoming events' : 'Discover upcoming events'}.
+            </p>
+            {typeof lifetimeCount === 'number' && (
+              <div className="mx-auto mt-2 inline-flex items-center gap-2 rounded-full border border-fuchsia-400/35 bg-fuchsia-500/10 px-3 py-1.5 text-xs font-bold text-fuchsia-100 sm:text-sm">
+                <span aria-hidden="true">✦</span>
+                <span>{lifetimeCount.toLocaleString('en-GB')} all-time event records</span>
+              </div>
+            )}
+            <p className="sr-only">All-time event records include historical entries and may include unpublished records.</p>
+            <p className="hidden">
             </p>
           </div>
 
