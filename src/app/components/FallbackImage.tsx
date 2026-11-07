@@ -31,6 +31,11 @@ type FallbackImageProps = ImageDisplayProps & {
 
 function ImageCandidates({ candidates, ...props }: ImageDisplayProps & { candidates: string[] }) {
   const [index, setIndex] = useState(0)
+  const [allFailed, setAllFailed] = useState(false)
+
+  if (allFailed || candidates.length === 0) {
+    return <span role="img" aria-label={props.alt || 'Scene Finder image unavailable'} className={`${props.className || ''} flex items-center justify-center bg-zinc-950 text-center text-xs font-semibold tracking-widest text-zinc-500`}>SCENE FINDER</span>
+  }
 
   return (
     <img
@@ -41,6 +46,8 @@ function ImageCandidates({ candidates, ...props }: ImageDisplayProps & { candida
       onError={() => {
         if (index + 1 < candidates.length) {
           setIndex((current) => current === index ? index + 1 : current)
+        } else {
+          setAllFailed(true)
         }
       }}
     />
@@ -55,7 +62,7 @@ export default function FallbackImage({
   ...props
 }: FallbackImageProps) {
   const candidates = [...new Set(
-    [src, ...fallbackSources, fallbackSrc]
+    [src, ...fallbackSources, fallbackSrc, '/images/scene-finder-logo-transparent.png']
       .map(usableImageUrl)
       .filter((value): value is string => value !== null)
   )]
