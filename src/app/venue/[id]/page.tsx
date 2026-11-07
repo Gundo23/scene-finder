@@ -715,7 +715,7 @@ export default async function VenuePage({
                   <p className="mt-1 text-sm font-semibold text-zinc-300">Not listed yet</p>
                 </div>
               )}
-              <Link href={`#venue-events`}
+              <Link href="#upcoming-events"
                 className="group rounded-2xl border border-purple-400/20 bg-zinc-950/70 p-3 transition hover:border-purple-400/60 sm:p-4">
                 <span className="text-lg" aria-hidden="true">📅</span>
                 <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-purple-300">
