@@ -2336,7 +2336,7 @@ export default async function VenuesPage({
 
                   <div className="pointer-events-none absolute inset-y-6 right-0 w-px bg-gradient-to-b from-transparent via-fuchsia-400/50 to-transparent" />
 
-                  <div className="relative h-32 w-full overflow-hidden bg-zinc-950 sm:h-44">
+                  <div className="relative h-36 w-full overflow-hidden border-b border-blue-500/15 bg-zinc-950 sm:h-44">
 
                     <FallbackImage
 
@@ -2436,62 +2436,15 @@ export default async function VenuesPage({
 
                     </p>
 
-                    <div className="mt-4 grid grid-cols-3 gap-2">
-
-                      <div className="rounded-2xl border border-pink-400/20 bg-pink-500/10 p-2">
-
-                        <p className="text-lg">📍</p>
-
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-pink-200">
-
-                          Area
-
-                        </p>
-
-                        <p className="mt-1 truncate text-[11px] font-semibold text-white">
-
-                          {venueCity || venueRegion || 'UK'}
-
-                        </p>
-
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div className="rounded-2xl border border-purple-400/25 bg-purple-500/10 px-3 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-purple-200">Upcoming events</p>
+                        <p className="mt-1 text-lg font-black text-white">{eventDiscoveryError ? '—' : upcomingEventCount}</p>
                       </div>
-
-                      <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-2">
-
-                        <p className="text-lg">⏭️</p>
-
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-cyan-200">
-
-                          Next
-
-                        </p>
-
-                        <p className="mt-1 truncate text-[11px] font-semibold text-white">
-
-                          {eventDiscoveryError ? 'Unavailable' : nextEventDate ? formatShortDate(nextEventDate) : 'TBC'}
-
-                        </p>
-
+                      <div className="rounded-2xl border border-cyan-400/25 bg-cyan-500/10 px-3 py-3">
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-cyan-200">Next event</p>
+                        <p className="mt-1 text-sm font-bold text-white">{eventDiscoveryError ? 'Unavailable' : nextEventDate ? formatShortDate(nextEventDate) : 'No upcoming dates'}</p>
                       </div>
-
-                      <div className="rounded-2xl border border-purple-400/20 bg-purple-500/10 p-2">
-
-                        <p className="text-lg">📅</p>
-
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-purple-200">
-
-                          Events
-
-                        </p>
-
-                        <p className="mt-1 text-[11px] font-semibold text-white">
-
-                          {eventDiscoveryError ? '—' : upcomingEventCount}
-
-                        </p>
-
-                      </div>
-
                     </div>
 
                     <div className="relative z-50 mt-3 flex w-fit items-center">
