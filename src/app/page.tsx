@@ -1,7 +1,15 @@
 import Link from 'next/link'
+import { supabase } from '@/lib/supabase'
 import FallbackImage from '@/app/components/FallbackImage'
 
-export default function Home() {
+export const dynamic = 'force-dynamic'
+
+export default async function Home() {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const [{ count: venueCount }, { count: upcomingEventCount }] = await Promise.all([
+    supabase.from('venues').select('*', { count: 'exact', head: true }),
+    supabase.from('events').select('*', { count: 'exact', head: true }).eq('is_published', true).gte('event_date', today),
+  ])
   return (
     <main className="fixed inset-0 h-[100dvh] overflow-hidden bg-zinc-950 text-white">
       <div className="relative m-3 flex h-[calc(100dvh-24px)] items-center justify-center overflow-hidden rounded-[42px] border border-blue-500/20 bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 px-5 py-4 shadow-[0_0_50px_rgba(59,130,246,0.15)] ring-1 ring-purple-500/20 sm:px-8 sm:py-6">
@@ -31,7 +39,7 @@ export default function Home() {
             </h1>
 
             <p className="mx-auto mt-3 max-w-sm text-sm font-bold leading-6 text-blue-200 sm:text-lg sm:leading-7">
-              157 venues. 3,300+ events. Updated daily.
+              {venueCount !== null ? venueCount.toLocaleString('en-GB') : 'UK'} venues. {upcomingEventCount !== null ? upcomingEventCount.toLocaleString('en-GB') + ' upcoming events' : 'Discover upcoming events'}.
             </p>
           </div>
 
