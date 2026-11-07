@@ -774,7 +774,7 @@ export default async function VenuesPage({
     newbieVenueIds,
     bdsmVenueIds,
   } = eventDiscovery
-  const venueCoordinatesById = postcodeOrigin
+  const venueCoordinatesById = (postcodeOrigin || view === 'map')
     ? await resolveVenueCoordinates((venues || []) as any[])
     : new Map<string, { latitude: number; longitude: number }>()
   const distanceMilesByVenue = new Map<string, number>()
@@ -900,25 +900,54 @@ export default async function VenuesPage({
     return queryString ? `/venues?${queryString}` : '/venues'
   }
 
-  // Exact map pins are permitted only for verified, public, fixed venues.
-  // Do not geocode or reveal private/event-series locations.
-  const mapVenues = sortedVenues.filter((venue) =>
-    venue.location_kind === 'fixed_venue' &&
-    venue.address_visibility === 'public' &&
-    venue.address_verified === true &&
-    finiteCoordinate(venue.latitude) !== null &&
-    finiteCoordinate(venue.longitude) !== null &&
-    Math.abs(Number(venue.latitude)) <= 90 &&
-    Math.abs(Number(venue.longitude)) <= 180
-  ).slice(0, 350).map((venue) => ({
-    id: venue.venue_id,
-    name: cleanText(venue.name || 'Venue'),
-    area: cleanText(venue.canonical_city || venue.city_area || ''),
-    lat: Number(venue.latitude),
-    lng: Number(venue.longitude),
-    href: `/venue/${encodeURIComponent(venue.venue_id)}?from=${encodeURIComponent(makeFilterHref({ page: '' }))}`,
-  }))
-
+  // Only verified public fixed venues receive exact postcode-derived pins.
+  // Other active profiles can be shown at city-centre level, never at a
+  // guessed street address. Closed listings and unverified leads stay off-map.
+  const cityProfiles = view === 'map' ? sortedVenues.filter((venue) =>
+    ['event_series', 'multi_location', 'private_location'].includes(venue.location_kind || '') &&
+    Boolean(getCanonicalVenueCity(venue))
+  ) : []
+  const cityNames = [...new Set(cityProfiles.map((venue) => getCanonicalVenueCity(venue)))].slice(0, 70)
+  const cityCoordinates = new Map<string, { latitude: number; longitude: number }>()
+  if (cityNames.length) {
+    // Bound concurrency and cache approximate town-level geocoding.
+    for (let i = 0; i < cityNames.length; i += 8) {
+      await Promise.all(cityNames.slice(i, i + 8).map(async (cityName) => {
+        try {
+          const response = await fetch(
+            `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=5&language=en&format=json&countryCode=GB`,
+            { next: { revalidate: 86400 } }
+          )
+          if (!response.ok) return
+          const data = await response.json()
+          const match = (data.results || []).find((item: { name?: string; latitude?: number; longitude?: number }) =>
+            normaliseFilterValue(item.name) === normaliseFilterValue(cityName) &&
+            finiteCoordinate(item.latitude) !== null && finiteCoordinate(item.longitude) !== null
+          )
+          if (match) cityCoordinates.set(cityName, { latitude: Number(match.latitude), longitude: Number(match.longitude) })
+        } catch (error) { console.error('Town-level map lookup unavailable:', cityName, error) }
+      }))
+    }
+  }
+  const mapVenues = sortedVenues.flatMap((venue) => {
+    const isFixedPublic = venue.location_kind === 'fixed_venue' &&
+      venue.address_visibility === 'public' && venue.address_verified === true
+    const town = getCanonicalVenueCity(venue)
+    const coordinates = isFixedPublic
+      ? venueCoordinatesById.get(venue.venue_id)
+      : ['event_series', 'multi_location', 'private_location'].includes(venue.location_kind || '')
+        ? cityCoordinates.get(town) : undefined
+    if (!coordinates || Math.abs(coordinates.latitude) > 90 || Math.abs(coordinates.longitude) > 180) return []
+    return [{
+      id: venue.venue_id,
+      name: cleanText(venue.name || 'Venue'),
+      area: town,
+      lat: coordinates.latitude,
+      lng: coordinates.longitude,
+      approximate: !isFixedPublic,
+      href: `/venue/${encodeURIComponent(venue.venue_id)}?from=${encodeURIComponent(makeFilterHref({ page: '' }))}`,
+    }]
+  }).slice(0, 350)
 
   const currentHref = makeFilterHref({ page: String(page) })
   const categories = [
